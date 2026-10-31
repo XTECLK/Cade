@@ -41,11 +41,17 @@ export function scriptTitle(workspace) {
 // The Slack workspace's name: saved by slack:create, else read with the bot
 // token (SLACK_BOT_TOKEN, or asked for, hidden), else none.
 async function workspaceName() {
+  let page = "https://api.slack.com/apps (open Cade → OAuth & Permissions)";
   try {
-    const { team } = JSON.parse(await readFile(SLACK_APP_FILE, "utf8"));
+    const { team, appId } = JSON.parse(await readFile(SLACK_APP_FILE, "utf8"));
     if (team) return team;
+    if (appId) page = `https://api.slack.com/apps/${appId}/oauth`;
   } catch {}
-  const token = process.env.SLACK_BOT_TOKEN || (process.stdin.isTTY ? await askHidden("Slack bot token (xoxb-…, hidden), to name the script after your workspace, or Enter to skip: ") : "");
+  let token = process.env.SLACK_BOT_TOKEN;
+  if (!token && process.stdin.isTTY) {
+    console.log(`\nTo name the script after your Slack workspace, paste Cade's bot token: the Bot User OAuth Token (xoxb-…) at\n  ${page}`);
+    token = await askHidden("Slack bot token (hidden), or Enter to name it just Cade: ");
+  }
   if (!token) return undefined;
   const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
   return result.ok ? result.team : undefined;

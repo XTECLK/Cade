@@ -226,9 +226,9 @@ needs a Google account.
    **Run** and allow it.
 
 Each group's Doc and Sheet are made when you set the group up (step 8). The
-script is only allowed to use files it made itself (Google's `drive.file`
-access), so it can't read or change anything else in your Drive, and an
-existing Doc or Sheet can't be linked. Skip this step for now and add them
+script needs Google's `documents` and `spreadsheets` access (the Docs and
+Sheets services won't run on `drive.file` alone). It only touches the files
+the Worker names. Skip this step for now and add them
 later with `npm run group`.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it

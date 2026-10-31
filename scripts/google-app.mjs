@@ -165,7 +165,7 @@ export async function create(args) {
 
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-to the spreadsheets and docs it makes (drive.file). Open the script, choose the "authorize"
+to your Google Docs and Sheets (documents, spreadsheets, drive.file). Open the script, choose the "authorize"
 function, click Run, and allow it:
   https://script.google.com/d/${app.scriptId}/edit
 

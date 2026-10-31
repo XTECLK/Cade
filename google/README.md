@@ -9,9 +9,10 @@ account is enough.
 The Worker reaches both through one Apps Script web app, this folder:
 `Code.gs` takes each request and runs its `action`, `Sheet.gs` keeps the
 spreadsheets and `Doc.gs` the docs. It's a standalone script, in no
-spreadsheet or doc, serving every group, and runs as you. It has only
-Google's `drive.file` access, so it can use the files it made and nothing else
-in your Drive; it can't link a Doc or Sheet you made yourself. Any of them can
+spreadsheet or doc, serving every group, and runs as you. Google
+only lets `DocumentApp` and `SpreadsheetApp` run with the `documents` and
+`spreadsheets` scopes, so it can open your Docs and Sheets, not just the ones it
+made. It only touches the IDs the Worker gives it. Any of them can
 be deleted without affecting the others.
 
 ## Linking a group's files
@@ -97,7 +98,7 @@ what's new is.
    `.cade/google-app.json`.
 4. **Approve the script (person).** Open the script link it prints, choose
    `authorize` at the top, click **Run**, and allow access to the
-   files it makes in your Drive (`drive.file`). Until then, the web app can't use them.
+   your Google Docs and Sheets (`documents`, `spreadsheets`, `drive.file`). Until then, the web app can't use them.
 5. **Link each group's files** with `npm run group`, as above.
 
 If the scripts here change, `npm run google:update` pushes them and

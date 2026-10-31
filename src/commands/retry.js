@@ -15,6 +15,7 @@ export default {
   description: "Ask again what a message in a task's thread suggests, with its link",
   slashUsage: "/cade retry <link>",
   section: "work",
+  admin: true,
   slashChannel: [],
   async slash(command, context) {
     const link = linkedMessage(command.text);

@@ -34,6 +34,8 @@ const MOVED_REACTION = "outbox_tray";
 const MAX_QUOTED = 2000;
 
 const NOT_IN_THREAD = "Reply `@Cade move` in the thread of the message you want to move.";
+const NEEDS_LINK =
+  "Add the link to the task: `@Cade move <link>`, with the link from Copy link on its message. Or, on the message itself, use ⋯ → More actions → Move to existing.";
 const NO_OPEN = "There are no open tasks there. Start one with `/cade task`.";
 
 const OPEN_STATUSES = Object.keys(STATUSES).filter((status) => status !== "DONE");
@@ -52,9 +54,11 @@ function taskOption(task) {
   return { text: plainText(optionText(label)), value: task.ts };
 }
 
-// More about a task sometimes arrives as a message of its own. `@Cade move`,
-// replied in that message's thread in a dev channel, asks privately which
-// open task it belongs to. Slack can't move messages, so Move copies it into
+// More about a task sometimes arrives as a message of its own. `@Cade move
+// <link>`, replied in that message's thread in a dev channel, with a link to
+// a task's message or any reply in its thread, moves it there. Without a link
+// it says to use one, or the Move to existing shortcut, which asks which open
+// task it belongs to. Slack can't move messages, so Move copies it into
 // that thread, quoted and credited to whoever wrote it, replies under the
 // original with a link to the copy, asking people to carry on there, and
 // reacts to the original with :outbox_tray:. Only the message moves, not its
@@ -62,10 +66,8 @@ function taskOption(task) {
 // delete people's messages, so the original stays, unpinned if it was
 // pinned.
 //
-// `@Cade move <link>`, with a link to a task's message or any reply in its
-// thread, moves it there straight away, with a ✅ on the command, so it can
-// be pasted into old threads one after another. Without a link, it asks as
-// above.
+// The link makes it straight away, with a ✅ on the command, so it can be
+// pasted into old threads one after another.
 //
 // The message shortcuts work on any message, anywhere: a dev channel, any
 // other channel, a DM. New task and New incident open the task or
@@ -86,7 +88,7 @@ function taskOption(task) {
 export default {
   name: "move",
   description: "Move a message into a task's thread",
-  usage: "@Cade move [message link]",
+  usage: "@Cade move <link>",
   section: "message",
   channel: "channel",
   async run(command, { env }) {
@@ -96,10 +98,8 @@ export default {
     if (moved) return privately(env, command, { text: moved });
     if (problem) return problem;
     const link = linkedThread(command.text);
-    if (link) return moveToLinked(env, command, link);
-    const open = await openTasks(env, command.channel);
-    if (!open.length) return NO_OPEN;
-    await privately(env, command, picker(command.channel, command.threadTs, open));
+    if (!link) return NEEDS_LINK;
+    return moveToLinked(env, command, link);
   },
   shortcuts: {
     [CONVERT_SHORTCUT]: (payload, { env }) => openStartForm(payload, env, trackView),

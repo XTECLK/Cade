@@ -2,10 +2,11 @@ import { channelsWithRole, findProject } from "../channels.js";
 import { commands } from "./registry.js";
 
 // Runs a parsed command and returns the reply to post in the message's thread,
-// if any. `@Cade help`, a bare `@Cade` or an unknown command lists them all.
+// if any. There is no `@Cade help`: a bare `@Cade` or an unknown command
+// points to `/cade help`, which lists them all.
 export async function dispatch(command, context) {
   const handler = commands[command.name];
-  if (!handler) return usage();
+  if (!handler) return "Send `/cade help` to see what I can do.";
   const scope = { channel: handler.channel, inThread: handler.inThread };
   if (!handler.run) {
     return `That one's a slash command: try \`${[handler.slashUsage].flat()[0]}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
@@ -95,6 +96,6 @@ function usage() {
     `• In a task's thread: ${list(messages("task"))}`,
     "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
     `*Admin commands*, for tidying up: ${list(admin)}`,
-    "Send `@Cade help` or `/cade help` any time to see this again.",
+    "Send `/cade help` any time to see this again.",
   ].join("\n");
 }

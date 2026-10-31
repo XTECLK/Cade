@@ -5,12 +5,13 @@
 //   npm run group                      asks for each setting, and can make
 //                                      the group's Slack channels too
 //   npm run group -- --name acme --channel C…
-//                    [--doc new | <address>] [--sheet new | <address>]
+//                    [--doc new] [--sheet new]
 //
-// --doc and --sheet link the group's Google Doc (for executive summaries)
-// and Google Sheet (for its tasks): one you have, by its address, or `new`
-// for one made by the Google web app (npm run google:create), owned by you,
-// named "<name> executive summaries" and "<name> tasks". For a group already
+// --doc and --sheet turn on the group's Google Doc (for executive summaries)
+// and Google Sheet (for its tasks): `new` has the Google web app
+// (npm run google:create) make one, owned by you, named
+// "<name> executive summaries" and "<name> tasks". The web app only reaches
+// files it made, so existing files can't be linked. For a group already
 // there, only what's given changes; `none` removes a setting.
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
@@ -49,7 +50,7 @@ export function readArgs(args) {
 }
 
 const USAGE =
-  "Use: npm run group -- --name acme --channel C… [--doc new|<address>] [--sheet new|<address>]";
+  "Use: npm run group -- --name acme --channel C… [--doc new|none] [--sheet new|none]";
 
 // cade.config.json with the group `name` added or changed: `fields` are its
 // settings, a value of "none" removing one. A new group needs `channel`.
@@ -77,19 +78,12 @@ export function withGroup(configJson, name, fields) {
   return `${JSON.stringify({ ...rest, projects: next }, null, 2)}\n`;
 }
 
-// The ID of a doc or spreadsheet (`kind`) in its address, or `value` itself
-// if it is an ID already. Throws if it is neither.
-export function fileIdIn(value, kind) {
-  const { path, noun } = KINDS[kind];
-  const match = new RegExp(`/${path}/d/([\\w-]{20,})`).exec(value) ?? /^([\w-]{20,})$/.exec(value);
-  if (!match) throw new Error(`--${kind} should be new, none, or the ${noun}'s address: https://docs.google.com/${path}/d/…/edit.`);
-  return match[1];
-}
-
-// A file's address, from `value`: `new` makes one through the web app.
+// A file's address, from `value`: `new` makes one through the web app. The
+// web app can only reach files it made, so there is no linking an old one.
 async function fileAddress(kind, value, name, config) {
   if (value === "none") return value;
-  const id = value === "new" ? await createFile(kind, config.googleUrl, NEW_TITLES[kind](name)) : fileIdIn(value, kind);
+  if (value !== "new") throw new Error(`--${kind} should be new or none: Cade can only use a ${KINDS[kind].noun} it makes itself.`);
+  const id = await createFile(kind, config.googleUrl, NEW_TITLES[kind](name));
   return `https://docs.google.com/${KINDS[kind].path}/d/${id}/edit`;
 }
 
@@ -335,10 +329,9 @@ async function guided() {
     const files = {};
     if (config.googleUrl) {
       for (const [field, what] of [["doc", "Google Doc for executive summaries"], ["sheet", "Google Sheet for its tasks"]]) {
-        const keep = current[field] ? "Enter to keep it, - to unlink" : "Enter for none";
-        const answer = await ask(`\n${what}: new, or an existing one's address [${keep}]: `);
-        if (answer === "-") files[field] = "none";
-        else if (answer) files[field] = answer === "new" ? "new" : `https://docs.google.com/${KINDS[field].path}/d/${fileIdIn(answer, field)}/edit`;
+        if (current[field]) {
+          if (/^(-|u|unlink)$/i.test(await ask(`\n${what}: already on. Enter to keep it, - to unlink: `))) files[field] = "none";
+        } else if (/^y/i.test(await ask(`\nTurn on ${what}? Cade makes it (y/N): `))) files[field] = "new";
       }
     } else {
       console.log("\nThe Google web app isn't set up (npm run google:create), so I'll skip the group's Doc and Sheet.");

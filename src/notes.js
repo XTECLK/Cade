@@ -9,8 +9,8 @@ import { taskMessage } from "./tasks.js";
 // don't fit in Slack: an empty tab of its own under the doc's Notes tab, which
 // the team writes in by hand. Cade only makes it and links it: the task keeps
 // the page's address (`notes` on the task, see db.js), and its card shows the
-// link. A new task gets its page as it is created (see addNotes); Refresh on
-// the card's menu and `/cade resync` make one for a task that has none, as
+// link. A new task gets its page as it is created (see addNotes); `/cade resync`
+// makes one for a task that has none, as
 // tasks made before had none (see syncNotes). It goes through the Google web
 // app (see google.js, google/Doc.gs).
 export const NOTES_TAB = "Notes";

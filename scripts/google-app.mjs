@@ -3,7 +3,7 @@
 // Doc with (google/Code.gs, Sheet.gs and Doc.gs), or updates its script,
 // using clasp (Google's Apps Script command line). See GETTING_STARTED.md.
 //
-//   npm run google:create [-- --title "Cade"]
+//   npm run google:create [-- --title "Cade_Acme"]
 //   npm run google:update
 //
 // Both need `npx clasp login`, and the Apps Script API turned on for your
@@ -14,11 +14,12 @@
 // app, then gives the Worker its address (googleUrl in cade.config.json,
 // uploaded with npm run config) and the secret (GOOGLE_SECRET). The script's
 // IDs are saved to .cade/google-app.json, so updates redeploy to the same
-// address. Each group's spreadsheet and doc are linked with npm run group.
+// address. Each group's spreadsheet and doc are made with npm run group.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { askHidden } from "./prompt.mjs";
 import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -27,6 +28,28 @@ const SECRET_FILE = `${DIR}/Secret.gs`;
 const MANIFEST_FILE = `${DIR}/appsscript.json`;
 const APP_FILE = `${ROOT}.cade/google-app.json`;
 const CONFIG_FILE = `${ROOT}cade.config.json`;
+const SLACK_APP_FILE = `${ROOT}.cade/slack-app.json`;
+
+// The script's title: Cade_ and the Slack workspace's name, with anything
+// Apps Script wouldn't want in a name turned to -. Without a workspace,
+// plain "Cade".
+export function scriptTitle(workspace) {
+  const clean = String(workspace ?? "").replace(/[^\p{L}\p{N} _.-]+/gu, "-").trim();
+  return clean ? `Cade_${clean}` : "Cade";
+}
+
+// The Slack workspace's name: saved by slack:create, else read with the bot
+// token (SLACK_BOT_TOKEN, or asked for, hidden), else none.
+async function workspaceName() {
+  try {
+    const { team } = JSON.parse(await readFile(SLACK_APP_FILE, "utf8"));
+    if (team) return team;
+  } catch {}
+  const token = process.env.SLACK_BOT_TOKEN || (process.stdin.isTTY ? await askHidden("Slack bot token (xoxb-…, hidden), to name the script after your workspace, or Enter to skip: ") : "");
+  if (!token) return undefined;
+  const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+  return result.ok ? result.team : undefined;
+}
 
 // Secret.gs, defining the SECRET Code.gs checks requests against.
 export function secretFile(secret) {
@@ -103,7 +126,7 @@ export async function create(args) {
   if (await exists(APP_FILE)) {
     throw new Error("The Google web app is already set up (.cade/google-app.json). Use npm run google:update to change its script.");
   }
-  const title = option(args, "title") ?? "Cade";
+  const title = option(args, "title") ?? scriptTitle(await workspaceName());
   const manifest = await readFile(MANIFEST_FILE, "utf8");
 
   console.log(`Creating the script "${title}"…`);
@@ -136,11 +159,11 @@ export async function create(args) {
 
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-to your spreadsheets and docs. Open the script, choose the "authorize"
+to the spreadsheets and docs it makes (drive.file). Open the script, choose the "authorize"
 function, click Run, and allow it:
   https://script.google.com/d/${app.scriptId}/edit
 
-Then link each group's spreadsheet and doc, new or yours, with npm run group:
+Then have each group's spreadsheet and doc made with npm run group:
   npm run group -- --name <group> --sheet new --doc new
 `);
 }

@@ -4,7 +4,7 @@ import { NOT_A_TASK, loadTask, refreshSummary, setPinned, syncTask, taskMessage 
 
 // `@Cade archive` in a task's thread, or Archive on its card's ⋯ menu,
 // puts away a task that's no longer needed. Cade stops tracking it, so it
-// leaves `/cade tasks`, standups, syncups and briefs, and commands in its
+// leaves `/cade tasks`, standups and briefs, and commands in its
 // thread no longer find it; but nothing is deleted, and the summary lists
 // it under Archived. Its card stays, unpinned, saying who archived it, with
 // no menu; its thread stays and hears who archived it; and its Sheet row

@@ -36,8 +36,8 @@ Other scripts:
 
 | Script | Does |
 | --- | --- |
-| `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
-| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, makes or links its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--doc new\|<address>] [--sheet new\|<address>]` it takes them at once |
+| `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, optionally Google, then your first group |
+| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--doc new] [--sheet new]` it takes them at once |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
@@ -128,7 +128,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `syncup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`, `brief`, `debrief` |
+| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`, `brief`, `debrief` |
 | `src/db.js` | Reading and writing tasks in D1 |
 | `src/retry.js` | The cron's job: posting tasks Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |

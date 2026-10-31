@@ -104,7 +104,7 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. The ⋯ menu on a task's card has <b>Edit</b>, one form with everything: owners, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out); <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; <b>Refresh</b>, which redraws the card quietly, without notifying anyone; <b>Export thread</b>, in a project with a Google Doc, which writes the thread as plain text, names included, in a tab of its own under the Doc's <b>Export</b> tab (choosing it again writes the same tab over), to give to whatever summarizes it, and tells only you where; and <b>Archive</b>, as <code>@Cade archive</code>. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. The ⋯ menu on a task's card has <b>Edit</b>, one form with everything: owners, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out); <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; <b>Export thread</b>, in a project with a Google Doc, which writes the thread as plain text, names included, in a tab of its own under the Doc's <b>Export</b> tab (choosing it again writes the same tab over), to give to whatever summarizes it, and tells only you where; and <b>Archive</b>, as <code>@Cade archive</code>. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -190,11 +190,11 @@
       </article>
 
       <article class="entry">
-        <h3><code>@Cade move</code> <code>@Cade move &lt;message link&gt;</code></h3>
+        <h3><code>@Cade move &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
-        <p>Moves a message into the right thread. Cade privately shows the channel's open tasks and incidents to pick from.</p>
+        <p>Moves a message into the task's thread that the link points to. The link is required: without it Cade says so. To pick from the open tasks instead, use the message's ⋯ → <b>Move to existing</b>.</p>
         <ul>
-          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the same choices, and nothing is posted until it moves. Outside a dev channel, with more than one group, it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
+          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the channel's open tasks and incidents, and nothing is posted until it moves. Outside a dev channel, with more than one group, it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
           <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message in the dev channel to track it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>New task</b> button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
           <li><b>With a link:</b> paste the link to a task's or incident's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
@@ -206,7 +206,7 @@
       <article class="entry">
         <h3><code>@Cade archive</code></h3>
         <div class="tags"><span class="where">Task thread</span></div>
-        <p>Puts away a task that's no longer needed: Cade stops tracking it, so it leaves your lists, standups, syncups and briefs, and moves to the summary's Archived section, but nothing is deleted. Its card stays, unpinned, saying who archived it, its thread hears who did, and its Sheet row says Archived. The card's ⋯ → <b>Archive</b> does the same. To delete a task, see <a href="#admin"><code>/cade remove</code></a>.</p>
+        <p>Puts away a task that's no longer needed: Cade stops tracking it, so it leaves your lists, standups and briefs, and moves to the summary's Archived section, but nothing is deleted. Its card stays, unpinned, saying who archived it, its thread hears who did, and its Sheet row says Archived. The card's ⋯ → <b>Archive</b> does the same. To delete a task, see <a href="#admin"><code>/cade remove</code></a>.</p>
       </article>
 
     </div>
@@ -246,12 +246,6 @@
       </article>
 
       <article class="entry">
-        <h3><code>/cade syncup</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Only you see it</span></div>
-        <p>Goes through the open tasks one at a time, in the summary's order: incidents first, then by priority and due date. Each shows its status, priority, due date, people and PRs, and its title opens its thread beside the walk, to read it and move on. <b>First</b>, <b>Previous</b>, <b>Next</b> and <b>Last</b> move through the tasks, and <b>End</b> closes it. Each step is read afresh, so changes made in a thread show when you move on.</p>
-      </article>
-
-      <article class="entry">
         <h3>The Home tab</h3>
         <div class="tags"><span class="where">Cade's app page</span><span class="where">Only you see it</span></div>
         <p>Open Cade under Apps in Slack and its <b>Home</b> tab shows your open tasks, redrawn each time you open it or press <b>Refresh</b>. <b>My Tasks</b> groups yours by what you do on each: to work on, to review and to test, with the ones waiting on you first and an overdue count. <b>Unassigned</b> lists tasks with no one on them, each with <b>Assign to me</b>. <b>All Tasks</b> lists every open task, most urgent first. A project picker narrows it to one group, and Cade remembers your choice and tab. Closed and older tasks are in the group's Google Sheet, linked from the lists. Needs the app updated with <code>npm run slack:update</code>.</p>
@@ -276,9 +270,9 @@
       </article>
 
       <article class="entry">
-        <h3><code>@Cade help</code> <code>/cade help</code></h3>
+        <h3><code>/cade help</code></h3>
         <div class="tags"><span class="where">Anywhere</span></div>
-        <p>Lists everything Cade can do. A bare <code>@Cade</code> or an unknown command does the same.</p>
+        <p>Lists everything Cade can do, only to you. A bare <code>@Cade</code> or an unknown <code>@Cade</code> command just points to it.</p>
       </article>
 
     </div>
@@ -389,7 +383,7 @@
 
       <article class="entry">
         <h3><code>/cade retry &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
+        <div class="tags"><span class="where">Admin</span><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
         <p>Runs the suggestions again for a message in a task's thread, with the link from Copy link on it, as if it had just been posted: for one Cade missed, or whose private question was dismissed. Whoever wrote the message is asked again, privately, if there is anything to suggest. Nothing changes until they answer.</p>
       </article>
 
@@ -400,9 +394,9 @@
       </article>
 
       <article class="entry">
-        <h3><code>/cade resync &lt;link&gt;</code> <code>/cade resync summary</code></h3>
+        <h3><code>/cade resync &lt;link&gt;</code> <code>/cade resync summary</code> <code>/cade resync sheet</code></h3>
         <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Dev channel</span><span class="where">Only you see it</span></div>
-        <p>With a task's link (several work too), redraws its card from what Cade has stored, and sends it to the Sheet and summary again, as the card's ⋯ → <b>Refresh</b> does. In a project with a Google Doc, it also makes the task's notes page if it has none, as tasks made before pages existed have: an empty tab of its own under the Doc's <b>Notes</b> tab, for notes you write by hand. The card then links it as <i>Extra notes here</i>. New tasks get theirs as they are created. <code>/cade resync summary</code>, in a dev channel, rewrites its summary canvas in full, with its title, and makes it read-only again. Nothing is posted, so no one is notified.</p>
+        <p>With a task's link (several work too), redraws its card from what Cade has stored, and sends it to the Sheet and summary again, quietly. In a project with a Google Doc, it also makes the task's notes page if it has none, as tasks made before pages existed have: an empty tab of its own under the Doc's <b>Notes</b> tab, for notes you write by hand. The card then links it as <i>Extra notes here</i>. New tasks get theirs as they are created. <code>/cade resync summary</code>, in a dev channel, rewrites its summary canvas in full, with its title, and makes it read-only again. <code>/cade resync sheet</code>, in a dev channel, sends all of its tasks to the group's Sheet: the first fill when the Sheet is added later. After that every change reaches it by itself, and it is safe to run again. Nothing is posted, so no one is notified.</p>
       </article>
 
     </div>

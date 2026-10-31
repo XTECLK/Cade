@@ -5,27 +5,23 @@ optional Google Sheet. There is no server to run; Cade keeps its tasks in
 a Cloudflare D1 database that comes with the Worker, and shows them in Slack
 (and your Sheet, if you add one).
 
-Every step says what to run, what you should see, and what to do if it goes
-wrong, so a person or an AI agent can follow it. Steps marked **(person)**
-need someone to click in a browser; an agent should stop there and ask.
+## The quick way
 
-## Set up with an AI agent
-
-An AI coding agent can take you through this guide one step at a time,
-running the commands and stopping whenever you need to act. With [Claude
-Code](https://claude.com/claude-code) installed, from this folder run:
+From the cloned folder (step 1), run:
 
 ```sh
 npm run setup
 ```
 
-It starts Claude Code with the setup prompt from
-[`scripts/setup-prompt.md`](scripts/setup-prompt.md). With another agent,
-open it in this folder and paste that prompt.
+It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
+Slack app, optionally Google Sheets and Docs, then your first group. It
+pauses where a person has to click in a browser, skips what's done already,
+and can be run again to carry on. Tokens and secrets are asked for by the
+scripts it runs, hidden, and never stored in a file.
 
-The agent never handles your tokens: the commands that need one ask for it
-themselves, hidden, and the agent asks you to run those in your own
-terminal. It only sees whether each step worked.
+The steps below are the same thing by hand. Each says what to run, what you
+should see, and what to do if it goes wrong. Steps marked **(person)** need
+someone to click in a browser.
 
 ## What you need
 
@@ -88,10 +84,9 @@ npm run group -- --name acme --channel C… --doc new --sheet new
 ```
 
 `--doc` and `--sheet` take
-`new` (made for you, named "acme executive summaries" and "acme tasks"),
-the address of one you have, or `none` to unlink; leave them out to keep
-what the group has. It checks and uploads the file, as `npm run config`
-does.
+`new` (made for you, named "acme executive summaries" and "acme tasks") or
+`none` to unlink; leave them out to keep what the group has. It checks and
+uploads the file, as `npm run config` does.
 
 ### Secrets: in Cloudflare only
 
@@ -224,14 +219,17 @@ needs a Google account.
    npm run google:create
    ```
 
-   **Expect:** a standalone script, "Cade", deployed as a web app; the
+   **Expect:** a standalone script, "Cade_<your Slack workspace>", deployed as a web app; the
    Worker gets its address (`googleUrl`, in `cade.config.json` and
    uploaded) and its secret (`GOOGLE_SECRET`).
 3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
 
-Each group's Doc and Sheet are made or linked when you set the group up
-(step 8). Skip this step for now and add them later with `npm run group`.
+Each group's Doc and Sheet are made when you set the group up (step 8). The
+script is only allowed to use files it made itself (Google's `drive.file`
+access), so it can't read or change anything else in your Drive, and an
+existing Doc or Sheet can't be linked. Skip this step for now and add them
+later with `npm run group`.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
@@ -263,8 +261,8 @@ npm run group
    if it's public, or waits for `/invite @Cade` in it if it's private; or a
    new one by name, which Cade makes, public or private, and is then in.
 4. People to add to the channel, by email or Slack member ID.
-5. With the Google web app (step 7), the group's Doc and Sheet: `new`, the
-   address of one you have, or none.
+5. With the Google web app (step 7), whether to turn on the group's Google
+   Doc and Google Sheet. Cade makes them.
 6. What it will do, to confirm. It then does it, saves the group in
    `cade.config.json` (git ignores it) and uploads it as the Worker secrets
    `CHANNEL_PAIRS` and `TIMEZONE`.
@@ -357,7 +355,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
 
 ## Using Cade
 
-Once it's set up, send `@Cade help` or `/cade help` in Slack for the short
+Once it's set up, send `/cade help` in Slack for the short
 list, and see the [commands guide](https://xteclk.github.io/Cade/commands.html)
 for every command, where it works and what it does, and the
 [notifications guide](https://xteclk.github.io/Cade/notifications.html) for who

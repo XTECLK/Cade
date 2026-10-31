@@ -143,6 +143,17 @@ export async function tasksWithStatus(env, channel, statuses) {
   return results.map((row) => ({ ts: row.ts, task: taskFromRow(row) }));
 }
 
+// Every posted task in `channel` that wasn't deleted, as { ts, task,
+// archived }, oldest first: for sending them all to the Sheet at once.
+export async function postedTasks(env, channel) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM tasks WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL ORDER BY ts`,
+  )
+    .bind(channel)
+    .all();
+  return results.map((row) => ({ ts: row.ts, task: taskFromRow(row), archived: Boolean(row.archived_at) }));
+}
+
 // The tasks whose root message Slack hasn't taken yet, as { id, channel,
 // task, origin, attempts }, oldest first. Only those made a minute or more
 // ago, so a post still under way isn't made twice.

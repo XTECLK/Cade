@@ -9,23 +9,30 @@ account is enough.
 The Worker reaches both through one Apps Script web app, this folder:
 `Code.gs` takes each request and runs its `action`, `Sheet.gs` keeps the
 spreadsheets and `Doc.gs` the docs. It's a standalone script, in no
-spreadsheet or doc, serving every group, and runs as you, so you must be
-able to edit each group's files. Any of them can be deleted without
-affecting the others.
+spreadsheet or doc, serving every group, and runs as you. It has only
+Google's `drive.file` access, so it can use the files it made and nothing else
+in your Drive; it can't link a Doc or Sheet you made yourself. Any of them can
+be deleted without affecting the others.
 
 ## Linking a group's files
 
 ```sh
 npm run group -- --name acme --sheet new --doc new
-npm run group -- --name acme --sheet https://docs.google.com/spreadsheets/d/…/edit --doc https://docs.google.com/document/d/…/edit
 ```
 
 `new` has the web app make the file (yours, named "acme tasks" and "acme
-executive summaries"); an address links one you have; `none` unlinks.
+executive summaries"); `none` unlinks.
 They're saved on the group in `cade.config.json` as `sheet` and `doc`, and
 uploaded. A group without `sheet` isn't recorded in a Sheet; without `doc`,
 `/cade brief` and `/cade debrief` say how to link one. Share the doc with
 the client as **Editor**.
+
+## Adding a Sheet later
+
+If the group already has tasks when you add its Sheet, send `/cade resync
+sheet` in its dev channel once. It sends every task (archived ones too, marked
+Archived) and says how many. From then on each change reaches the Sheet by
+itself.
 
 ## The Sheet
 
@@ -82,15 +89,15 @@ what's new is.
 2. **Turn on the Apps Script API (person, once per Google account)** at
    <https://script.google.com/home/usersettings>.
 3. **Create the web app:** `npm run google:create`. It creates the
-   standalone script "Cade", generates a random secret into `Secret.gs`
+   standalone script "Cade_<your Slack workspace>", generates a random secret into `Secret.gs`
    (not committed), deploys it as a web app (running as you, reachable by
    anyone: the secret is what protects it), then gives the Worker its
    address (`googleUrl` in `cade.config.json`, uploaded with `npm run
    config`) and the secret (`GOOGLE_SECRET`). Its IDs are saved to
    `.cade/google-app.json`.
 4. **Approve the script (person).** Open the script link it prints, choose
-   `authorize` at the top, click **Run**, and allow access to your
-   spreadsheets and docs. Until then, the web app can't use them.
+   `authorize` at the top, click **Run**, and allow access to the
+   files it makes in your Drive (`drive.file`). Until then, the web app can't use them.
 5. **Link each group's files** with `npm run group`, as above.
 
 If the scripts here change, `npm run google:update` pushes them and

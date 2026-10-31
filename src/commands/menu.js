@@ -1,9 +1,8 @@
 import { callSlack } from "../slack.js";
-import { NOT_A_TASK, TASK_MENU_ACTION, loadTask, saveTask } from "../tasks.js";
+import { NOT_A_TASK, TASK_MENU_ACTION, loadTask } from "../tasks.js";
 import { editForm } from "./edit.js";
 import { archiveTask } from "./archive.js";
 import { releaseForm } from "./release.js";
-import { syncNotes } from "../notes.js";
 import { exportThread } from "../export.js";
 
 // The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to five
@@ -14,10 +13,6 @@ import { exportThread } from "../export.js";
 //            and the card updates.
 //   Release  while the task has PRs not sent yet: the form `@Cade release`
 //            opens, to send some of them for approval, a partial release.
-//   Refresh  redraws the card from the stored task, and its Sheet row and
-//            summary, as `/cade resync` does, and makes the task's notes
-//            page in the project's Doc if it has none (see notes.js):
-//            nothing is posted, so no one is notified.
 //   Export thread  writes the task's thread as text in its own page in the
 //            project's Doc, under the Export tab, and tells whoever chose it
 //            where (see export.js). Doing it again writes the page over.
@@ -42,15 +37,6 @@ export default {
       const origin = { channel: payload.channel.id, ts: payload.message.ts };
       const choice = payload.actions[0].selected_option.value;
       const task = await loadTask(env, origin.channel, origin.ts);
-      if (choice === "refresh" && task) {
-        context.waitUntil(
-          (async () => {
-            await syncNotes(env, origin.channel, origin.ts, task);
-            await saveTask(env, origin.channel, origin.ts, task);
-          })(),
-        );
-        return;
-      }
       if (choice === "export" && task) {
         context.waitUntil(
           (async () => {

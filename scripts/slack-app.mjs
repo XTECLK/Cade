@@ -139,6 +139,13 @@ export async function create(args) {
   }
   if (!botToken.startsWith("xoxb-")) throw new Error("That isn't a bot token; it should start with xoxb-.");
   await putSecret("SLACK_BOT_TOKEN", botToken);
+  // The workspace's name, for names such as the Google script's (see google-app.mjs).
+  try {
+    const { team } = await slack("auth.test", botToken, {});
+    await writeFile(APP_FILE, `${JSON.stringify({ ...app, team }, null, 2)}\n`);
+  } catch (error) {
+    console.log(`Couldn't read the workspace's name (${error.message}); not needed to carry on.`);
+  }
   console.log("Stored. Next: invite the app to your channels (see GETTING_STARTED.md).");
 }
 

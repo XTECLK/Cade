@@ -11,6 +11,8 @@ D1 database.
   with an AI agent, and [every command](https://xteclk.github.io/Cade/commands.html).
 - [GETTING_STARTED.md](GETTING_STARTED.md) is the step-by-step setup the
   agent follows, if you'd rather follow it yourself.
+- [Issues](https://github.com/XTECLK/Cade/issues) hold the changes planned
+  for Cade, each with its design and status.
 - This page is for working on the code.
 
 ## Development

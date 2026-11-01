@@ -133,7 +133,7 @@ export function taskMessage(task, { archivedBy } = {}) {
   // export (see export.js).
   const links = [
     task.notes && `Extra notes <${task.notes.url}|here>`,
-    task.export && `Thread export <${task.export.url}|here>`,
+    task.export && `Full history <${task.export.url}|here>`,
   ].filter(Boolean);
   const card = [
     ...(links.length ? [smallText([links.join("  ·  ")])] : []),

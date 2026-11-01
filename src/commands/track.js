@@ -3,7 +3,7 @@ import { callSlack, escapeSlack, plainText } from "../slack.js";
 import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
 import { addNotes } from "../notes.js";
-import { bufferTask } from "../export.js";
+import { addExport } from "../export.js";
 import {
   INCIDENT,
   chosenProject,
@@ -218,7 +218,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
   await setPinned(env, message.channel, message.ts, true);
   await syncTask(env, message.channel, message.ts, task);
   await addNotes(env, message.channel, message.ts, task);
-  await bufferTask(env, message.channel, message.ts, task);
+  await addExport(env, message.channel, message.ts, task);
   // A group's summary canvas is made with its first new task.
   await refreshSummary(env, message.channel, { create: true });
   if (origin.move) {

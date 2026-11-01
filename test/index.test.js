@@ -1172,8 +1172,8 @@ test("Resync makes the task's empty notes page once, and links it on the card", 
   const [made] = calls.filter((call) => call.method === "doc");
   assert.deepEqual(made.args, { secret: "google-secret", action: "doc.task", docId: DOC_ID, parent: "Notes", title: "Fix login" });
   // The card links to it, right under the title, above the status.
-  const card = calls.find((call) => call.method === "chat.update").args;
-  assert.equal(blockText(allBlocks(card)[1]), `Extra notes <${NOTES_URL}|here>`);
+  const card = calls.filter((call) => call.method === "chat.update").at(-1).args;
+  assert.equal(blockText(allBlocks(card)[1]), `Extra notes <${NOTES_URL}|here>  ·  Full history <${NOTES_URL}|here>`);
   assert.match(blockText(allBlocks(card)[2]), /^:memo: To do/);
   assert.equal(footerLines(card)[0], "Owner <@UREX>");
 
@@ -1181,7 +1181,7 @@ test("Resync makes the task's empty notes page once, and links it on the card", 
   calls.length = 0;
   await runTasksCommand(`resync ${messageLink("CDEV", RESYNC_TS)}`, "CDEV", notesEnv);
   assert.ok(!calls.some((call) => call.method === "doc"));
-  assert.equal(blockText(allBlocks(calls.find((call) => call.method === "chat.update").args)[1]), `Extra notes <${NOTES_URL}|here>`);
+  assert.equal(blockText(allBlocks(calls.filter((call) => call.method === "chat.update").at(-1).args)[1]), `Extra notes <${NOTES_URL}|here>  ·  Full history <${NOTES_URL}|here>`);
 });
 
 test("a new task in a project with a Doc gets its notes page, linked on its card", async (t) => {
@@ -1204,107 +1204,100 @@ test("a task in a project without a Doc has no notes page, and a Google failure 
 
   calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], doc: () => ({ ok: false, error: "Document is missing" }) });
   await runTasksCommand(`resync ${messageLink("CDEV", RESYNC_TS)}`, "CDEV", notesEnv);
-  assert.equal(calls.filter((call) => call.method === "doc").length, 1);
+  // The notes page and the thread's page are both tried, and neither stops the redraw.
+  assert.equal(calls.filter((call) => call.method === "doc").length, 2);
   assert.equal(footerLines(calls.find((call) => call.method === "chat.update").args)[0], "Owner <@UREX>");
 });
 
 const EXPORT_TS = "1700000000.000100";
 const exportLink = (ts) => `<https://acme.slack.com/archives/CDEV/p${ts.replace(".", "")}>`;
 
-test("/cade export writes the thread, names resolved, to the task's page under Export, and writes the same page over next time", async (t) => {
+// A project's Doc answers: the page a thread is first written to, and appends to it.
+const docReply = (body) => (body.action === "doc.export" ? { ok: true, url: NOTES_URL, tabId: "t.export1" } : { ok: true, url: NOTES_URL });
+const NAMES = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
+const reply = (user, ts, text) => threadEvent(text, { user, ts });
+const backedUp = (task) => ({ ...task, task: { ...task.task, export: { url: NOTES_URL, tab: "t.export1", synced: "100.1" } } });
+
+test("Resync writes the thread, names resolved, to the task's page under Export, and does it again only if the page isn't known to be up to date", async (t) => {
   const thread = [
     { user: "UREX", ts: EXPORT_TS, text: "Fix login" },
     { user: "UBOB", ts: "1700000000.000200", text: "On it <@UREX>, see <https://example.com/x|the doc> &amp; <#C1|dev>", files: [{ name: "a.png", permalink: "https://acme.slack.com/files/UBOB/F1/a.png" }] },
   ];
-  const users = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
   const calls = mockSlack(t, {
     stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }],
     "conversations.replies": () => ({ messages: thread }),
-    "users.info": ({ user }) => ({ user: users[user] }),
-    doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
+    "users.info": ({ user }) => ({ user: NAMES[user] }),
+    doc: docReply,
   });
-  const { later } = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
-  const [made] = calls.filter((call) => call.method === "doc");
-  assert.equal(made.args.action, "doc.export");
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
+  const made = calls.find((call) => call.method === "doc" && call.args.action === "doc.export");
   assert.equal(made.args.parent, "Export");
   assert.equal(made.args.title, "Fix login (thread)");
   assert.equal(made.args.tabId, undefined);
   assert.match(made.args.text, /^Thread: Fix login\n\nRex · .*\nFix login\n\nBob Lee · .*\nOn it @Rex, see the doc \(https:\/\/example.com\/x\) & #dev\n\(attachment: a.png https:\/\/acme.slack.com\/files\/UBOB\/F1\/a.png\)$/);
   // Each person is looked up once, however many messages they wrote.
   assert.equal(calls.filter((call) => call.method === "users.info").length, 2);
-  assert.ok(later.text.includes(NOTES_URL));
   const { loadTask } = await import("../src/tasks.js");
   assert.deepEqual((await loadTask(notesEnv, "CDEV", EXPORT_TS)).export, { url: NOTES_URL, tab: "t.export1", synced: "1700000000.000200" });
+  // The card links it after the notes.
+  const card = calls.filter((call) => call.method === "chat.update").at(-1).args;
+  assert.ok(allBlocks(card).some((block) => blockText(block).includes(`Full history <${NOTES_URL}|here>`)));
 
+  // Up to date: nothing is written again.
   calls.length = 0;
-  await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
-  assert.equal(calls.find((call) => call.method === "doc").args.tabId, "t.export1");
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
+  assert.ok(!calls.some((call) => call.method === "doc" && call.args.action === "doc.export"));
+
+  // A page from before pages were kept up to date has no `synced`: it is written over, in the same tab.
+  await DB.prepare("UPDATE tasks SET export_synced = NULL").run();
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
+  assert.equal(calls.find((call) => call.method === "doc" && call.args.action === "doc.export").args.tabId, "t.export1");
 });
 
-test("/cade export says so, and writes nothing, in a project without a Doc or when it fails", async (t) => {
+test("a new task gets its thread's page as it is created, and its card links it", async (t) => {
+  const calls = mockSlack(t, { ...createdTask, doc: docReply, "conversations.replies": () => ({ messages: [{ user: "UBOT", ts: "100.1", text: "Fix login" }] }), "users.info": () => ({ user: { profile: { display_name: "Cade" } } }) });
+  await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "Low" })), {}, notesEnv);
+  const made = calls.find((call) => call.method === "doc" && call.args.action === "doc.export");
+  assert.match(made.args.text, /^Thread: Fix login\n\nCade · .*\nFix login$/);
+  const { loadTask } = await import("../src/tasks.js");
+  assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).export, { url: NOTES_URL, tab: "t.export1", synced: "100.1" });
+  const card = calls.filter((call) => call.method === "chat.update").at(-1).args;
+  assert.ok(JSON.stringify(card).includes("Full history"));
+});
+
+test("Resync says nothing of the thread's page in a project without a Doc, and a Google failure leaves the task without one", async (t) => {
   let calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }], "conversations.replies": () => ({ messages: [] }) });
-  const noDoc = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
   assert.ok(!calls.some((call) => call.method === "doc"));
-  assert.match(noDoc.later.text, /no Google Doc/);
 
   calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }], "conversations.replies": () => ({ messages: [] }), doc: () => ({ ok: false, error: "Document is missing" }) });
-  const failed = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
-  assert.match(failed.later.text, /couldn't export/);
+  const { later } = await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
+  assert.match(later.text, /Resynced/);
+  const { loadTask } = await import("../src/tasks.js");
+  assert.equal((await loadTask(notesEnv, "CDEV", EXPORT_TS)).export, undefined);
 });
 
-test("/cade export writes a task's thread to the Doc from its link, and says when it can't", async (t) => {
-  // A task at a timestamp a Slack link can name.
-  const ts = "1700000000.000100";
-  const calls = mockSlack(t, {
-    stored: [{ ...ownTask({ owners: ["UREX"] }), ts }],
-    "conversations.replies": () => ({ messages: [{ user: "UREX", ts, text: "Fix login" }] }),
-    "users.info": () => ({ user: { profile: { display_name: "Rex" } } }),
-    doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
-  });
-  assert.match((await runTasksCommand("export", "CDEV")).now, /Paste the link to the task/);
-  const link = (stamp) => `<https://acme.slack.com/archives/CDEV/p${stamp.replace(".", "")}>`;
-  const { later } = await runTasksCommand(`export ${link(ts)}`, "CDEV", notesEnv);
-  assert.equal(calls.find((call) => call.method === "doc").args.action, "doc.export");
-  assert.ok(later.text.includes(NOTES_URL));
-  const missing = await runTasksCommand(`export ${link("1700000009.000900")}`, "CDEV", notesEnv);
-  assert.match(missing.later.text, /isn't to a task/);
-});
-
-// A project's Doc answers: the page a thread is first written to, and appends to it.
-const docReply = (body) => (body.action === "doc.export" ? { ok: true, url: NOTES_URL, tabId: "t.export1" } : { ok: true, url: NOTES_URL });
-const NAMES = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
-const reply = (user, ts, text) => threadEvent(text, { user, ts });
-
-test("replies wait, then the cron writes a new task's page, and appends later ones in the same form, looking each person up once", async (t) => {
-  const record = ownTask({ owners: ["UREX"] });
-  const calls = mockSlack(t, { stored: [record], doc: docReply, "users.info": ({ user }) => ({ user: NAMES[user] }) });
+test("replies wait, then the cron appends them to the task's page in the same form, looking each person up once", async (t) => {
+  const calls = mockSlack(t, { stored: [backedUp(ownTask({ owners: ["UREX"] }))], doc: docReply, "users.info": ({ user }) => ({ user: NAMES[user] }) });
   await seeded;
-  const { bufferTask } = await import("../src/export.js");
-  await bufferTask(notesEnv, "CDEV", "100.1", record.task);
   await send("/slack/events", reply("UREX", "100.6", "first <@UBOB>"), {}, notesEnv);
   await send("/slack/events", reply("UBOB", "100.7", "got it <@UREX> &amp; <@UBOB>"), {}, notesEnv);
   // Nothing goes to Google until the cron.
   assert.ok(!calls.some((call) => call.method === "doc"));
 
   await runCron(notesEnv);
-  const [made] = calls.filter((call) => call.method === "doc");
-  assert.equal(made.args.action, "doc.export");
-  assert.equal(made.args.parent, "Export");
-  const first = /^Thread: Fix login\n\nCade · .*\nFix login\n\nRex · .*\nfirst @Bob Lee\n\nBob Lee · .*\ngot it @Rex & @Bob Lee$/;
-  assert.match(made.args.text, first);
+  const [added] = calls.filter((call) => call.method === "doc");
+  assert.equal(added.args.action, "doc.append");
+  assert.equal(added.args.tabId, "t.export1");
+  assert.match(added.args.text, /^\n\nRex · .*\nfirst @Bob Lee\n\nBob Lee · .*\ngot it @Rex & @Bob Lee$/);
   assert.equal(calls.filter((call) => call.method === "users.info").length, 2);
-  // The card now links the page.
-  const card = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
-  assert.ok(JSON.stringify(card).includes("Thread export"));
 
   calls.length = 0;
   await send("/slack/events", reply("UREX", "100.8", "later one"), {}, notesEnv);
   await send("/slack/events", reply("UREX", "100.9", "and another"), {}, notesEnv);
   await runCron(notesEnv);
-  const [added] = calls.filter((call) => call.method === "doc");
-  assert.equal(added.args.action, "doc.append");
-  assert.equal(added.args.tabId, "t.export1");
-  assert.match(added.args.text, /^\n\nRex · .*\nlater one\n\nRex · .*\nand another$/);
+  const [more] = calls.filter((call) => call.method === "doc");
+  assert.match(more.args.text, /^\n\nRex · .*\nlater one\n\nRex · .*\nand another$/);
   assert.equal(calls.filter((call) => call.method === "users.info").length, 1);
   const { loadTask } = await import("../src/tasks.js");
   assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).export, { url: NOTES_URL, tab: "t.export1", synced: "100.9" });
@@ -1315,37 +1308,35 @@ test("replies wait, then the cron writes a new task's page, and appends later on
   assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
-test("a message is kept only from a tracked task's thread in a project with a Doc, and not twice", async (t) => {
+test("a message is kept only from a tracked task's thread in a project with a Doc, and not twice; a task with no page waits for a resync", async (t) => {
   const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], doc: docReply });
   await seeded;
   await send("/slack/events", reply("UREX", "100.6", "in the thread"), {}, notesEnv);
   await send("/slack/events", reply("UREX", "100.6", "in the thread"), {}, notesEnv);
-  await send("/slack/events", reply("UREX", "100.7", "elsewhere", ), {}, { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  await send("/slack/events", reply("UREX", "100.7", "elsewhere"), {}, { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
   await send("/slack/events", threadEvent("not a task", { thread_ts: "999.1", ts: "100.8" }), {}, notesEnv);
   await send("/slack/events", threadEvent("joined", { subtype: "channel_join", ts: "100.9" }), {}, notesEnv);
   const { results } = await DB.prepare("SELECT ts FROM pending_messages").all();
   assert.deepEqual(results.map((row) => row.ts), ["100.6"]);
-  // A task with a page from before pages were kept up to date, or none, waits to be exported.
   await runCron(notesEnv);
   assert.ok(!calls.some((call) => call.method === "doc"));
   assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 1);
 });
 
-test("/cade export starts a page, and the messages that came meanwhile are then appended only if newer", async (t) => {
-  const ts = "1700000000.000100";
+test("messages that came before a resync are dropped if the resync already wrote them, and appended if newer", async (t) => {
   const calls = mockSlack(t, {
-    stored: [{ ...ownTask({ owners: ["UREX"] }), ts }],
-    "conversations.replies": () => ({ messages: [{ user: "UREX", ts, text: "Fix login" }, { user: "UREX", ts: "1700000000.000200", text: "before" }] }),
+    stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: EXPORT_TS, text: "Fix login" }, { user: "UREX", ts: "1700000000.000200", text: "before" }] }),
     "users.info": ({ user }) => ({ user: NAMES[user] }),
     doc: docReply,
   });
   await seeded;
-  const event = (stamp, text) => threadEvent(text, { user: "UREX", ts: stamp, thread_ts: ts });
+  const event = (stamp, text) => threadEvent(text, { user: "UREX", ts: stamp, thread_ts: EXPORT_TS });
   await send("/slack/events", event("1700000000.000200", "before"), {}, notesEnv);
   await send("/slack/events", event("1700000000.000300", "after"), {}, notesEnv);
   await runCron(notesEnv);
   assert.ok(!calls.some((call) => call.method === "doc"));
-  await runTasksCommand(`export ${exportLink(ts)}`, "CDEV", notesEnv);
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
   calls.length = 0;
   await runCron(notesEnv);
   const [added] = calls.filter((call) => call.method === "doc");
@@ -1353,30 +1344,9 @@ test("/cade export starts a page, and the messages that came meanwhile are then 
   assert.match(added.args.text, /^\n\nRex · .*\nafter$/);
 });
 
-test("/cade export adds only what is newer once Slack no longer has the thread's start, keeping what the page has", async (t) => {
-  const ts = "1700000000.000100";
-  const record = { ...ownTask({ owners: ["UREX"] }), ts };
-  record.task.export = { url: NOTES_URL, tab: "t.export1", synced: "1700000000.000200" };
-  const calls = mockSlack(t, {
-    stored: [record],
-    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: "1700000000.000150", text: "old" }, { user: "UREX", ts: "1700000000.000200", text: "kept" }, { user: "UREX", ts: "1700000000.000300", text: "new" }] }),
-    "users.info": ({ user }) => ({ user: NAMES[user] }),
-    doc: docReply,
-  });
-  const { later } = await runTasksCommand(`export ${exportLink(ts)}`, "CDEV", notesEnv);
-  const written = calls.filter((call) => call.method === "doc");
-  assert.deepEqual(written.map((call) => call.args.action), ["doc.append"]);
-  assert.match(written[0].args.text, /^\n\nRex · .*\nnew$/);
-  assert.ok(later.text.includes(NOTES_URL));
-  const { loadTask } = await import("../src/tasks.js");
-  assert.equal((await loadTask(notesEnv, "CDEV", ts)).export.synced, "1700000000.000300");
-});
-
 test("a failed write keeps the messages for the next run", async (t) => {
-  const record = ownTask({ owners: ["UREX"] });
-  record.task.export = { url: NOTES_URL, tab: "t.export1", synced: "100.2" };
   let failing = true;
-  const calls = mockSlack(t, { stored: [record], doc: () => (failing ? { ok: false, error: "Tab is missing" } : { ok: true, url: NOTES_URL }), "users.info": ({ user }) => ({ user: NAMES[user] }) });
+  const calls = mockSlack(t, { stored: [backedUp(ownTask({ owners: ["UREX"] }))], doc: () => (failing ? { ok: false, error: "Tab is missing" } : { ok: true, url: NOTES_URL }), "users.info": ({ user }) => ({ user: NAMES[user] }) });
   await seeded;
   await send("/slack/events", reply("UREX", "100.6", "hello"), {}, notesEnv);
   await runCron(notesEnv);
@@ -2981,7 +2951,7 @@ test("the Google web app checks SECRET from Secret.gs, and each action has its f
   assert.ok(!all.includes("getScriptProperties"), "no script properties left to set by hand");
   // Each action calls a function one of the files defines.
   const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.task", "doc.export", "doc.read", "doc.create"]);
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.task", "doc.export", "doc.append", "doc.read", "doc.create"]);
   for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
     assert.match(all, new RegExp(`function ${name}\\(`), name);
   }
@@ -5612,6 +5582,15 @@ test("the dev channel's summary links the group's Google Sheet", async (t) => {
     dev,
     new RegExp(`^_Updated [^\\n]*\\. Cade keeps this up to date\\._ \\[All tasks in the Google Sheet\\]\\(https://docs\\.google\\.com/spreadsheets/d/${SHEETS.acme}/edit\\)\\.\\n`),
   );
+});
+
+test("/cade resync summary also sends the group's tasks to its Sheet", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  await putTask(env, "CDEV", "100.1", historyTask("100.1", { title: "Low task", priority: "Low" }).task);
+  const withSheet = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", PROJECTS: withSheets(env.CHANNEL_PAIRS) };
+  const { later } = await runTasksCommand("resync summary", "CDEV", withSheet);
+  assert.match(later.text, /summary.* Sent 1 task to the Sheet\./);
+  assert.ok(calls.some((call) => call.method === "sheet"));
 });
 
 // ---- Suggestions read with AI (see ai.js and ai-suggest.js) ----

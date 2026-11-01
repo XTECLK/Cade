@@ -522,11 +522,15 @@ export async function addPendingMessage(env, { channel, taskTs, ts, userId, user
     .run();
 }
 
-// Up to `limit` tasks, oldest waiting message first, that have messages waiting.
+// Up to `limit` tasks, oldest waiting message first, that have messages waiting
+// and a page known to be up to date to write them to (the others wait for a
+// resync, and must not crowd out these).
 export async function tasksWithPending(env, limit) {
   const { results } = await env.DB.prepare(
-    `SELECT channel, task_ts FROM pending_messages
-     GROUP BY channel, task_ts ORDER BY MIN(created_at), MIN(ts) LIMIT ?`,
+    `SELECT p.channel, p.task_ts FROM pending_messages p
+     JOIN tasks t ON t.channel = p.channel AND t.ts = p.task_ts
+     WHERE t.export_synced IS NOT NULL
+     GROUP BY p.channel, p.task_ts ORDER BY MIN(p.created_at), MIN(p.ts) LIMIT ?`,
   )
     .bind(limit)
     .all();

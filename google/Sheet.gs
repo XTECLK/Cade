@@ -33,7 +33,9 @@ function recordRow(body) {
 
 // A new spreadsheet called `title`, for `npm run group`, and its ID.
 function createSpreadsheet(title) {
-  return SpreadsheetApp.create(title).getId();
+  const id = SpreadsheetApp.create(title).getId();
+  shareToViewers(id);
+  return id;
 }
 
 // Overwrites the task's row, or adds one if the task is new.

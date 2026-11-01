@@ -3,9 +3,8 @@ import { NOT_A_TASK, TASK_MENU_ACTION, loadTask } from "../tasks.js";
 import { editForm } from "./edit.js";
 import { archiveTask } from "./archive.js";
 import { releaseForm } from "./release.js";
-import { exportThread } from "../export.js";
 
-// The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to five
+// The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to three
 // choices, without a command message in the task's thread:
 //   Edit     one form for the people, status, priority and due date (not on
 //            an incident, whose are fixed) and pull requests (see edit.js);
@@ -13,9 +12,6 @@ import { exportThread } from "../export.js";
 //            and the card updates.
 //   Release  while the task has PRs not sent yet: the form `@Cade release`
 //            opens, to send some of them for approval, a partial release.
-//   Export thread  writes the task's thread as text in its own page in the
-//            project's Doc, under the Export tab, and tells whoever chose it
-//            where (see export.js). Doing it again writes the page over.
 //   Archive  archives the task, as `@Cade archive` does (see archive.js),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
@@ -37,22 +33,6 @@ export default {
       const origin = { channel: payload.channel.id, ts: payload.message.ts };
       const choice = payload.actions[0].selected_option.value;
       const task = await loadTask(env, origin.channel, origin.ts);
-      if (choice === "export" && task) {
-        context.waitUntil(
-          (async () => {
-            let text;
-            try {
-              const url = await exportThread(env, origin.channel, origin.ts, task);
-              text = url ? `The thread is <${url}|in the Doc>.` : "This project has no Google Doc to export to.";
-            } catch (error) {
-              console.warn("Could not export the thread", { error: error.message });
-              text = "I couldn't export this thread.";
-            }
-            await callSlack(env, "chat.postEphemeral", { channel: origin.channel, thread_ts: origin.ts, user: payload.user.id, text });
-          })(),
-        );
-        return;
-      }
       if (choice === "archive" && task) {
         context.waitUntil(
           (async () => {

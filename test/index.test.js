@@ -1070,7 +1070,7 @@ const cardMenuClick = (choice) =>
     actions: [{ action_id: "task:menu", selected_option: { value: choice } }],
   });
 
-test("a task's card has a menu: Edit, Release while it has PRs not sent, Export thread and Archive", async (t) => {
+test("a task's card has a menu: Edit, Release while it has PRs not sent, and Archive", async (t) => {
   const menu = async (record) => {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent("<@UBOT> status in progress"));
@@ -1078,13 +1078,13 @@ test("a task's card has a menu: Edit, Release while it has PRs not sent, Export 
     assert.equal(accessory.action_id, "task:menu");
     return accessory.options.map((option) => option.text.text);
   };
-  assert.deepEqual(await menu(ownTask()), ["Edit", "Export thread", "Archive"]);
+  assert.deepEqual(await menu(ownTask()), ["Edit", "Archive"]);
   const withPrs = ownTask();
   withPrs.task.prs = [PR, MR];
-  assert.deepEqual(await menu(withPrs), ["Edit", "Release", "Export thread", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Edit", "Release", "Archive"]);
   // Once every PR is sent, there's nothing to release.
   withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }];
-  assert.deepEqual(await menu(withPrs), ["Edit", "Export thread", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Edit", "Archive"]);
 });
 
 test("@Cade archive and the card's Archive stop tracking the task, keeping its card and thread", async (t) => {
@@ -1208,7 +1208,9 @@ test("a task in a project without a Doc has no notes page, and a Google failure 
   assert.equal(footerLines(calls.find((call) => call.method === "chat.update").args)[0], "Owner <@UREX>");
 });
 
-test("Export thread writes the thread, names resolved, to the task's page under Export, and writes the same page over next time", async (t) => {
+const exportLink = (ts) => `<https://acme.slack.com/archives/CDEV/p${ts.replace(".", "")}>`;
+
+test("/cade export writes the thread, names resolved, to the task's page under Export, and writes the same page over next time", async (t) => {
   const thread = [
     { user: "UREX", ts: "100.1", text: "Fix login" },
     { user: "UBOB", ts: "100.2", text: "On it <@UREX>, see <https://example.com/x|the doc> &amp; <#C1|dev>", files: [{ name: "a.png", permalink: "https://acme.slack.com/files/UBOB/F1/a.png" }] },
@@ -1220,7 +1222,7 @@ test("Export thread writes the thread, names resolved, to the task's page under 
     "users.info": ({ user }) => ({ user: users[user] }),
     doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
   });
-  await send("/slack/interactions", cardMenuClick("export"), {}, notesEnv);
+  const { later } = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
   const [made] = calls.filter((call) => call.method === "doc");
   assert.equal(made.args.action, "doc.export");
   assert.equal(made.args.parent, "Export");
@@ -1229,26 +1231,24 @@ test("Export thread writes the thread, names resolved, to the task's page under 
   assert.match(made.args.text, /^Thread: Fix login\n\nRex · .*\nFix login\n\nBob Lee · .*\nOn it @Rex, see the doc \(https:\/\/example.com\/x\) & #dev\n\(attachment: a.png https:\/\/acme.slack.com\/files\/UBOB\/F1\/a.png\)$/);
   // Each person is looked up once, however many messages they wrote.
   assert.equal(calls.filter((call) => call.method === "users.info").length, 2);
-  const told = calls.find((call) => call.method === "chat.postEphemeral");
-  assert.equal(told.args.user, "UACTOR");
-  assert.ok(told.args.text.includes(NOTES_URL));
+  assert.ok(later.text.includes(NOTES_URL));
   const { loadTask } = await import("../src/tasks.js");
   assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).export, { url: NOTES_URL, tab: "t.export1" });
 
   calls.length = 0;
-  await send("/slack/interactions", cardMenuClick("export"), {}, notesEnv);
+  await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
   assert.equal(calls.find((call) => call.method === "doc").args.tabId, "t.export1");
 });
 
-test("Export thread says so, and writes nothing, in a project without a Doc or when it fails", async (t) => {
+test("/cade export says so, and writes nothing, in a project without a Doc or when it fails", async (t) => {
   let calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }) });
-  await send("/slack/interactions", cardMenuClick("export"), {}, { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  const noDoc = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
   assert.ok(!calls.some((call) => call.method === "doc"));
-  assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /no Google Doc/);
+  assert.match(noDoc.later.text, /no Google Doc/);
 
   calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }), doc: () => ({ ok: false, error: "Document is missing" }) });
-  await send("/slack/interactions", cardMenuClick("export"), {}, notesEnv);
-  assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /couldn't export/);
+  const failed = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
+  assert.match(failed.later.text, /couldn't export/);
 });
 
 test("/cade export writes a task's thread to the Doc from its link, and says when it can't", async (t) => {

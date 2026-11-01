@@ -6,7 +6,7 @@ import { formatTime } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { loadTask, saveTask } from "./tasks.js";
 
-// "Export thread" on a task card's ⋯ menu (see menu.js): the task's thread as
+// `/cade export <link>` (see commands/export-thread.js): the task's thread as
 // plain text, in a page of its own in its project's Google Doc, to give to
 // whatever summarizes it. Like a task's notes page (see notes.js) it is a tab
 // under a tab of the Doc, here Export, but Cade
@@ -120,10 +120,10 @@ export async function exportThread(env, channel, ts, task) {
 }
 
 // When a task reaches Done (see afterStatusChange in status.js): exports its
-// thread as the menu's Export thread does, unless the project has turned off
+// thread as `/cade export` does, unless the project has turned off
 // `exportOnDone`, and redraws its card, which then links the page. Nothing is
 // said to anyone, and a failure is logged, not thrown, as the task is done
-// either way and Export thread is still there.
+// either way and `/cade export` is still there.
 export async function exportOnDone(env, channel, ts) {
   if (groupDisabled(env, channel, "exportOnDone", "EXPORT_ON_DONE")) return;
   try {

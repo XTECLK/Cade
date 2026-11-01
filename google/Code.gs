@@ -21,6 +21,8 @@
 //                                                    tab `tabId` if it's still
 //                                                    there, else a new one
 //                                                    (Doc.gs)
+//   doc.append    { docId, tabId, text }           → { url }, `text` after what is
+//                                                    in that tab (Doc.gs)
 //   doc.read      { docId, tab, key }              → { elements }, a section
 //                                                    as it now reads
 //   doc.create    { title }                        → { id }, a new doc
@@ -32,6 +34,7 @@ const ACTIONS = {
   "doc.write": (body) => ({ url: write(body.docId, body.tab, body.key, body.blocks) }),
   "doc.task": (body) => addTaskTab(body.docId, body.parent, body.title),
   "doc.export": (body) => exportTab(body.docId, body.parent, body.title, body.tabId, body.text),
+  "doc.append": (body) => ({ url: appendToTab(body.docId, body.tabId, body.text) }),
   "doc.read": (body) => ({ elements: read(body.docId, body.tab, body.key) }),
   "doc.create": (body) => ({ id: createDoc(body.title) }),
 };

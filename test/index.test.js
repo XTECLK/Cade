@@ -1208,21 +1208,22 @@ test("a task in a project without a Doc has no notes page, and a Google failure 
   assert.equal(footerLines(calls.find((call) => call.method === "chat.update").args)[0], "Owner <@UREX>");
 });
 
+const EXPORT_TS = "1700000000.000100";
 const exportLink = (ts) => `<https://acme.slack.com/archives/CDEV/p${ts.replace(".", "")}>`;
 
 test("/cade export writes the thread, names resolved, to the task's page under Export, and writes the same page over next time", async (t) => {
   const thread = [
-    { user: "UREX", ts: "100.1", text: "Fix login" },
-    { user: "UBOB", ts: "100.2", text: "On it <@UREX>, see <https://example.com/x|the doc> &amp; <#C1|dev>", files: [{ name: "a.png", permalink: "https://acme.slack.com/files/UBOB/F1/a.png" }] },
+    { user: "UREX", ts: EXPORT_TS, text: "Fix login" },
+    { user: "UBOB", ts: "1700000000.000200", text: "On it <@UREX>, see <https://example.com/x|the doc> &amp; <#C1|dev>", files: [{ name: "a.png", permalink: "https://acme.slack.com/files/UBOB/F1/a.png" }] },
   ];
   const users = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
   const calls = mockSlack(t, {
-    stored: [ownTask({ owners: ["UREX"] })],
+    stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }],
     "conversations.replies": () => ({ messages: thread }),
     "users.info": ({ user }) => ({ user: users[user] }),
     doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
   });
-  const { later } = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
+  const { later } = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
   const [made] = calls.filter((call) => call.method === "doc");
   assert.equal(made.args.action, "doc.export");
   assert.equal(made.args.parent, "Export");
@@ -1233,21 +1234,21 @@ test("/cade export writes the thread, names resolved, to the task's page under E
   assert.equal(calls.filter((call) => call.method === "users.info").length, 2);
   assert.ok(later.text.includes(NOTES_URL));
   const { loadTask } = await import("../src/tasks.js");
-  assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).export, { url: NOTES_URL, tab: "t.export1" });
+  assert.deepEqual((await loadTask(notesEnv, "CDEV", EXPORT_TS)).export, { url: NOTES_URL, tab: "t.export1", synced: "1700000000.000200" });
 
   calls.length = 0;
-  await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
+  await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
   assert.equal(calls.find((call) => call.method === "doc").args.tabId, "t.export1");
 });
 
 test("/cade export says so, and writes nothing, in a project without a Doc or when it fails", async (t) => {
-  let calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }) });
-  const noDoc = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  let calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }], "conversations.replies": () => ({ messages: [] }) });
+  const noDoc = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
   assert.ok(!calls.some((call) => call.method === "doc"));
   assert.match(noDoc.later.text, /no Google Doc/);
 
-  calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }), doc: () => ({ ok: false, error: "Document is missing" }) });
-  const failed = await runTasksCommand(`export ${exportLink("100.1")}`, "CDEV", notesEnv);
+  calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }], "conversations.replies": () => ({ messages: [] }), doc: () => ({ ok: false, error: "Document is missing" }) });
+  const failed = await runTasksCommand(`export ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
   assert.match(failed.later.text, /couldn't export/);
 });
 
@@ -1269,42 +1270,121 @@ test("/cade export writes a task's thread to the Doc from its link, and says whe
   assert.match(missing.later.text, /isn't to a task/);
 });
 
-test("a task reaching Done exports its thread quietly, and its card then links the export after its notes", async (t) => {
-  const record = ownTask({ owners: ["UREX"] });
-  record.task.notes = { url: "https://docs.google.com/notes", tab: "t.notes1" };
-  const calls = mockSlack(t, {
-    stored: [record],
-    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: "100.1", text: "Fix login" }] }),
-    "users.info": () => ({ user: { profile: { display_name: "Rex" } } }),
-    doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
-  });
-  await send("/slack/events", threadEvent("<@UBOT> status done"), {}, notesEnv);
-  assert.equal(calls.filter((call) => call.method === "doc").length, 1);
-  assert.equal(calls.find((call) => call.method === "doc").args.action, "doc.export");
-  // Nobody is told.
-  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
-  const card = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
-  assert.equal(blockText(allBlocks(card)[1]), `Extra notes <https://docs.google.com/notes|here>  ·  Thread export <${NOTES_URL}|here>`);
+// A project's Doc answers: the page a thread is first written to, and appends to it.
+const docReply = (body) => (body.action === "doc.export" ? { ok: true, url: NOTES_URL, tabId: "t.export1" } : { ok: true, url: NOTES_URL });
+const NAMES = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
+const reply = (user, ts, text) => threadEvent(text, { user, ts });
 
-  // Not done again, so not exported again; and an open task's card has no export link.
+test("replies wait, then the cron writes a new task's page, and appends later ones in the same form, looking each person up once", async (t) => {
+  const record = ownTask({ owners: ["UREX"] });
+  const calls = mockSlack(t, { stored: [record], doc: docReply, "users.info": ({ user }) => ({ user: NAMES[user] }) });
+  await seeded;
+  const { bufferTask } = await import("../src/export.js");
+  await bufferTask(notesEnv, "CDEV", "100.1", record.task);
+  await send("/slack/events", reply("UREX", "100.6", "first <@UBOB>"), {}, notesEnv);
+  await send("/slack/events", reply("UBOB", "100.7", "got it <@UREX> &amp; <@UBOB>"), {}, notesEnv);
+  // Nothing goes to Google until the cron.
+  assert.ok(!calls.some((call) => call.method === "doc"));
+
+  await runCron(notesEnv);
+  const [made] = calls.filter((call) => call.method === "doc");
+  assert.equal(made.args.action, "doc.export");
+  assert.equal(made.args.parent, "Export");
+  const first = /^Thread: Fix login\n\nCade · .*\nFix login\n\nRex · .*\nfirst @Bob Lee\n\nBob Lee · .*\ngot it @Rex & @Bob Lee$/;
+  assert.match(made.args.text, first);
+  assert.equal(calls.filter((call) => call.method === "users.info").length, 2);
+  // The card now links the page.
+  const card = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
+  assert.ok(JSON.stringify(card).includes("Thread export"));
+
+  calls.length = 0;
+  await send("/slack/events", reply("UREX", "100.8", "later one"), {}, notesEnv);
+  await send("/slack/events", reply("UREX", "100.9", "and another"), {}, notesEnv);
+  await runCron(notesEnv);
+  const [added] = calls.filter((call) => call.method === "doc");
+  assert.equal(added.args.action, "doc.append");
+  assert.equal(added.args.tabId, "t.export1");
+  assert.match(added.args.text, /^\n\nRex · .*\nlater one\n\nRex · .*\nand another$/);
+  assert.equal(calls.filter((call) => call.method === "users.info").length, 1);
   const { loadTask } = await import("../src/tasks.js");
-  const stored = await loadTask(notesEnv, "CDEV", "100.1");
-  assert.deepEqual(stored.export, { url: NOTES_URL, tab: "t.export1" });
-  const { taskMessage } = await import("../src/tasks.js");
-  const open = taskMessage({ ...stored, status: "IN_PROGRESS" });
-  assert.ok(!JSON.stringify(open).includes("Thread export"));
+  assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).export, { url: NOTES_URL, tab: "t.export1", synced: "100.9" });
+
+  // Nothing is left waiting, so the next run writes nothing.
+  calls.length = 0;
+  await runCron(notesEnv);
+  assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
-test("a task reaching Done isn't exported with exportOnDone off, in a project without a Doc, or when Google fails", async (t) => {
-  const off = { ...notesEnv, CHANNEL_PAIRS: notesEnv.CHANNEL_PAIRS.map((project) => ({ ...project, exportOnDone: false })) };
-  for (const [environment, doc] of [[off, undefined], [{ ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS }, undefined], [notesEnv, () => ({ ok: false, error: "Document is missing" })]]) {
-    const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }), doc });
-    await send("/slack/events", threadEvent("<@UBOT> status done"), {}, environment);
-    assert.equal(calls.filter((call) => call.method === "doc").length, environment === notesEnv ? 1 : 0);
-    // The task is done either way.
-    assert.ok(calls.some((call) => call.method === "pins.remove"));
-    assert.ok(!JSON.stringify(calls.filter((call) => call.method === "chat.update").at(-1).args).includes("Thread export"));
-  }
+test("a message is kept only from a tracked task's thread in a project with a Doc, and not twice", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], doc: docReply });
+  await seeded;
+  await send("/slack/events", reply("UREX", "100.6", "in the thread"), {}, notesEnv);
+  await send("/slack/events", reply("UREX", "100.6", "in the thread"), {}, notesEnv);
+  await send("/slack/events", reply("UREX", "100.7", "elsewhere", ), {}, { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  await send("/slack/events", threadEvent("not a task", { thread_ts: "999.1", ts: "100.8" }), {}, notesEnv);
+  await send("/slack/events", threadEvent("joined", { subtype: "channel_join", ts: "100.9" }), {}, notesEnv);
+  const { results } = await DB.prepare("SELECT ts FROM pending_messages").all();
+  assert.deepEqual(results.map((row) => row.ts), ["100.6"]);
+  // A task with a page from before pages were kept up to date, or none, waits to be exported.
+  await runCron(notesEnv);
+  assert.ok(!calls.some((call) => call.method === "doc"));
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 1);
+});
+
+test("/cade export starts a page, and the messages that came meanwhile are then appended only if newer", async (t) => {
+  const ts = "1700000000.000100";
+  const calls = mockSlack(t, {
+    stored: [{ ...ownTask({ owners: ["UREX"] }), ts }],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts, text: "Fix login" }, { user: "UREX", ts: "1700000000.000200", text: "before" }] }),
+    "users.info": ({ user }) => ({ user: NAMES[user] }),
+    doc: docReply,
+  });
+  await seeded;
+  const event = (stamp, text) => threadEvent(text, { user: "UREX", ts: stamp, thread_ts: ts });
+  await send("/slack/events", event("1700000000.000200", "before"), {}, notesEnv);
+  await send("/slack/events", event("1700000000.000300", "after"), {}, notesEnv);
+  await runCron(notesEnv);
+  assert.ok(!calls.some((call) => call.method === "doc"));
+  await runTasksCommand(`export ${exportLink(ts)}`, "CDEV", notesEnv);
+  calls.length = 0;
+  await runCron(notesEnv);
+  const [added] = calls.filter((call) => call.method === "doc");
+  assert.equal(added.args.action, "doc.append");
+  assert.match(added.args.text, /^\n\nRex · .*\nafter$/);
+});
+
+test("/cade export adds only what is newer once Slack no longer has the thread's start, keeping what the page has", async (t) => {
+  const ts = "1700000000.000100";
+  const record = { ...ownTask({ owners: ["UREX"] }), ts };
+  record.task.export = { url: NOTES_URL, tab: "t.export1", synced: "1700000000.000200" };
+  const calls = mockSlack(t, {
+    stored: [record],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: "1700000000.000150", text: "old" }, { user: "UREX", ts: "1700000000.000200", text: "kept" }, { user: "UREX", ts: "1700000000.000300", text: "new" }] }),
+    "users.info": ({ user }) => ({ user: NAMES[user] }),
+    doc: docReply,
+  });
+  const { later } = await runTasksCommand(`export ${exportLink(ts)}`, "CDEV", notesEnv);
+  const written = calls.filter((call) => call.method === "doc");
+  assert.deepEqual(written.map((call) => call.args.action), ["doc.append"]);
+  assert.match(written[0].args.text, /^\n\nRex · .*\nnew$/);
+  assert.ok(later.text.includes(NOTES_URL));
+  const { loadTask } = await import("../src/tasks.js");
+  assert.equal((await loadTask(notesEnv, "CDEV", ts)).export.synced, "1700000000.000300");
+});
+
+test("a failed write keeps the messages for the next run", async (t) => {
+  const record = ownTask({ owners: ["UREX"] });
+  record.task.export = { url: NOTES_URL, tab: "t.export1", synced: "100.2" };
+  let failing = true;
+  const calls = mockSlack(t, { stored: [record], doc: () => (failing ? { ok: false, error: "Tab is missing" } : { ok: true, url: NOTES_URL }), "users.info": ({ user }) => ({ user: NAMES[user] }) });
+  await seeded;
+  await send("/slack/events", reply("UREX", "100.6", "hello"), {}, notesEnv);
+  await runCron(notesEnv);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 1);
+  failing = false;
+  await runCron(notesEnv);
+  assert.equal(calls.filter((call) => call.method === "doc").length, 2);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 0);
 });
 
 test("choosing from a task card's menu opens its form, and an old card's choices open Edit", async (t) => {
@@ -2990,7 +3070,7 @@ test("the sheet uses the task's stored link instead of looking it up", async (t)
 async function runCron(environment = env) {
   await seeded;
   const pending = [];
-  await worker.scheduled({ cron: "*/5 * * * *" }, environment, { waitUntil: (promise) => pending.push(promise) });
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 0, 1, 0, 0) }, environment, { waitUntil: (promise) => pending.push(promise) });
   await Promise.all(pending);
 }
 

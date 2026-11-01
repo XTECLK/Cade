@@ -390,7 +390,8 @@
       <article class="entry">
         <h3><code>/cade export &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
-        <p>Writes a task's thread as plain text in the project's Google Doc, in a tab of its own, called the task's title and “(thread)”, under the Doc's <b>Export</b> tab. Each message has its author's name and time, links keep their addresses and files their links. Several links work too, and sending it again writes the same tab over. Nothing is posted, so no one is notified; the reply says where it went. Needs the project to have a Google Doc. It also happens by itself when a task is done (turn that off with <code>exportOnDone</code> in <code>cade.config.json</code>), quietly; the done task's card then links it as <i>Thread export here</i>, after <i>Extra notes here</i>.</p>
+        <p>Writes a task's thread as plain text in the project's Google Doc, in a tab of its own, called the task's title and “(thread)”, under the Doc's <b>Export</b> tab. Each message has its author's name and time, links keep their addresses and files their links. Several links work too, and sending it again writes the same tab over. Nothing is posted, so no one is notified; the reply says where it went. Needs the project to have a Google Doc.</p>
+        <p>The tab is also kept up to date by itself: every new task gets one, and each reply in a task's thread is added to it within a minute or so, in the same form. Slack's free plan hides messages after 90 days, so the tab is the lasting copy: when Slack no longer has a thread's start, <code>/cade export</code> only adds what is newer and leaves what the tab already has. A task tracked before this needs one <code>/cade export</code> to start its tab. The card links it as <i>Thread export here</i>, after <i>Extra notes here</i>.</p>
       </article>
 
       <article class="entry">

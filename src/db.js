@@ -482,6 +482,7 @@ function taskToRow(task) {
     notes_tab: task.notes?.tab ?? null,
     export_url: task.export?.url ?? null,
     export_tab: task.export?.tab ?? null,
+    export_synced: task.export?.synced ?? null,
   };
 }
 
@@ -505,6 +506,57 @@ function taskFromRow(row) {
     // The task's page in its project's Google Doc, once made (see notes.js).
     notes: row.notes_url ? { url: row.notes_url, tab: row.notes_tab } : undefined,
     // Its thread's page in the Doc's Export tab, once exported (see export.js).
-    export: row.export_url ? { url: row.export_url, tab: row.export_tab } : undefined,
+    export: row.export_url ? { url: row.export_url, tab: row.export_tab, synced: row.export_synced ?? undefined } : undefined,
   };
+}
+
+// Messages waiting to be written to a task's page in the Doc (see
+// pending_messages in migrations). Slack redelivers events, so a message
+// already waiting is left as it is.
+export async function addPendingMessage(env, { channel, taskTs, ts, userId, username, text, files }) {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO pending_messages (channel, task_ts, ts, user_id, username, text, files)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(channel, taskTs, ts, userId ?? null, username ?? null, text ?? "", files?.length ? JSON.stringify(files) : null)
+    .run();
+}
+
+// Up to `limit` tasks, oldest waiting message first, that have messages waiting.
+export async function tasksWithPending(env, limit) {
+  const { results } = await env.DB.prepare(
+    `SELECT channel, task_ts FROM pending_messages
+     GROUP BY channel, task_ts ORDER BY MIN(created_at), MIN(ts) LIMIT ?`,
+  )
+    .bind(limit)
+    .all();
+  return results;
+}
+
+export async function pendingMessages(env, channel, taskTs) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM pending_messages WHERE channel = ? AND task_ts = ? ORDER BY ts",
+  )
+    .bind(channel, taskTs)
+    .all();
+  return results.map((row) => ({
+    user: row.user_id ?? undefined,
+    username: row.username ?? undefined,
+    ts: row.ts,
+    text: row.text,
+    files: row.files ? JSON.parse(row.files) : undefined,
+  }));
+}
+
+// Removes the waiting messages up to and including `ts`, once they're written.
+export async function deletePendingMessages(env, channel, taskTs, ts) {
+  await env.DB.prepare("DELETE FROM pending_messages WHERE channel = ? AND task_ts = ? AND ts <= ?")
+    .bind(channel, taskTs, ts)
+    .run();
+}
+
+export async function setExportSynced(env, channel, ts, synced) {
+  await env.DB.prepare("UPDATE tasks SET export_synced = ? WHERE channel = ? AND ts = ?")
+    .bind(synced, channel, ts)
+    .run();
 }

@@ -270,6 +270,19 @@ function exportTab(docId, parent, title, tabId, text) {
   return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${id}`, tabId: id };
 }
 
+// Adds `text` after what is in the tab `tabId`, as a task's thread grows.
+// Fails if the tab is gone. Returns the tab's address.
+function appendToTab(docId, tabId, text) {
+  const tabs = Docs.Documents.get(docId, { includeTabsContent: true }).tabs || [];
+  const found = findApiTab(tabs, (tab) => tab.tabProperties.tabId === tabId);
+  if (!found) throw new Error("Tab is missing");
+  const content = found.documentTab.body.content;
+  // Before the body's last newline, which can't be written after.
+  const end = content[content.length - 1].endIndex - 1;
+  Docs.Documents.batchUpdate({ requests: [{ insertText: { location: { index: end, tabId }, text } }] }, docId);
+  return `https://docs.google.com/document/d/${docId}/edit?tab=${tabId}`;
+}
+
 // The first tab, at any depth, in the Docs API's list of tabs for which
 // `matches` is true, or null.
 function findApiTab(tabs, matches) {

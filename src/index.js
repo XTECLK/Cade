@@ -1,6 +1,7 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, intents, reactions, shortcuts, views } from "./commands/registry.js";
+import { bufferMessage, flushPending } from "./export.js";
 import { publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
 import { retryUnposted } from "./retry.js";
@@ -43,9 +44,12 @@ export default {
     return route(body, request, context);
   },
 
-  // The cron in wrangler.toml: posts tasks Slack refused.
+  // The cron in wrangler.toml, every minute: writes the messages waiting for
+  // the Doc (see flushPending), and every fifth minute posts tasks Slack
+  // refused.
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(retryUnposted(env));
+    ctx.waitUntil(flushPending(env).catch((error) => console.error("Flush failed", { error: error.message })));
+    if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) ctx.waitUntil(retryUnposted(env));
   },
 };
 
@@ -77,6 +81,9 @@ async function handleEvent(body, request, context) {
     return respond();
   }
   if (envelope.event.type !== "message") return respond();
+
+  // A reply in a task's thread is kept for the project's Doc (see bufferMessage).
+  context.waitUntil(bufferMessage(context.env, envelope.event));
 
   const command = parseMessage(envelope.event, botUserId);
   if (command) {

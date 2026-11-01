@@ -12,8 +12,7 @@
       "aiSuggestions": true,
       "aiModel": "@cf/zai-org/glm-4.7-flash",
       "activeTasksPinning": false,
-      "summaryCanvas": false,
-      "exportOnDone": true
+      "summaryCanvas": false
     }
   ]
 }

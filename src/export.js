@@ -1,19 +1,27 @@
-import { findProject, groupDisabled } from "./channels.js";
-import { putTask } from "./db.js";
+import { findProject } from "./channels.js";
+import { addPendingMessage, deletePendingMessages, pendingMessages, putTask, setExportSynced, tasksWithPending } from "./db.js";
 import { docId } from "./doc.js";
 import { callGoogle, googleEnabled } from "./google.js";
 import { formatTime } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { loadTask, saveTask } from "./tasks.js";
 
-// `/cade export <link>` (see commands/export-thread.js): the task's thread as
-// plain text, in a page of its own in its project's Google Doc, to give to
-// whatever summarizes it. Like a task's notes page (see notes.js) it is a tab
-// under a tab of the Doc, here Export, but Cade
-// writes this one. The task keeps the page's address (`export` on the task,
-// see db.js): exporting again writes the same page over, and makes a new one
-// only if it was deleted. It goes through the Google web app (see google.js,
-// google/Doc.gs).
+// A backup of each task's thread: plain text, in a page of its own in its
+// project's Google Doc, to give to whatever summarizes it. Slack's free plan
+// hides messages after 90 days, so the page is the long-term copy. Like a
+// task's notes page (see notes.js) it is a tab under a tab of the Doc, here
+// Export, but Cade writes this one. The task keeps the page's address and
+// `synced`, the ts of the newest message on it (`export` on the task, see
+// db.js).
+//
+// Messages are written as they come: a message in a tracked thread waits in
+// pending_messages (bufferMessage), and the cron appends the waiting ones to
+// their pages in batches and forgets them (flushPending). A new task's page is
+// made by the first batch, which has the task's own message. `/cade export
+// <link>` (see commands/export-thread.js) writes a page again from the
+// thread as Slack still has it, except that when Slack no longer has the
+// thread's start it only adds what's newer, so nothing already kept is lost.
+// It all goes through the Google web app (see google.js, google/Doc.gs).
 export const EXPORT_TAB = "Export";
 
 // The tab's title: the task's own, then " (thread)", as the title of a tab
@@ -78,24 +86,47 @@ export function plain(text, names) {
     .replace(/&amp;/g, "&");
 }
 
-// The thread as text: its task's title, then a block per message, "Name ·
-// time" and its text.
-export async function threadText(env, channel, ts, task) {
-  const messages = await readThread(env, channel, ts);
-  const ids = new Set();
+// The user IDs in `messages`: their authors and whoever they mention.
+function userIds(messages, ids = new Set()) {
   for (const message of messages) {
     if (message.user) ids.add(message.user);
     for (const [, id] of (message.text ?? "").matchAll(MENTION)) ids.add(id);
   }
-  const names = await nameMap(env, ids);
-  const blocks = messages.map((message) => {
+  return ids;
+}
+
+// A block per message, "Name · time" and its text.
+function blocks(env, messages, names) {
+  return messages.map((message) => {
     const who = message.user ? names.get(message.user) : (message.username ?? message.bot_profile?.name ?? "Someone");
     const when = formatTime(env, new Date(Number(message.ts) * 1000));
     let text = plain(message.text ?? "", names);
     if (message.files?.length) text += `${text ? "\n" : ""}(attachment: ${message.files.map((file) => (file.permalink ? `${file.name} ${file.permalink}` : file.name)).join(", ")})`;
     return `${who} · ${when}\n${text || "(no text)"}`;
   });
-  return `Thread: ${task.title}\n\n${blocks.join("\n\n")}`;
+}
+
+const heading = (task) => `Thread: ${task.title}\n\n`;
+
+export async function threadText(env, channel, ts, task) {
+  const messages = await readThread(env, channel, ts);
+  const names = await nameMap(env, userIds(messages));
+  return `${heading(task)}${blocks(env, messages, names).join("\n\n")}`;
+}
+
+function docOf(env, channel) {
+  const id = docId(findProject(env, channel)?.doc);
+  return id && googleEnabled(env) ? id : null;
+}
+
+// Writes `messages` (oldest first) after what's on the task's page, and
+// records the newest as synced.
+async function appendMessages(env, channel, ts, task, messages, names) {
+  const id = docOf(env, channel);
+  await callGoogle(env, { action: "doc.append", docId: id, tabId: task.export.tab, text: `\n\n${blocks(env, messages, names).join("\n\n")}` });
+  const synced = messages.at(-1).ts;
+  task.export.synced = synced;
+  await setExportSynced(env, channel, ts, synced);
 }
 
 // Writes the task's thread to its page in the project's Doc, making the page
@@ -103,9 +134,20 @@ export async function threadText(env, channel, ts, task) {
 // null for a project without a `doc`, or without the Google web app. Throws
 // if Slack or Google fails.
 export async function exportThread(env, channel, ts, task) {
-  const id = docId(findProject(env, channel)?.doc);
-  if (!id || !googleEnabled(env)) return null;
-  const text = await threadText(env, channel, ts, task);
+  const id = docOf(env, channel);
+  if (!id) return null;
+  const messages = await readThread(env, channel, ts);
+  // Slack hides a thread's oldest messages, the task's own first, after 90
+  // days on a free plan. What is on the page then may be all that is left, so
+  // it is added to, not written over.
+  const synced = task.export?.synced;
+  if (synced && messages[0]?.ts !== ts) {
+    const newer = messages.filter((message) => message.ts > synced);
+    if (newer.length) await appendMessages(env, channel, ts, task, newer, await nameMap(env, userIds(newer)));
+    return task.export.url;
+  }
+  const names = await nameMap(env, userIds(messages));
+  const text = `${heading(task)}${blocks(env, messages, names).join("\n\n")}`;
   const { url, tabId } = await callGoogle(env, {
     action: "doc.export",
     docId: id,
@@ -114,23 +156,89 @@ export async function exportThread(env, channel, ts, task) {
     tabId: task.export?.tab,
     text,
   });
-  task.export = { url, tab: tabId };
+  task.export = { url, tab: tabId, synced: messages.at(-1)?.ts };
   await putTask(env, channel, ts, task);
   return url;
 }
 
-// When a task reaches Done (see afterStatusChange in status.js): exports its
-// thread as `/cade export` does, unless the project has turned off
-// `exportOnDone`, and redraws its card, which then links the page. Nothing is
-// said to anyone, and a failure is logged, not thrown, as the task is done
-// either way and `/cade export` is still there.
-export async function exportOnDone(env, channel, ts) {
-  if (groupDisabled(env, channel, "exportOnDone", "EXPORT_ON_DONE")) return;
-  try {
+// Messages that are written to the Doc: people's, and Cade's and other
+// apps', but not joins, edits and the like.
+const KEPT_SUBTYPES = new Set([undefined, "bot_message", "thread_broadcast", "file_share"]);
+
+// Adds a reply in a tracked task's thread to the messages waiting to be
+// written to the Doc (see flushPending). Nothing is sent to Slack or Google,
+// so it is quick enough for the event itself. Does nothing for a project
+// without a Doc.
+export async function bufferMessage(env, event) {
+  if (!event.thread_ts || event.thread_ts === event.ts || !KEPT_SUBTYPES.has(event.subtype)) return;
+  if (!docOf(env, event.channel) || !(await loadTask(env, event.channel, event.thread_ts))) return;
+  await addPendingMessage(env, {
+    channel: event.channel,
+    taskTs: event.thread_ts,
+    ts: event.ts,
+    userId: event.user,
+    username: event.username ?? event.bot_profile?.name,
+    text: event.text,
+    files: event.files?.map((file) => ({ name: file.name, permalink: file.permalink })),
+  });
+}
+
+// A new task's own message, the first of its page.
+export async function bufferTask(env, channel, ts, task) {
+  if (!docOf(env, channel)) return;
+  await addPendingMessage(env, { channel, taskTs: ts, ts, username: "Cade", text: task.title });
+}
+
+// How many tasks one run of the cron writes; the rest wait for the next.
+const FLUSH_TASKS = 20;
+
+// The cron: writes the waiting messages to the tasks' pages, one write per
+// task, and forgets them. Each person is looked up once for the whole batch.
+// A task whose write fails keeps its messages for the next run.
+export async function flushPending(env) {
+  const due = [];
+  for (const { channel, task_ts: ts } of await tasksWithPending(env, FLUSH_TASKS)) {
     const task = await loadTask(env, channel, ts);
-    if (!task || !(await exportThread(env, channel, ts, task))) return;
-    await saveTask(env, channel, ts, task);
-  } catch (error) {
-    console.warn("Could not export the thread of a task that is done", { ts, error: error.message });
+    if (!task || !docOf(env, channel)) {
+      await deletePendingMessages(env, channel, ts, "~");
+      continue;
+    }
+    const waiting = await pendingMessages(env, channel, ts);
+    // A task with a page from before pages were kept up to date doesn't know
+    // what is on it, and one with no page needs its first message to start it
+    // (an older task is exported first, which starts it): both wait for a
+    // `/cade export`.
+    if (task.export ? !task.export.synced : waiting[0].ts !== ts) continue;
+    const fresh = waiting.filter((message) => message.ts > (task.export?.synced ?? ""));
+    if (!fresh.length) {
+      await deletePendingMessages(env, channel, ts, "~");
+      continue;
+    }
+    due.push({ channel, ts, task, waiting, fresh });
   }
+  if (!due.length) return;
+  const names = await nameMap(env, due.reduce((ids, { fresh }) => userIds(fresh, ids), new Set()));
+  for (const { channel, ts, task, waiting, fresh } of due) {
+    try {
+      if (task.export) {
+        await appendMessages(env, channel, ts, task, fresh, names);
+      } else {
+        const { url, tabId } = await callGoogle(env, {
+          action: "doc.export",
+          docId: docOf(env, channel),
+          parent: EXPORT_TAB,
+          title: tabTitle(task),
+          text: `${heading(task)}${blocks(env, fresh, names).join("\n\n")}`,
+        });
+        // Saved again from the database: it may have changed meanwhile.
+        const latest = await loadTask(env, channel, ts);
+        latest.export = { url, tab: tabId, synced: fresh.at(-1).ts };
+        await saveTask(env, channel, ts, latest);
+      }
+      await deletePendingMessages(env, channel, ts, waiting.at(-1).ts);
+    } catch (error) {
+      console.warn("Could not write a thread to the Doc", { channel, ts, error: error.message });
+    }
+  }
+  console.log("Wrote threads to the Doc", { tasks: due.length });
 }

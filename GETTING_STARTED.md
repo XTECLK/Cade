@@ -210,7 +210,11 @@ brief` writes executive summaries to go through with the client and
 `/cade debrief` reads back what was added. One web app serves them all. It
 needs a Google account.
 
-1. **(person)** `npx clasp login`, and turn on the Apps Script API at
+1. **(person)** Best on a Google account made just for Cade, so it can reach
+   only what it makes, not your own Drive. `npm run setup` offers to make one
+   and prints the sign-up link with a name like `cade.acme.qwhzme@gmail.com` (`cade.`, your Slack workspace,
+   and six random letters). Signed in as that account (or the existing one you
+   prefer), run `npx clasp login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings> (once per account).
 2. Create the web app:
 

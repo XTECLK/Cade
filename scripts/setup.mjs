@@ -8,6 +8,7 @@
 //
 // Tokens and secrets are asked for by those scripts, hidden, never here.
 import { spawn } from "node:child_process";
+import { randomInt } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,23 @@ export function withWorkerName(toml, name) {
 // The account IDs in what `wrangler whoami` printed.
 export function accountIdsIn(output) {
   return [...new Set(output.match(/\b[0-9a-f]{32}\b/g) ?? [])];
+}
+
+// A Gmail name for a Google account made just for Cade: cade., the Slack
+// workspace's name (lowercase letters and digits only, cut so the whole name
+// fits Gmail's 30 characters), ., and six random letters a-z, such as
+// cade.acme.qwhzme@gmail.com. Without a workspace, cade.qwhzme@gmail.com.
+export function cadeGmail(workspace, random = randomInt) {
+  const letters = Array.from({ length: 6 }, () => String.fromCharCode(97 + random(26))).join("");
+  const name = String(workspace ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30 - "cade..".length - letters.length);
+  return `cade.${name ? `${name}.` : ""}${letters}@gmail.com`;
+}
+
+// Google's sign-up page, with the Gmail name filled in when Google honours it
+// (if the field comes up empty, type the name).
+export function googleSignupUrl(gmail) {
+  const query = new URLSearchParams({ flowName: "GlifWebSignIn", flowEntry: "SignUp", Email: gmail.replace(/@gmail\.com$/, "") });
+  return `https://accounts.google.com/signup/v2/createaccount?${query}`;
 }
 
 async function exists(file) {
@@ -138,7 +156,20 @@ You'll be asked for it, then to install the app and give its bot token; both hid
       console.log("Skipped. Add them later with npm run google:create.");
       return;
     }
-    console.log(`\nA person has to do two things in a browser: log in to Google when clasp asks,
+    console.log(`
+Cade's script, Docs and Sheets are best owned by a Google account of their
+own, so Cade can only reach what it makes, not your personal Drive.`);
+    if (await yes("Create a separate Google account for Cade? (No: use an existing account.)")) {
+      // slack:create saves the workspace's name when it was given the bot token; without it, none.
+      const team = await readFile(SLACK_APP, "utf8").then((json) => JSON.parse(json).team, () => undefined);
+      const gmail = cadeGmail(team);
+      console.log(`\nCreate it here, with the username ${gmail.replace("@gmail.com", "")} (${gmail}):\n  ${googleSignupUrl(gmail)}`);
+      await ask("Press Enter when the account exists… ");
+      console.log("Sign in as that account when the browser opens for the login, and in the next step.");
+    } else {
+      console.log("Sign in as the account to use when the browser opens for the login.");
+    }
+    console.log(`\nA person has to do two things in a browser, as that account: log in to Google when clasp asks,
 and turn on the Apps Script API at https://script.google.com/home/usersettings.`);
     await ask("Press Enter when the API is on… ");
     if ((await runLive("npx", ["clasp", "login"])) !== 0) fail("The Google login failed.");

@@ -6247,6 +6247,15 @@ test("changes that are not about people ask no one", () => {
   assert.deepEqual(changeRequests(changed({ status: { from: "TODO", to: "IN_PROGRESS" } })), []);
 });
 
+test("setup suggests a separate Google account for Cade", async () => {
+  const { cadeGmail, googleSignupUrl } = await import("../scripts/setup.mjs");
+  assert.match(cadeGmail("Acme Inc."), /^cade\.acmeinc\.[a-z]{6}@gmail\.com$/);
+  assert.match(cadeGmail(), /^cade\.[a-z]{6}@gmail\.com$/);
+  assert.equal(cadeGmail("Acme", () => 0), "cade.acme.aaaaaa@gmail.com");
+  assert.ok(cadeGmail("A very long workspace name indeed").length - "@gmail.com".length <= 30);
+  assert.match(googleSignupUrl("cade.abcdef@gmail.com"), /^https:\/\/accounts\.google\.com\/.*Email=cade\.abcdef$/);
+});
+
 test("the Home tab's Refresh button draws it again", async (t) => {
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [storedTask({ owners: ["UME"] })] });
   const body = interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:refresh" }] });

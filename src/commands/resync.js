@@ -2,7 +2,7 @@ import { findProject, groupEnabled } from "../channels.js";
 import { postedTasks } from "../db.js";
 import { sheetEnabled } from "../sheet.js";
 import { escapeSlack, linkedThread, respondLater } from "../slack.js";
-import { syncExport } from "../export.js";
+import { flushPending, syncExport } from "../export.js";
 import { syncNotes } from "../notes.js";
 import { writeSummary } from "../summary.js";
 import { loadTask, saveTask, syncTask } from "../tasks.js";
@@ -118,6 +118,9 @@ async function resync(env, { channel, ts }) {
   await syncNotes(env, channel, ts, task);
   await syncExport(env, channel, ts, task);
   await saveTask(env, channel, ts, task);
+  // Replies that came while the page was being written, or are waiting for
+  // the cron, go onto it now. After the save, which has the page's `synced`.
+  await flushPending(env, { channel, ts }).catch((error) => console.warn("Could not write the waiting messages", { ts, error: error.message }));
   const title = escapeSlack(task.title);
   return `Resynced the task ${task.link ? `<${task.link}|${title}>` : `*${title}*`}.`;
 }

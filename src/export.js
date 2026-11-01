@@ -199,10 +199,12 @@ const FLUSH_TASKS = 20;
 
 // The cron: writes the waiting messages to the tasks' pages, one write per
 // task, and forgets them. Each person is looked up once for the whole batch.
-// A task whose write fails keeps its messages for the next run.
-export async function flushPending(env) {
+// A task whose write fails keeps its messages for the next run. With `only`,
+// `{ channel, ts }`, just that task's are written (see resync.js).
+export async function flushPending(env, only) {
   const due = [];
-  for (const { channel, task_ts: ts } of await tasksWithPending(env, FLUSH_TASKS)) {
+  const tasks = only ? [{ channel: only.channel, task_ts: only.ts }] : await tasksWithPending(env, FLUSH_TASKS);
+  for (const { channel, task_ts: ts } of tasks) {
     const task = await loadTask(env, channel, ts);
     if (!task || !docOf(env, channel)) {
       await deletePendingMessages(env, channel, ts, "~");

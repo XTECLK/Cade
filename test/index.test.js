@@ -970,7 +970,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
     assert.deepEqual(reply.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade export <link>` · `/cade home` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade home` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
@@ -1323,7 +1323,7 @@ test("a message is kept only from a tracked task's thread in a project with a Do
   assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 1);
 });
 
-test("messages that came before a resync are dropped if the resync already wrote them, and appended if newer", async (t) => {
+test("a resync drops waiting messages it already wrote and appends the newer ones itself", async (t) => {
   const calls = mockSlack(t, {
     stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }],
     "conversations.replies": () => ({ messages: [{ user: "UREX", ts: EXPORT_TS, text: "Fix login" }, { user: "UREX", ts: "1700000000.000200", text: "before" }] }),
@@ -1336,12 +1336,14 @@ test("messages that came before a resync are dropped if the resync already wrote
   await send("/slack/events", event("1700000000.000300", "after"), {}, notesEnv);
   await runCron(notesEnv);
   assert.ok(!calls.some((call) => call.method === "doc"));
+  // The resync writes the thread, then the message that is newer, itself.
   await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", notesEnv);
-  calls.length = 0;
-  await runCron(notesEnv);
-  const [added] = calls.filter((call) => call.method === "doc");
-  assert.equal(added.args.action, "doc.append");
+  assert.deepEqual(calls.filter((call) => call.method === "doc").map((call) => call.args.action), ["doc.task", "doc.export", "doc.append"]);
+  const added = calls.filter((call) => call.method === "doc").at(-1);
   assert.match(added.args.text, /^\n\nRex · .*\nafter$/);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM pending_messages").first()).n, 0);
+  const { loadTask } = await import("../src/tasks.js");
+  assert.equal((await loadTask(notesEnv, "CDEV", EXPORT_TS)).export.synced, "1700000000.000300");
 });
 
 test("a failed write keeps the messages for the next run", async (t) => {

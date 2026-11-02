@@ -39,7 +39,7 @@ Other scripts:
 | Script | Does |
 | --- | --- |
 | `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, optionally Google, then your first group |
-| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--doc new] [--sheet new]` it takes them at once |
+| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Docs and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--exportDoc new] [--workDoc new] [--taskSheet new]` it takes them at once |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |

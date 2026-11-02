@@ -18,15 +18,16 @@ be deleted without affecting the others.
 ## Linking a group's files
 
 ```sh
-npm run group -- --name acme --sheet new --doc new
+npm run group -- --name acme --taskSheet new --exportDoc new --workDoc new
 ```
 
-`new` has the web app make the file (yours, named "acme tasks" and "acme
-executive summaries"); `none` unlinks.
-They're saved on the group in `cade.config.json` as `sheet` and `doc`, and
-uploaded. A group without `sheet` isn't recorded in a Sheet; without `doc`,
-`/cade brief` and `/cade debrief` say how to link one. Share the doc with
-the client as **Editor**.
+`new` has the web app make the file (yours, named "acme tasks", "acme
+message exports" and "acme executive summaries and notes"); `none` unlinks.
+They're saved on the group in `cade.config.json` as `taskSheet`, `exportDoc` and `workDoc`, and
+uploaded. A group without `taskSheet` isn't recorded in a Sheet; without a
+`workDoc` (or `exportDoc`), `/cade brief` and `/cade debrief` say how to link
+one. Share the work doc as **Editor** and the message exports doc as
+**Viewer**.
 
 ## Adding a Sheet later
 
@@ -114,10 +115,10 @@ executive summary to the doc` with the reason in `npx wrangler tail`:
 - `unauthorized`: `GOOGLE_SECRET` doesn't match `SECRET` in `Secret.gs`.
 - `HTTP 401/403`: the web app's access isn't set to **Anyone**.
 - `You do not have permission`, or a file that can't be found: the group's
-  `sheet` or `doc` address is wrong, or you (who deployed the script) can't
+  `taskSheet`, `exportDoc` or `workDoc` address is wrong, or you (who deployed the script) can't
   edit it.
 - No log at all for a task: `googleUrl` isn't set, or the group has no
-  `sheet`, so syncing is off.
+  `taskSheet`, so syncing is off.
 - `HTTP 404` from the doc: on some Google accounts the page holding the
   script's reply is missing. Sheet rows can do without the reply (so a wrong
   secret may not show in the logs there); summaries can't. Check

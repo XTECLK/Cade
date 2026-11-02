@@ -86,6 +86,9 @@ function sections(entries, row) {
 // How long a change waits for others before the summary is rewritten.
 const SETTLE_MS = 5000;
 
+// SETTLE_MS, unless the environment sets SUMMARY_SETTLE_MS (tests set it to 0).
+const settleMs = (env) => (env.SUMMARY_SETTLE_MS === undefined ? SETTLE_MS : Number(env.SUMMARY_SETTLE_MS));
+
 // Marks the summary of `channel`'s group out of date, then rewrites it once
 // changes have stopped for SETTLE_MS: only the latest change's call does, so
 // a burst makes one write, of the final state, and writes can't land out of
@@ -99,7 +102,7 @@ export async function refreshSummary(env, channel, { create = false } = {}) {
   try {
     const token = crypto.randomUUID();
     await markCanvasDirty(env, group.channel, token, create);
-    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    await new Promise((resolve) => setTimeout(resolve, settleMs(env)));
     await flushSummary(env, group.channel, token);
   } catch (error) {
     console.warn("Could not update the summary", { channel: group.channel, error: error.message });

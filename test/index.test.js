@@ -27,6 +27,8 @@ const env = {
   // Off unless turned on; most tests are of both.
   ACTIVE_TASKS_PINNING: "on",
   SUMMARY_CANVAS: "on",
+  // No wait for further changes before the summary is written.
+  SUMMARY_SETTLE_MS: "0",
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   CHANNEL_PAIRS: [
@@ -790,7 +792,7 @@ test("cade.config.json can link a group's own spreadsheet", async () => {
   assert.equal(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS)[0].taskSheet, sheet);
   assert.throws(
     () => readConfig(JSON.stringify({ projects: [{ ...projects[0], taskSheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
-    /acme's sheet should be a Google Sheet's address/,
+    /acme's taskSheet should be a Google Sheet's address/,
   );
 });
 
@@ -5044,7 +5046,7 @@ test("/cade brief needs the group to have a Google Doc", async (t) => {
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
-  assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"doc\"` to its group in cade.config.json, then run `npm run config`.");
+  assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"workDoc\"` to its group in cade.config.json, then run `npm run config`.");
   assert.equal(later, undefined);
 });
 
@@ -5509,23 +5511,23 @@ test("/cade debrief can discard a suggestion, and needs a summary in the doc", a
 
 test("npm run group adds or changes a group in cade.config.json", async () => {
   const { readArgs, withGroup } = await import("../scripts/group.mjs");
-  assert.deepEqual(readArgs(["--name", "acme", "--channel", "C0000000002", "--doc", "new"]), { name: "acme", channel: "C0000000002", doc: "new" });
+  assert.deepEqual(readArgs(["--name", "acme", "--channel", "C0000000002", "--exportDoc", "new"]), { name: "acme", channel: "C0000000002", exportDoc: "new" });
   assert.throws(() => readArgs(["--channel", "C1"]), /Give the group a --name/);
   assert.throws(() => readArgs(["--name", "acme", "--colour", "red"]), /I don't know "--colour"/);
   assert.throws(() => readArgs(["--name", "acme", "--channel"]), /--channel needs a value/);
 
-  const start = JSON.stringify({ timezone: "UTC", channels: [{ name: "acme", channel: "C0000000002", doc: "https://docs.google.com/document/d/D/edit" }] });
+  const start = JSON.stringify({ timezone: "UTC", channels: [{ name: "acme", channel: "C0000000002", exportDoc: "https://docs.google.com/document/d/D/edit" }] });
   // A new group goes at the end, its settings in order.
-  const added = JSON.parse(withGroup(start, "beta", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", channel: "C0000000003" }));
+  const added = JSON.parse(withGroup(start, "beta", { taskSheet: "https://docs.google.com/spreadsheets/d/S/edit", channel: "C0000000003" }));
   assert.equal(added.timezone, "UTC");
-  assert.deepEqual(added.projects[1], { name: "beta", channel: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit" });
+  assert.deepEqual(added.projects[1], { name: "beta", channel: "C0000000003", taskSheet: "https://docs.google.com/spreadsheets/d/S/edit" });
   // A group there already keeps what isn't given; `none` removes a setting.
-  const changed = JSON.parse(withGroup(start, "acme", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", doc: "none" }));
-  assert.deepEqual(changed.projects, [{ name: "acme", channel: "C0000000002", sheet: "https://docs.google.com/spreadsheets/d/S/edit" }]);
+  const changed = JSON.parse(withGroup(start, "acme", { taskSheet: "https://docs.google.com/spreadsheets/d/S/edit", exportDoc: "none" }));
+  assert.deepEqual(changed.projects, [{ name: "acme", channel: "C0000000002", taskSheet: "https://docs.google.com/spreadsheets/d/S/edit" }]);
   // An old client or incidents channel goes: a group has only its tasks channel.
   const old = JSON.stringify({ projects: [{ name: "acme", external: "C0000000001", channel: "C0000000002", incidents: "C0000000004" }] });
   assert.deepEqual(JSON.parse(withGroup(old, "acme", {})).projects, [{ name: "acme", channel: "C0000000002" }]);
-  assert.throws(() => withGroup(start, "gamma", { doc: "none" }), /gamma needs a --channel/);
+  assert.throws(() => withGroup(start, "gamma", { exportDoc: "none" }), /gamma needs a --channel/);
 });
 
 test("npm run group's guided setup finds channels and people", async () => {

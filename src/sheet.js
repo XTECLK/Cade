@@ -7,7 +7,7 @@ import { callSlack } from "./slack.js";
 // "Tasks" tab up to date, a row per task. Syncing is skipped
 // when the web app isn't set up, and for a pair with no `sheet`.
 export function sheetEnabled(env, group) {
-  return googleEnabled(env) && Boolean(sheetId(group.sheet));
+  return googleEnabled(env) && Boolean(sheetId(group.taskSheet));
 }
 
 // `group` is the channel pair: its `sheet` picks the spreadsheet, and its
@@ -15,7 +15,7 @@ export function sheetEnabled(env, group) {
 // identifies the row. A row needs no reply, so a missing reply page counts
 // as delivered.
 export async function sendRow(env, group, row) {
-  await callGoogle(env, { action: "sheet.row", spreadsheetId: sheetId(group.sheet), project: group.name, row }, { lenient: true });
+  await callGoogle(env, { action: "sheet.row", spreadsheetId: sheetId(group.taskSheet), project: group.name, row }, { lenient: true });
 }
 
 // Returns display names for Slack user IDs, joined with commas. Needs the

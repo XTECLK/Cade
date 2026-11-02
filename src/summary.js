@@ -6,6 +6,8 @@ import {
   dirtyCanvases,
   getCanvas,
   getCanvasDirty,
+  getCanvasHash,
+  setCanvasHash,
   markCanvasDirty,
   putCanvas,
 } from "./db.js";
@@ -60,7 +62,7 @@ export async function summaryMarkdown(env, channel) {
   // The Closed section is cut short, so the group's Google Sheet, which has
   // every task, is linked when it has one.
   const sheet = sheetEnabled(env, group)
-    ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit).`
+    ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.taskSheet)}/edit).`
     : "";
   const archived = (await archivedTasks(env, group.channel, MAX_CLOSED)).map(({ ts, task }) => ({
     task,
@@ -137,9 +139,14 @@ export async function writeSummary(env, channel, { full = false, user = "" } = {
   const title = summaryTitle(env, channel);
   const markdown = await summaryMarkdown(env, channel);
   const canvasId = await getCanvas(env, channel);
+  const hash = await sha256(markdown);
   if (canvasId) {
     try {
+      // Unchanged since the last write: skip it, as Slack may notify the
+      // mentioned people again for every write. A full resync always writes.
+      if (!full && (await getCanvasHash(env, channel)) === hash) return "The summary in this channel's canvas is already up to date.";
       await writeCanvas(env, canvasId, markdown);
+      await setCanvasHash(env, channel, hash);
       if (!full) return "Updated the summary in this channel's canvas.";
       await renameCanvas(env, canvasId, title);
       return `Resynced the summary in this channel's canvas.${await lockCanvas(env, canvasId, channel)}`;
@@ -156,6 +163,7 @@ export async function writeSummary(env, channel, { full = false, user = "" } = {
       document_content: { type: "markdown", markdown },
     });
     await putCanvas(env, channel, created, user);
+    await setCanvasHash(env, channel, hash);
     return `Added the summary to this channel's canvas. I'll keep it up to date.${await lockCanvas(env, created, channel)}`;
   } catch (error) {
     if (!/channel_canvas_already_exists|free_team_canvas_tab_already_exists/.test(error.message)) {
@@ -171,6 +179,7 @@ export async function writeSummary(env, channel, { full = false, user = "" } = {
   await writeCanvas(env, existing, markdown);
   await renameCanvas(env, existing, title);
   await putCanvas(env, channel, existing, user);
+  await setCanvasHash(env, channel, hash);
   return `Added the summary to this channel's canvas. I'll keep it up to date.${await lockCanvas(env, existing, channel)}`;
 }
 
@@ -188,6 +197,11 @@ async function lockCanvas(env, canvasId, channel) {
     console.warn("Could not make the summary read-only", { channel, error: error.message });
     return "";
   }
+}
+
+async function sha256(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function writeCanvas(env, canvasId, markdown) {

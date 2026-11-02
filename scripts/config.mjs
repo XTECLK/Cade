@@ -75,10 +75,23 @@ export function readConfig(json) {
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one project.`);
-  const badDoc = list.find((project) => project.doc !== undefined && !docId(project.doc));
-  if (badDoc) throw new Error(`${badDoc.name}'s doc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
-  const badSheet = list.find((project) => project.sheet !== undefined && !sheetId(project.sheet));
-  if (badSheet) throw new Error(`${badSheet.name}'s sheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
+  for (const project of list) {
+    // `doc` and `sheet` are the old names of exportDoc and taskSheet.
+    if (project.doc !== undefined) {
+      project.exportDoc ??= project.doc;
+      delete project.doc;
+    }
+    if (project.sheet !== undefined) {
+      project.taskSheet ??= project.sheet;
+      delete project.sheet;
+    }
+  }
+  const badDoc = list.find((project) => project.exportDoc !== undefined && !docId(project.exportDoc));
+  if (badDoc) throw new Error(`${badDoc.name}'s exportDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
+  const badWorkDoc = list.find((project) => project.workDoc !== undefined && !docId(project.workDoc));
+  if (badWorkDoc) throw new Error(`${badWorkDoc.name}'s workDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
+  const badSheet = list.find((project) => project.taskSheet !== undefined && !sheetId(project.taskSheet));
+  if (badSheet) throw new Error(`${badSheet.name}'s taskSheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
 
   for (const project of list) {
     try {
@@ -160,9 +173,10 @@ export async function uploadConfig() {
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
     const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
-    const doc = project.doc ? `, doc ${project.doc}` : "";
-    const sheet = project.sheet ? `, sheet ${project.sheet}` : "";
-    console.log(`${project.name}: channel ${project.channel}${doc}${sheet}${own}`);
+    const doc = project.exportDoc ? `, exportDoc ${project.exportDoc}` : "";
+    const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
+    const sheet = project.taskSheet ? `, taskSheet ${project.taskSheet}` : "";
+    console.log(`${project.name}: channel ${project.channel}${doc}${workDoc}${sheet}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);

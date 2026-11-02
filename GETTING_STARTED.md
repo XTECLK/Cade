@@ -54,8 +54,9 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | --- | --- | --- |
 | `name` | **Required** | The project's name, as `/cade brief acme` and the project picker show it. |
 | `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). `npm run group` makes or finds it for you. |
-| `doc` | Optional | The address of the project's Google Doc, where `/cade brief` writes its executive summaries. |
-| `sheet` | Optional | The address of the project's own Google Sheet for its tasks. Without it, its tasks aren't recorded in a Sheet. |
+| `exportDoc` | Optional | The address of the project's message exports Google Doc, where Cade exports task threads. Only Cade writes it: share it as **Viewer**. |
+| `workDoc` | Optional | The address of the project's work Google Doc, where `/cade brief` writes its executive summaries and each task's notes page. People edit it: share it as **Editor**. Without one, these go in `exportDoc`. |
+| `taskSheet` | Optional | The address of the project's own Google Sheet for its tasks. Without it, its tasks aren't recorded in a Sheet. |
 | `taskStatusChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
 | `newMessageTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskStatusChangeDetection`. |
 | `aiSuggestions` | Optional (`false`) | **AI suggestions**: the proactive agent reads messages in a task's thread with [Workers AI](https://developers.cloudflare.com/workers-ai/) instead of by their phrases, so one message can change several roles, the status, the priority and the due date, and people can be removed ("take this over from @bob"). `true` or `false`. Needs `taskStatusChangeDetection` on. If the model fails or takes over 8 seconds, the message is read by its phrases instead. PR links are always read by their phrases. Uses the `AI` binding in `wrangler.toml`; Workers AI's usage beyond its free daily allowance is billed to your Cloudflare account. |
@@ -79,11 +80,11 @@ slack:update`, then reinstall the app, if it was made before them).
 Or give the settings at once:
 
 ```sh
-npm run group -- --name acme --channel C… --doc new --sheet new
+npm run group -- --name acme --channel C… --exportDoc new --workDoc new --taskSheet new
 ```
 
-`--doc` and `--sheet` take
-`new` (made for you, named "acme executive summaries" and "acme tasks") or
+`--exportDoc`, `--workDoc` and `--taskSheet` take
+`new` (made for you, named "acme message exports", "acme executive summaries and notes" and "acme tasks") or
 `none` to unlink; leave them out to keep what the group has. It checks and
 uploads the file, as `npm run config` does.
 
@@ -270,8 +271,9 @@ npm run group
    `cade.config.json` (git ignores it) and uploads it as the Worker secrets
    `CHANNEL_PAIRS` and `TIMEZONE`.
 
-**Expect:** "Done", with the channel's link. Then share the group's Doc
-with the client as **Editor**, if you go through its summaries with them.
+**Expect:** "Done", with the channel's link. Then share the group's work Doc
+as **Editor** with whoever goes through its summaries and notes, and its
+message exports Doc as **Viewer**.
 
 Run `npm run group` again for every other group, or to change one: Enter
 keeps what it has. To set the first group up later, skip this step and run
@@ -352,9 +354,9 @@ After updating, the **Home** tab and any new shortcuts or events come with
   [Settings](#settings)), so a test channel can sit alongside the real
   one.
 - **Google Sheets and Docs**: each group's own spreadsheet records its
-  tasks (filter its Status column to see completed ones), and its own doc
-  holds its executive summaries. See [google/README.md](google/README.md);
-  a group without `sheet` isn't recorded in a Sheet.
+  tasks (filter its Status column to see completed ones), and its work doc
+  holds its executive summaries and notes. See [google/README.md](google/README.md);
+  a group without `taskSheet` isn't recorded in a Sheet.
 
 ## Using Cade
 

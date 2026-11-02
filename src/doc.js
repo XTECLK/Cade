@@ -1,8 +1,10 @@
 import { callGoogle, googleEnabled } from "./google.js";
 
-// Each group's executive summaries are kept in its Google Doc (its `doc` in
-// CHANNEL_PAIRS), shared with the client and gone through on calls with
-// them: a section per summary in its Summary tab, newest first. After a
+// Each group's executive summaries are kept in its work doc (its `workDoc` in
+// CHANNEL_PAIRS, or its `exportDoc` for a group without one), which the team edits
+// and goes through on calls: a section per summary in its Summary tab, newest
+// first. Its tasks' notes pages are there too. The `exportDoc` is kept for
+// the message export, which only Cade writes. After a
 // call, `/cade debrief` reads the section back to find what was added. They
 // are written and read through the Google web app (see google.js).
 export const docsEnabled = googleEnabled;
@@ -28,6 +30,12 @@ export async function writeSection(env, docId, key, blocks) {
 export async function readSection(env, docId, key) {
   const { elements } = await callGoogle(env, { action: "doc.read", docId, tab: SUMMARY_TAB, key });
   return elements ?? null;
+}
+
+// The ID of the group's work doc, where summaries and notes pages go: its
+// `workDoc`, or its `exportDoc` if it has none. "" if neither.
+export function workDocId(group) {
+  return docId(group?.workDoc) || docId(group?.exportDoc);
 }
 
 // The doc's ID in its address (…/document/d/<id>/…), or `value` itself if it

@@ -1,6 +1,6 @@
 import { findProject } from "./channels.js";
 import { putTask } from "./db.js";
-import { docId } from "./doc.js";
+import { workDocId } from "./doc.js";
 import { callGoogle, googleEnabled } from "./google.js";
 import { callSlack } from "./slack.js";
 import { taskMessage } from "./tasks.js";
@@ -27,11 +27,11 @@ function tabTitle(task) {
 // Makes the task's page if it has none, and records its address in
 // `task.notes` (nothing is stored here: the caller saves the task, which also
 // redraws its card). A task that has one is left alone, as is a task in a
-// project without a `doc`. A failure is logged, not thrown: the page is an
+// project without a `workDoc` (or `exportDoc`). A failure is logged, not thrown: the page is an
 // extra, so it shouldn't stop the card being redrawn.
 export async function syncNotes(env, channel, ts, task) {
   if (task.notes) return;
-  const id = docId(findProject(env, channel)?.doc);
+  const id = workDocId(findProject(env, channel));
   if (!id || !googleEnabled(env)) return;
   try {
     const { url, tabId } = await callGoogle(env, { action: "doc.task", docId: id, parent: NOTES_TAB, title: tabTitle(task) });

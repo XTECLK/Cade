@@ -10,7 +10,7 @@ import {
   releaseExport,
   setExportPeriod,
 } from "../db.js";
-import { docId, docsEnabled, writeSection } from "../doc.js";
+import { docsEnabled, workDocId, writeSection } from "../doc.js";
 import { formatTime } from "../sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
@@ -145,15 +145,15 @@ export function docProblem(env, group) {
   if (!docsEnabled(env)) {
     return "Executive summaries are kept in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md).";
   }
-  if (!docId(group.doc)) {
-    return `${group.name} has no Google Doc linked. Add the doc's address as \`"doc"\` to its group in cade.config.json, then run \`npm run config\`.`;
+  if (!workDocId(group)) {
+    return `${group.name} has no Google Doc linked. Add the doc's address as \`"workDoc"\` to its group in cade.config.json, then run \`npm run config\`.`;
   }
   return undefined;
 }
 
 // The doc's address, for links to it.
 function docLink(group) {
-  return `https://docs.google.com/document/d/${docId(group.doc)}/edit`;
+  return `https://docs.google.com/document/d/${workDocId(group)}/edit`;
 }
 
 // The group a command run in `channel` is for: the one `text` names, the
@@ -498,7 +498,7 @@ async function render(env, at, notice) {
     );
   } else {
     const group = projects(env).find((pair) => pair.name === summary.group);
-    const where = group && docId(group.doc) ? `<${docLink(group)}|${summary.group}'s Google Doc>` : "the group's Google Doc";
+    const where = group && workDocId(group) ? `<${docLink(group)}|${summary.group}'s Google Doc>` : "the group's Google Doc";
     blocks.push({ type: "context", elements: [mrkdwn(`*Review.* This is what I'll add to the top of ${where}'s Summary tab.`)] });
     for (const chunk of chunks(summaryText(env, summary, done, active, chosen), 3000).slice(0, 40)) {
       blocks.push({ type: "section", text: mrkdwn(chunk) });
@@ -642,7 +642,7 @@ async function post(payload, env, at) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
     return;
   }
-  const doc = docId(group.doc);
+  const doc = workDocId(group);
   let address;
   try {
     address = await writeSection(env, doc, `export:${summary.id}`, blocks);

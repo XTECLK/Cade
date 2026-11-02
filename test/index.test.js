@@ -8,6 +8,7 @@ import { changeTask } from "../src/commands/changes.js";
 import { editForm } from "../src/commands/edit.js";
 import { changeLog, changeRequests } from "../src/notify.js";
 import { formatDueDate } from "../src/tasks.js";
+import { writeSummary } from "../src/summary.js";
 import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
@@ -719,7 +720,7 @@ test("parseMessage reads the command name and mentioned people", () => {
 
 // Each group's own spreadsheet.
 const SHEETS = { acme: "1AcmeSheetAcmeSheetAcmeSheet", test: "1TestSheetTestSheetTestSheet" };
-const withSheets = (pairs) => pairs.map((pair) => ({ ...pair, sheet: `https://docs.google.com/spreadsheets/d/${SHEETS[pair.name]}/edit` }));
+const withSheets = (pairs) => pairs.map((pair) => ({ ...pair, taskSheet: `https://docs.google.com/spreadsheets/d/${SHEETS[pair.name]}/edit` }));
 // The sheet's times are in TIMEZONE; these tests expect Sri Lanka time.
 const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "google-secret", TIMEZONE: "Asia/Colombo" };
 const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
@@ -786,9 +787,9 @@ test("cade.config.json can link a group's own spreadsheet", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const sheet = "https://docs.google.com/spreadsheets/d/1AcmeSheetAcmeSheetAcmeSheet/edit";
   const projects = [{ name: "acme", channel: "C0000000002", sheet }];
-  assert.equal(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS)[0].sheet, sheet);
+  assert.equal(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS)[0].taskSheet, sheet);
   assert.throws(
-    () => readConfig(JSON.stringify({ projects: [{ ...projects[0], sheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
+    () => readConfig(JSON.stringify({ projects: [{ ...projects[0], taskSheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
     /acme's sheet should be a Google Sheet's address/,
   );
 });
@@ -1162,7 +1163,7 @@ const notesEnv = {
   ...env,
   GOOGLE_URL,
   GOOGLE_SECRET: "google-secret",
-  CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((project) => (project.name === "acme" ? { ...project, doc: `https://docs.google.com/document/d/${DOC_ID}/edit` } : project)),
+  CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((project) => (project.name === "acme" ? { ...project, exportDoc: `https://docs.google.com/document/d/${DOC_ID}/edit` } : project)),
 };
 const NOTES_URL = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.notes1`;
 
@@ -1194,6 +1195,24 @@ test("a new task in a project with a Doc gets its notes page, linked on its card
   assert.equal(blockText(allBlocks(update.args)[1]), `Extra notes <${NOTES_URL}|here>`);
   const { loadTask } = await import("../src/tasks.js");
   assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).notes, { url: NOTES_URL, tab: "t.notes1" });
+});
+
+test("with a workDoc, the notes page goes there and the export stays in the doc", async (t) => {
+  const WORK_ID = "1WorkDocWorkDocWorkDoc1234567890";
+  const workEnv = {
+    ...notesEnv,
+    CHANNEL_PAIRS: notesEnv.CHANNEL_PAIRS.map((project) => (project.name === "acme" ? { ...project, workDoc: `https://docs.google.com/document/d/${WORK_ID}/edit` } : project)),
+  };
+  const calls = mockSlack(t, {
+    stored: [{ ...ownTask({ owners: ["UREX"] }), ts: EXPORT_TS }],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: EXPORT_TS, text: "Fix login" }] }),
+    "users.info": ({ user }) => ({ user: NAMES[user] }),
+    doc: (body) => (body.action === "doc.task" ? { ok: true, url: NOTES_URL, tabId: "t.notes1" } : docReply(body)),
+  });
+  await runTasksCommand(`resync ${exportLink(EXPORT_TS)}`, "CDEV", workEnv);
+  const docCalls = calls.filter((call) => call.method === "doc").map((call) => call.args);
+  assert.equal(docCalls.find((args) => args.action === "doc.task").docId, WORK_ID);
+  assert.equal(docCalls.find((args) => args.action === "doc.export").docId, DOC_ID);
 });
 
 test("a task in a project without a Doc has no notes page, and a Google failure doesn't stop resync", async (t) => {
@@ -2837,8 +2856,8 @@ test("cade.config.json can hold the Google web app's address and each group's do
   const googleUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
   const secrets = readConfig(JSON.stringify({ projects, googleUrl }));
   assert.equal(secrets.GOOGLE_URL, googleUrl);
-  assert.equal(JSON.parse(secrets.PROJECTS)[0].doc, doc);
-  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], doc: "acme doc" }] })), /acme's doc should be a Google Doc's address/);
+  assert.equal(JSON.parse(secrets.PROJECTS)[0].exportDoc, doc);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], exportDoc: "acme doc" }] })), /acme's exportDoc should be a Google Doc's address/);
   assert.throws(() => readConfig(JSON.stringify({ projects, googleUrl: doc })), /googleUrl should be the web app URL/);
   // The old settings, and the secret, stay out of the file.
   assert.throws(() => readConfig(JSON.stringify({ projects, sheetUrl: googleUrl })), /has "sheetUrl"/);
@@ -4649,6 +4668,27 @@ test("/cade resync summary puts the group's open tasks in the dev channel's canv
   assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
 });
 
+test("a summary write is skipped when the canvas would not change, but a full resync still writes", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  const record = historyTask("100.1", { title: "Low task", priority: "Low", owners: ["UALICE"] });
+  await putTask(env, "CDEV", record.ts, record.task);
+  await runTasksCommand("resync summary", "CDEV", env);
+
+  calls.length = 0;
+  const same = await writeSummary(env, "CDEV");
+  assert.equal(same, "The summary in this channel's canvas is already up to date.");
+  assert.ok(!calls.some((call) => call.method === "canvases.edit"));
+
+  const changed = historyTask("100.2", { title: "New task", priority: "High" });
+  await putTask(env, "CDEV", changed.ts, changed.task);
+  await writeSummary(env, "CDEV");
+  assert.equal(calls.filter((call) => call.method === "canvases.edit").length, 1);
+
+  calls.length = 0;
+  await writeSummary(env, "CDEV", { full: true });
+  assert.equal(calls.filter((call) => call.method === "canvases.edit").length, 2);
+});
+
 test("the summary uses the canvas the channel already has", async (t) => {
   const calls = mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
@@ -4748,7 +4788,7 @@ const execEnv = {
   TIMEZONE: "UTC",
   GOOGLE_URL,
   GOOGLE_SECRET: "google-secret",
-  PROJECTS: [{ name: "acme", tasks: "CDEV", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
+  PROJECTS: [{ name: "acme", tasks: "CDEV", exportDoc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
 };
 
 const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -5010,7 +5050,7 @@ test("/cade brief needs the group to have a Google Doc", async (t) => {
 
 test("/cade brief outside a group asks which, when there are several", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
-  const docs = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, doc: DOC_ID })) };
+  const docs = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, exportDoc: DOC_ID })) };
   const { now } = await runTasksCommand("brief", "CLEADS", docs);
   assert.equal(JSON.parse(now).text, "Which group? Try `/cade brief acme` or `/cade brief test`.");
   const { now: unknown } = await runTasksCommand("brief nope", "CLEADS", docs);

@@ -115,7 +115,7 @@ export async function threadText(env, channel, ts, task) {
 }
 
 function docOf(env, channel) {
-  const id = docId(findProject(env, channel)?.doc);
+  const id = docId(findProject(env, channel)?.exportDoc);
   return id && googleEnabled(env) ? id : null;
 }
 

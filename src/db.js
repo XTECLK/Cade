@@ -217,6 +217,16 @@ export async function putCanvas(env, channel, canvasId, user) {
     .run();
 }
 
+// The hash of the markdown last written to the channel's canvas, or null.
+export async function getCanvasHash(env, channel) {
+  const row = await env.DB.prepare("SELECT content_hash FROM canvases WHERE channel = ?").bind(channel).first();
+  return row?.content_hash ?? null;
+}
+
+export async function setCanvasHash(env, channel, hash) {
+  await env.DB.prepare("UPDATE canvases SET content_hash = ? WHERE channel = ?").bind(hash, channel).run();
+}
+
 // Marks the channel's summary as out of date, under `token`. Only a channel
 // with a canvas is marked, unless `create`: a group's first task adds its
 // row, which has no canvas until the summary is rendered.

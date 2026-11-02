@@ -5,12 +5,14 @@
 //   npm run group                      asks for each setting, and can make
 //                                      the group's Slack channels too
 //   npm run group -- --name acme --channel C…
-//                    [--doc new] [--sheet new]
+//                    [--exportDoc new] [--workDoc new] [--taskSheet new]
 //
-// --doc and --sheet turn on the group's Google Doc (for executive summaries)
-// and Google Sheet (for its tasks): `new` has the Google web app
+// --exportDoc, --workDoc and --taskSheet turn on the group's message exports
+// Google Doc (written only by Cade: share it view-only), its work Google
+// Doc (executive summaries and task notes, which people edit) and Google
+// Sheet (for its tasks): `new` has the Google web app
 // (npm run google:create) make one, owned by you, named
-// "<name> executive summaries" and "<name> tasks". The web app only reaches
+// "<name> message exports", "<name> executive summaries and notes" and "<name> tasks". The web app only reaches
 // files it made, so existing files can't be linked. For a group already
 // there, only what's given changes; `none` removes a setting.
 import { readFile, writeFile } from "node:fs/promises";
@@ -26,20 +28,21 @@ const SECRET_FILE = `${ROOT}google/Secret.gs`;
 
 // Each kind of file: where its address names its ID, and what it's called.
 const KINDS = {
-  doc: { path: "document", noun: "Google Doc" },
-  sheet: { path: "spreadsheets", noun: "Google Sheet" },
+  exportDoc: { path: "document", noun: "Google Doc", action: "doc" },
+  workDoc: { path: "document", noun: "Google Doc", action: "doc" },
+  taskSheet: { path: "spreadsheets", noun: "Google Sheet", action: "sheet" },
 };
 
-const FIELDS = ["channel", "doc", "sheet"];
+const FIELDS = ["channel", "exportDoc", "workDoc", "taskSheet"];
 
 // What each file is called when `new` makes it.
-const NEW_TITLES = { doc: (name) => `${name} executive summaries`, sheet: (name) => `${name} tasks` };
+const NEW_TITLES = { exportDoc: (name) => `${name} message exports`, workDoc: (name) => `${name} executive summaries and notes`, taskSheet: (name) => `${name} tasks` };
 
 // The command line as { name, channel, … }, each as given.
 export function readArgs(args) {
   const found = {};
   for (let i = 0; i < args.length; i++) {
-    const match = /^--([a-z]+)$/.exec(args[i]);
+    const match = /^--([a-zA-Z]+)$/.exec(args[i]);
     if (!match || !["name", ...FIELDS].includes(match[1])) throw new Error(`I don't know "${args[i]}". ${USAGE}`);
     const value = args[++i];
     if (value === undefined || value.startsWith("--")) throw new Error(`--${match[1]} needs a value. ${USAGE}`);
@@ -50,7 +53,7 @@ export function readArgs(args) {
 }
 
 const USAGE =
-  "Use: npm run group -- --name acme --channel C… [--doc new|none] [--sheet new|none]";
+  "Use: npm run group -- --name acme --channel C… [--exportDoc new|none] [--workDoc new|none] [--taskSheet new|none]";
 
 // cade.config.json with the group `name` added or changed: `fields` are its
 // settings, a value of "none" removing one. A new group needs `channel`.
@@ -60,6 +63,13 @@ export function withGroup(configJson, name, fields) {
   const channels = (config.projects ?? config.channels ?? []).map(({ tasks, ...old }) => ({ ...old, channel: old.channel ?? tasks }));
   const at = channels.findIndex((group) => group.name === name);
   const group = { ...(at === -1 ? { name } : channels[at]) };
+  // `doc` and `sheet` are the old names of exportDoc and taskSheet.
+  for (const [old, now] of [["doc", "exportDoc"], ["sheet", "taskSheet"]]) {
+    if (group[old] !== undefined) {
+      group[now] ??= group[old];
+      delete group[old];
+    }
+  }
   for (const [field, value] of Object.entries(fields)) {
     if (value === "none") delete group[field];
     else group[field] = value;
@@ -102,7 +112,7 @@ async function createFile(kind, url, title) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret, action: `${kind}.create`, title }),
+    body: JSON.stringify({ secret, action: `${KINDS[kind].action ?? kind}.create`, title }),
     redirect: "manual",
   });
   const reply = response.status === 302 ? await fetch(response.headers.get("location")) : response;
@@ -143,14 +153,15 @@ export async function group(args) {
   const json = await currentConfig();
   const config = JSON.parse(json);
   const fields = { ...given };
-  for (const field of ["doc", "sheet"]) {
+  for (const field of ["exportDoc", "workDoc", "taskSheet"]) {
     if (given[field]) fields[field] = await fileAddress(field, given[field], name, config);
   }
   const saved = await saveGroup(json, name, fields);
   console.log(`
 Done. In Slack, invite Cade to the project channel (${saved.channel}) with /invite @Cade, if it isn't there.`);
-  if (saved.doc) console.log(`Doc: ${saved.doc}\n  Share it with the client as Editor.`);
-  if (saved.sheet) console.log(`Sheet: ${saved.sheet}`);
+  if (saved.exportDoc) console.log(`Message exports doc: ${saved.exportDoc}\n  Cade writes it; share it as Viewer only.`);
+  if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries and notes.`);
+  if (saved.taskSheet) console.log(`Sheet: ${saved.taskSheet}`);
 }
 
 // The project's channels, as the guided setup asks for them.
@@ -328,7 +339,7 @@ async function guided() {
 
     const files = {};
     if (config.googleUrl) {
-      for (const [field, what] of [["doc", "Google Doc for executive summaries"], ["sheet", "Google Sheet for its tasks"]]) {
+      for (const [field, what] of [["exportDoc", "Google Doc for message exports (view-only)"], ["workDoc", "Google Doc for executive summaries and task notes (editable)"], ["taskSheet", "Google Sheet for its tasks"]]) {
         if (current[field]) {
           if (/^(-|u|unlink)$/i.test(await ask(`\n${what}: already on. Enter to keep it, - to unlink: `))) files[field] = "none";
         } else if (/^y/i.test(await ask(`\nTurn on ${what}? Cade makes it (y/N): `))) files[field] = "new";
@@ -351,7 +362,7 @@ async function guided() {
     }
     if (ids.length) console.log(`  add ${ids.length === 1 ? "1 person" : `${ids.length} people`} to the channels`);
     for (const [field, value] of Object.entries(files)) {
-      const what = field === "doc" ? "Google Doc" : "Google Sheet";
+      const what = field === "taskSheet" ? "Google Sheet" : field === "workDoc" ? "work Google Doc" : "message exports Google Doc";
       console.log(`  ${what}: ${value === "new" ? `make "${NEW_TITLES[field](name)}"` : value === "none" ? "unlink it" : `link ${value}`}`);
     }
     if (settings.timezone) console.log(`  set the time zone to ${settings.timezone}`);
@@ -396,8 +407,9 @@ async function guided() {
     for (const role of ROLES) {
       if (saved[role.field]) console.log(`  ${role.what.split(",")[0]}: ${url}archives/${saved[role.field]}`);
     }
-    if (saved.doc) console.log(`Doc: ${saved.doc}\n  Share it with the client as Editor.`);
-    if (saved.sheet) console.log(`Sheet: ${saved.sheet}`);
+    if (saved.exportDoc) console.log(`Message exports doc: ${saved.exportDoc}\n  Cade writes it; share it as Viewer only.`);
+  if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries and notes.`);
+    if (saved.taskSheet) console.log(`Sheet: ${saved.taskSheet}`);
   } finally {
     prompt.close();
   }

@@ -153,7 +153,7 @@ function listView(env, tab, tabs, open, today, user, groups) {
   // too, is linked: one for each project that has one.
   const sheets = groups.filter((group) => sheetEnabled(env, group));
   if (!unassigned && sheets.length) {
-    const links = sheets.map((group) => `<https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit|${sheets.length > 1 ? escapeSlack(group.name) : "Google Sheet"}>`);
+    const links = sheets.map((group) => `<https://docs.google.com/spreadsheets/d/${sheetId(group.taskSheet)}/edit|${sheets.length > 1 ? escapeSlack(group.name) : "Google Sheet"}>`);
     blocks.splice(2, 0, { type: "context", elements: [mrkdwn(`:bar_chart: Closed and older tasks are in the ${links.join("  ·  ")}.`)] });
   }
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });

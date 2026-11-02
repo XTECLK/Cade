@@ -165,9 +165,12 @@ export async function create(args) {
 
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-to your Google Docs and Sheets (documents, spreadsheets, drive.file). Open the script, choose the "authorize"
+to your Google Docs and Sheets (documents, spreadsheets, drive). Open the script, choose the "authorize"
 function, click Run, and allow it:
   https://script.google.com/d/${app.scriptId}/edit
+Open it signed in as the Google account that made the script (the one you logged in to clasp
+with). If Google says "Sorry, unable to open the file at this time", you're signed in as another
+account: open the link in an incognito (private) window and sign in as that account there.
 
 Then have each group's spreadsheet and doc made with npm run group:
   npm run group -- --name <group> --sheet new --doc new

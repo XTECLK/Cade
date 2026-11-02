@@ -230,8 +230,8 @@ needs a Google account.
    **Run** and allow it.
 
 Each group's Doc and Sheet are made when you set the group up (step 8). The
-script needs Google's `documents` and `spreadsheets` access (the Docs and
-Sheets services won't run on `drive.file` alone). It only touches the files
+script needs Google's `documents`, `spreadsheets` and `drive` access (the Docs and
+Sheets services and link sharing need them). It only touches the files
 the Worker names. Skip this step for now and add them
 later with `npm run group`.
 

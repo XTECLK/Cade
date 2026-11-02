@@ -9,7 +9,9 @@ const PREFIX = "cade:";
 
 // A new doc called `title`, for `npm run group`, and its ID.
 function createDoc(title) {
-  return DocumentApp.create(title).getId();
+  const id = DocumentApp.create(title).getId();
+  shareToViewers(id);
+  return id;
 }
 
 // Writes the section and returns its address: the tab's, opened at the

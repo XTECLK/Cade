@@ -12,6 +12,7 @@ import { randomInt } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { askHidden } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SLACK_APP = `${ROOT}.cade/slack-app.json`;
@@ -76,12 +77,46 @@ function run(command, args, { env = process.env } = {}) {
 }
 
 // Like run, but with the terminal itself, for logins and hidden prompts.
+// The setup's own prompt is paused meanwhile: two readers on one terminal
+// would split the input, and the child's hidden prompt would never get it.
+let livePrompt;
 function runLive(command, args) {
   return new Promise((resolve) => {
+    livePrompt?.pause();
+    const done = (code) => {
+      livePrompt?.resume();
+      resolve(code);
+    };
     const child = spawn(command, args, { cwd: ROOT, stdio: "inherit" });
-    child.on("error", () => resolve(1));
-    child.on("exit", (code) => resolve(code ?? 1));
+    child.on("error", () => done(1));
+    child.on("exit", (code) => done(code ?? 1));
   });
+}
+
+// The Slack workspace's name, for the Gmail name and the script's title: saved
+// by slack:create when it was given the bot token, else read with the token
+// (asked for here, hidden) and saved to .cade/slack-app.json. None if skipped.
+async function workspaceName() {
+  let app = {};
+  try {
+    app = JSON.parse(await readFile(SLACK_APP, "utf8"));
+  } catch {}
+  if (app.team || !process.stdin.isTTY) return app.team;
+  const page = app.appId ? `https://api.slack.com/apps/${app.appId}/oauth` : "https://api.slack.com/apps (open Cade → OAuth & Permissions)";
+  console.log(`\nTo put your Slack workspace's name in Cade's Gmail name and script, paste Cade's bot token: the Bot User OAuth Token (xoxb-…) at\n  ${page}`);
+  livePrompt?.pause();
+  const token = process.env.SLACK_BOT_TOKEN || (await askHidden("Slack bot token (hidden), or Enter to skip: "));
+  livePrompt?.resume();
+  if (!token) return undefined;
+  try {
+    const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+    if (!result.ok) throw new Error(result.error);
+    await writeFile(SLACK_APP, `${JSON.stringify({ ...app, team: result.team }, null, 2)}\n`);
+    return result.team;
+  } catch (error) {
+    console.log(`Couldn't read the workspace's name (${error.message}); carrying on without it.`);
+    return undefined;
+  }
 }
 
 async function step(title, work) {
@@ -91,6 +126,7 @@ async function step(title, work) {
 
 async function main() {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  livePrompt = prompt;
   const ask = async (question, fallback = "") => (await prompt.question(question)).trim() || fallback;
   const yes = async (question, fallback = true) => {
     const answer = (await ask(`${question} (${fallback ? "Y/n" : "y/N"}): `)).toLowerCase();
@@ -161,7 +197,7 @@ Cade's script, Docs and Sheets are best owned by a Google account of their
 own, so Cade can only reach what it makes, not your personal Drive.`);
     if (await yes("Create a separate Google account for Cade? (No: use an existing account.)")) {
       // slack:create saves the workspace's name when it was given the bot token; without it, none.
-      const team = await readFile(SLACK_APP, "utf8").then((json) => JSON.parse(json).team, () => undefined);
+      const team = await workspaceName();
       const gmail = cadeGmail(team);
       console.log(`\nCreate it here, with the username ${gmail.replace("@gmail.com", "")} (${gmail}):\n  ${googleSignupUrl(gmail)}`);
       await ask("Press Enter when the account exists… ");

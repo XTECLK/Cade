@@ -69,3 +69,8 @@ function reply(result) {
 function authorize() {
   Logger.log(`Authorized as ${Session.getEffectiveUser().getEmail()}.`);
 }
+
+// Anyone with the link can view a file made here (editing stays with the account).
+function shareToViewers(fileId) {
+  DriveApp.getFileById(fileId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+}

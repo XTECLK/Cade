@@ -98,7 +98,7 @@ what's new is.
    `.cade/google-app.json`.
 4. **Approve the script (person).** Open the script link it prints, choose
    `authorize` at the top, click **Run**, and allow access to the
-   your Google Docs and Sheets (`documents`, `spreadsheets`, `drive.file`). Until then, the web app can't use them.
+   your Google Docs and Sheets (`documents`, `spreadsheets`, `drive`). Until then, the web app can't use them.
 5. **Link each group's files** with `npm run group`, as above.
 
 If the scripts here change, `npm run google:update` pushes them and

@@ -180,8 +180,8 @@ Cade is also an [MCP](https://modelcontextprotocol.io) server at
 shown only to them, and `/cade mcp revoke` ends it; only a hash is kept, in
 `mcp_tokens`. Its five tools are `get_thread_history(link)`, which reads a
 thread from Slack (a private channel's only for someone in it);
-`get_task_history(link)`, which reads the messages Cade kept of a tracked
-task's thread from D1 (`messages`) with the same channel rule, so it still
+`get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
+task's thread from D1 (the ID, `channel:ts`, is what `get_my_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_my_tasks(role?,
 status?)`, the open tasks the person is owner, reviewer or tester of, most
 urgent first, each with a link to give to the other tools; `resolve_user_name(id)`;

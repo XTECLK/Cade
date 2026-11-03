@@ -116,7 +116,7 @@ test("the MCP endpoint speaks MCP, and only to a token", async (t) => {
   assert.deepEqual(result.tools.map((tool) => tool.name), ["get_thread_history", "get_task_history", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
   // Each takes what it needs (get_my_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => tool.name !== "get_my_tasks").every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_my_tasks", "get_task_history"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -270,7 +270,7 @@ test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, mo
   assert.match(open.text, /^3 tasks, most urgent first:/);
   // Urgent first, then High, then Low; done and other people's tasks left out.
   assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["High", "Test me too"], ["Low", "Mine, low"]]);
-  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
+  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
   assert.match(open.text, /Test me too — .*\(you: owner, tester\)/);
   assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine"));
 
@@ -325,6 +325,17 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CBARE/p1700000000000100" })).text, /No messages are kept for "Quiet"/);
   assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CDEV/p1600000000000100" })).text, /isn't to a task Cade tracks/);
   assert.match((await tool(url, "get_task_history", { link: "https://example.com" })).text, /isn't a link to a Slack message/);
+
+  // By task ID, the form get_my_tasks gives: the same messages, and the same rules.
+  const byId = await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" });
+  assert.equal(byId.isError, false, byId.text);
+  assert.equal(byId.text, result.text);
+  assert.match((await tool(url, "get_task_history", { task_id: " CDEV:1700000000.000100 " })).text, /2 kept messages/);
+  assert.match((await tool(url, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
+  assert.match((await tool(bob, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /hush/);
+  assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1600000000.000100" })).text, /isn't to a task Cade tracks/);
+  assert.match((await tool(url, "get_task_history", { task_id: "12" })).text, /channel and the message time joined by a colon/);
+  assert.match((await tool(url, "get_task_history", {})).text, /Give a task_id, or a link/);
 });
 
 // The track form, submitted from a message: `move` is where it came from.

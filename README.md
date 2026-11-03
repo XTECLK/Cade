@@ -175,9 +175,11 @@ or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 ## AI agents
 
 Cade is also an [MCP](https://modelcontextprotocol.io) server at
-`/mcp/<token>`, so a person's own AI agent can summarize a thread into a task
-(`src/mcp.js`). `/cade mcp init` gives the person a token of their own,
-shown only to them, and `/cade mcp revoke` ends it; only a hash is kept, in
+`/mcp`, so a person's own AI agent can summarize a thread into a task
+(`src/mcp.js`). Every request carries the person's API key in the `x-apikey`
+header, never in the address. `/cade mcp init` gives the person a key of
+their own, shown only to them with the endpoint and the commands to add it to
+their agent, and `/cade mcp revoke` ends it; only a hash is kept, in
 `mcp_tokens`. Its seven tools are `get_thread_history(link)`, which reads a
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
 `get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
@@ -197,8 +199,9 @@ After a task is made from a message, its form gives way to a
 second one with a short prompt to paste into the agent, naming the task by
 its ID, and a line pointing to `/cade mcp init` for an agent that isn't
 connected (in `src/commands/track.js`); `aiAgentSummary: false` on a project
-turns that off. `/cade mcp init` replies with the MCP endpoint to add to the
-agent, once; to change it, `/cade mcp revoke` and then `init` again.
+turns that off. `/cade mcp init` replies with the MCP endpoint and the API key
+to add to the agent, once; to change the key, `/cade mcp revoke` and then
+`init` again.
 
 ## Tests
 

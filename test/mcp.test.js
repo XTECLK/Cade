@@ -60,12 +60,17 @@ async function slash(text, user = "UME") {
   return response.json();
 }
 
-// The address /cade mcp init gives, from its reply.
-const addressIn = (reply) => /https:\/\/\S+\/mcp\/[\w-]+/.exec(reply.text)[0];
+// The API key /cade mcp init gives, from its reply (the endpoint is the same for everyone).
+const addressIn = (reply) => /\*API key\*[^\n]*\n```([\w-]{43})```/.exec(reply.text)[1];
+const ENDPOINT = `${ORIGIN}/mcp`;
 
-// One JSON-RPC message to an address; returns the Response.
-const rpc = (url, message, method = "POST") =>
-  worker.fetch(new Request(url, { method, headers: { "content-type": "application/json" }, body: method === "POST" ? JSON.stringify({ jsonrpc: "2.0", ...message }) : undefined }), env, { waitUntil() {} });
+// One JSON-RPC message to the endpoint with an API key (in the x-apikey header, if given); returns the Response.
+const rpc = (key, message, method = "POST", path = "/mcp") =>
+  worker.fetch(
+    new Request(`${ORIGIN}${path}`, { method, headers: { "content-type": "application/json", ...(key && { "x-apikey": key }) }, body: method === "POST" ? JSON.stringify({ jsonrpc: "2.0", ...message }) : undefined }),
+    env,
+    { waitUntil() {} },
+  );
 
 // A tool's result: its text, and whether it is an error.
 async function tool(url, name, args) {
@@ -73,15 +78,20 @@ async function tool(url, name, args) {
   return { text: result.content[0].text, isError: Boolean(result.isError) };
 }
 
-test("/cade mcp init gives a private address for the caller, and revoke ends it", async (t) => {
+test("/cade mcp init gives an API key for the caller, and revoke ends it", async (t) => {
   mock(t);
-  const first = addressIn(await slash("mcp init"));
-  assert.match(first, /^https:\/\/worker\.example\.net\/mcp\/[\w-]{43}$/);
+  const reply = await slash("mcp init");
+  const first = addressIn(reply);
+  assert.match(first, /^[\w-]{43}$/);
+  // The reply gives the endpoint, without the key in it, and says to send the key in the x-apikey header.
+  assert.match(reply.text, /\*Endpoint\*\n```https:\/\/worker\.example\.net\/mcp```/);
+  assert.ok(!reply.text.includes(`/mcp/${first}`));
+  assert.match(reply.text, /claude mcp add --transport http cade https:\/\/worker\.example\.net\/mcp --header "x-apikey: [\w-]{43}"/);
   const list = async (url) => (await rpc(url, { id: 1, method: "tools/list" })).status;
   assert.equal(await list(first), 200);
 
   // While there is one, init makes none: it can't be shown again, so changing it is revoke, then init.
-  assert.match((await slash("mcp init")).text, /address already.*send `\/cade mcp revoke`.*then `\/cade mcp init`/);
+  assert.match((await slash("mcp init")).text, /API key already.*send `\/cade mcp revoke`.*then `\/cade mcp init`/);
   assert.equal(await list(first), 200);
 
   // Only a hash is kept.
@@ -97,17 +107,26 @@ test("/cade mcp init gives a private address for the caller, and revoke ends it"
 
   assert.match((await slash("mcp revoke")).text, /no longer works/);
   assert.equal(await list(second), 401);
-  assert.match((await slash("mcp revoke")).text, /no address to revoke/);
+  assert.match((await slash("mcp revoke")).text, /no API key to revoke/);
   assert.match((await slash("mcp")).text, /mcp init/);
 });
 
-test("the MCP endpoint speaks MCP, and only to a token", async (t) => {
+test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header", async (t) => {
   mock(t);
   const url = addressIn(await slash("mcp init"));
 
-  assert.equal((await rpc(`${ORIGIN}/mcp/${"x".repeat(43)}`, { id: 1, method: "tools/list" })).status, 401);
-  assert.equal((await rpc(`${ORIGIN}/mcp/nope`, { id: 1, method: "tools/list" })).status, 401);
+  // No key, a wrong one, a malformed one, and the key anywhere but the header all fail.
+  assert.equal((await rpc(undefined, { id: 1, method: "tools/list" })).status, 401);
+  assert.equal((await rpc("x".repeat(43), { id: 1, method: "tools/list" })).status, 401);
+  assert.equal((await rpc("nope", { id: 1, method: "tools/list" })).status, 401);
+  assert.equal((await rpc(undefined, { id: 1, method: "tools/list" }, "POST", `/mcp/${url}`)).status, 404);
+  const bearer = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "POST", headers: { authorization: `Bearer ${url}` }, body: "{}" }), env, { waitUntil() {} });
+  assert.equal(bearer.status, 401);
   assert.equal((await rpc(url, {}, "GET")).status, 405);
+  // CORS preflight tells browsers they may send the header.
+  const preflight = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "OPTIONS" }), env, { waitUntil() {} });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /x-apikey/);
 
   const init = await (await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } })).json();
   assert.equal(init.result.protocolVersion, "2025-03-26");

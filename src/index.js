@@ -21,9 +21,9 @@ export default {
     // request came by unless PUBLIC_URL says otherwise (see links.js).
     env = env.PUBLIC_URL ? env : { ...env, PUBLIC_URL: new URL(request.url).origin };
     const path = new URL(request.url).pathname;
-    // AI agents reach Cade's MCP endpoint with a token of their own, not
-    // Slack's signature (see mcp.js).
-    if (path.startsWith("/mcp/")) return handleMcp(request, env);
+    // AI agents reach Cade's MCP endpoint with an API key of their own in a
+    // header, not Slack's signature (see mcp.js).
+    if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
     // People reach a task's thread and notes pages with a session of their
     // own, which `/cade login` starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);

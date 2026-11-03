@@ -1,6 +1,7 @@
 import { hashToken, isMember, newToken, readableName } from "./access.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
 import { deleteMcpToken, mcpTokenUser, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
+import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
 import { callSlack, linkedMessage, linkedThread } from "./slack.js";
 import { ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
@@ -23,15 +24,15 @@ import { ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
 //   update_task_summary(link, summary) the summary at the top of the task's
 //                                      notes page
 //
-// It speaks MCP's Streamable HTTP in its simplest form: every POST to
-// /mcp/<token> is one JSON-RPC message, or a batch of them, answered with
-// JSON. There are no sessions and nothing is streamed.
+// It speaks MCP's Streamable HTTP in its simplest form: every POST to /mcp is
+// one JSON-RPC message, or a batch of them, answered with JSON. There are no
+// sessions and nothing is streamed.
 //
-// The token in the address is the person's own, made by `/cade mcp init` and
-// ended by `/cade mcp revoke` (see commands/mcp.js), so every action is theirs:
-// a private channel's thread is read only for someone in it. Only a hash of it
-// is kept (see grantToken). It is in the address because the connectors of
-// Claude and Gemini take only an address.
+// The API key is the person's own, made by `/cade mcp init` and ended by
+// `/cade mcp revoke` (see commands/mcp.js), so every action is theirs: a
+// private channel's thread is read only for someone in it. It is sent in the
+// `x-apikey` header with every request, never in the address, which ends up
+// in logs and histories. Only a hash of it is kept (see grantToken).
 //
 // The summary is kept in Cade's database (task_notes), and the team reads it,
 // with the notes they write around it, on the task's notes page (see web.js).
@@ -42,13 +43,17 @@ const MAX_SUMMARY = 8000;
 const MAX_TASKS = 100;
 const DEFAULT_TASKS = 20;
 
-// Makes a new token for `user`, ending any they had, and returns the address
-// of the MCP endpoint it opens, on the Worker at `origin`. The token can't be
-// read again; `/cade mcp revoke` ends it, and a new one follows.
-export async function grantToken(env, origin, user) {
+// Makes a new API key for `user`, ending any they had, and returns it. It
+// can't be read again; `/cade mcp revoke` ends it, and a new one follows.
+export async function grantToken(env, user) {
   const token = newToken();
   await putMcpToken(env, user, await hashToken(token));
-  return `${origin}/mcp/${token}`;
+  return token;
+}
+
+// The address of the MCP endpoint, on the Worker.
+export function endpointUrl(env) {
+  return `${publicUrl(env)}/mcp`;
 }
 
 // Ends the user's token, and returns whether they had one.
@@ -59,6 +64,11 @@ export function revokeToken(env, user) {
 // The user a token is for, or null.
 async function tokenUser(env, token) {
   return /^[A-Za-z0-9_-]{43}$/.test(token) ? mcpTokenUser(env, await hashToken(token)) : null;
+}
+
+// The API key a request sends in its `x-apikey` header, or "".
+function apiKeyOf(request) {
+  return (request.headers.get("x-apikey") ?? "").trim();
 }
 
 // What the agent is told when it connects.
@@ -176,18 +186,18 @@ const TOOLS = [
 // read and act on, rather than a failure of the call.
 class ToolError extends Error {}
 
-// The Worker's answer to a request for /mcp/<token>.
+// The Worker's answer to a request for /mcp.
 export async function handleMcp(request, env) {
   const headers = {
     "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type, accept, mcp-protocol-version, mcp-session-id, authorization",
+    "access-control-allow-headers": "content-type, accept, mcp-protocol-version, mcp-session-id, x-apikey",
     "access-control-allow-methods": "POST, OPTIONS",
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   // There is no stream to open, as MCP lets a server say.
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { ...headers, allow: "POST" } });
 
-  const user = await tokenUser(env, decodeURIComponent(new URL(request.url).pathname.slice("/mcp/".length)));
+  const user = await tokenUser(env, apiKeyOf(request));
   if (!user) return new Response("Unauthorized", { status: 401, headers });
 
   let body;

@@ -163,20 +163,20 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "find_user", "get_task_history", "get_original_thread_history", "get_thread_history", "resolve_user_name", "update_task_summary"]) {
+  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "find_user", "get_task_history", "get_original_thread_history", "get_thread_history", "resolve_user_name"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
   assert.match(init.result.instructions, /show it to the person and ask whether to save it or change it, and only when they approve it save it/);
-  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json()).result.tools.find((tool) => tool.name === "update_task_summary");
-  assert.match(summaryTool.description, /only with text the person has seen and approved/);
+  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json()).result.tools.find((tool) => tool.name === "update_task");
+  assert.match(summaryTool.description, /only with changes the person has seen and approved/);
   assert.match(init.result.instructions, /without saying which task, call get_tasks with mine, list their tasks and ask which one/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_original_thread_history", "get_tasks", "resolve_user_name", "find_user", "update_task", "update_task_summary"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_original_thread_history", "get_tasks", "resolve_user_name", "find_user", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
   assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_original_thread_history"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
@@ -259,13 +259,13 @@ const stored = (overrides = {}) => ({
   ...overrides,
 });
 
-test("update_task_summary keeps the summary in the database, on the task's notes page", async (t) => {
+test("update_task saves the summary, which it keeps the summary in the database, on the task's notes page", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored({ notes: { url: `${ORIGIN}/n/CDEV/1000000000.000100` } }));
-  const calls = mock(t);
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } } });
   const url = addressIn(await slash("mcp init", "UME"));
 
   const link = "https://acme.slack.com/archives/CDEV/p1000000000000100";
-  const result = await tool(url, "update_task_summary", { link, summary: "  Fix login on Safari.\n- Ann owns it  " });
+  const result = await tool(url, "update_task", { link, summary: "  Fix login on Safari.\n- Ann owns it  " });
   assert.equal(result.isError, false, result.text);
   assert.match(result.text, /top of the task's notes page: https:\/\/worker\.example\.net\/n\/CDEV\/1000000000\.000100/);
   const row = await DB.prepare("SELECT summary, summary_by FROM task_notes").first();
@@ -274,23 +274,23 @@ test("update_task_summary keeps the summary in the database, on the task's notes
   assert.deepEqual(calls.map((call) => call.method).filter((method) => method.startsWith("chat.") || method.startsWith("google:")), []);
 
   // A later summary replaces it.
-  await tool(url, "update_task_summary", { link, summary: "Second" });
+  await tool(url, "update_task", { link, summary: "Second" });
   assert.equal((await DB.prepare("SELECT summary FROM task_notes").first()).summary, "Second");
 });
 
-test("update_task_summary links the notes page of an older task on its card, and says what's wrong with a call", async (t) => {
+test("update_task with a summary links the notes page of an older task on its card, and says what's wrong with a call", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored());
-  const calls = mock(t, { "chat.update": {} });
+  const calls = mock(t, { "chat.update": {}, "conversations.info": { channel: { name: "dev" } } });
   const url = addressIn(await slash("mcp init"));
 
-  const made = await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "Summary" });
+  const made = await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "Summary" });
   assert.equal(made.isError, false, made.text);
   assert.deepEqual((await getTask(env, "CDEV", "1000000000.000100")).notes, { url: `${ORIGIN}/n/CDEV/1000000000.000100` });
   assert.ok(calls.some((call) => call.method === "chat.update"), "its card links the page");
 
-  assert.match((await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p9000000000000100", summary: "S" })).text, /isn't to a task/);
-  assert.match((await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: " " })).text, /empty/);
-  assert.match((await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "x".repeat(8001) })).text, /8001 characters/);
+  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p9000000000000100", summary: "S" })).text, /isn't a task Cade tracks/);
+  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: " " })).text, /empty/);
+  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "x".repeat(8001) })).text, /8001 characters/);
 });
 
 test("get_thread_history reads only from Slack, even for a task Cade keeps messages of", async (t) => {
@@ -432,6 +432,11 @@ test("update_task changes a task for the person and tells its thread, only with 
   assert.match((await tool(url, "update_task", { task_id: TASK, owner: { add: ["rex"] } })).text, /isn't a Slack user ID/);
   assert.match((await tool(url, "update_task", { task_id: TASK, owner: { add: ["UREX"], remove: ["UREX"] } })).text, /add and remove/);
   assert.match((await tool(url, "update_task", { task_id: TASK })).text, /Nothing to change/);
+  // Fields and a summary go in one call: the fields are told to the thread, the summary is saved.
+  const both = (await tool(url, "update_task", { task_id: TASK, priority: "Low", summary: "The issue." })).text;
+  assert.match(both, /^Done\. The change is posted in the task's thread\. The summary is at the top/);
+  assert.equal((await DB.prepare("SELECT summary FROM task_notes WHERE channel = 'CDEV'").first()).summary, "The issue.");
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100")).priority, "Low");
   assert.match((await tool(url, "update_task", { task_id: "CPRIV:1700000000.000100", priority: "Low" })).text, /can't read that task's channel/);
   assert.match((await tool(url, "update_task", { task_id: "CDEV:1600000000.000100", priority: "Low" })).text, /isn't a task Cade tracks/);
   assert.equal((await getTask(env, "CPRIV", "1700000000.000100")).priority, stored().priority);
@@ -639,11 +644,11 @@ test("after a task is made from a message, its form gives way to the prompt for 
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
     // The prompt names the task by its ID and the tools to use with it.
     assert.match(text, /Write the issue summary of the Cade task CDEV:100\.1\./);
-    assert.match(text, /get_original_thread_history[\s\S]*resolve_user_name[\s\S]*update_task_summary and the same task_id/);
+    assert.match(text, /get_original_thread_history[\s\S]*resolve_user_name[\s\S]*update_task \(its summary\) and the same task_id/);
     // Only the issue: what was done and how it ended are left to the task's own thread.
     assert.match(text, /Only the issue\. Leave out what was done about it and how it ended/);
     // The draft is shown first, and saved only once the person approves it.
-    assert.match(text, /4\. Show the draft to the person and ask whether to save it as it is or change it\. Don't save anything yet[\s\S]*Only when they approve it, save that text with update_task_summary/);
+    assert.match(text, /4\. Show the draft to the person and ask whether to save it as it is or change it\. Don't save anything yet[\s\S]*Only when they approve it, save that text with update_task/);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
     assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Send `/cade mcp init`.");

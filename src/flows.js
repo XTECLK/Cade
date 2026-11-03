@@ -31,7 +31,7 @@ export function summaryPrompt(taskId) {
     `1. Read the thread the task was made from with get_original_thread_history (${taskId ? "task_id above" : "its task_id"}). It is where the problem or request was first raised. If it says the task wasn't made from another thread, read the task's own thread with get_task_history instead.`,
     "2. Look up every user ID or mention with resolve_user_name, and use names, not IDs.",
     "3. Draft it as plain text with no markup, a few short lines, for someone who wasn't in the discussion: what the problem or request is, who raised it and when, the impact, and the details needed to understand it, such as steps to reproduce, errors or who is affected.",
-    "4. Show the draft to the person and ask whether to save it as it is or change it. Don't save anything yet. If they ask for changes, make them and show it again. Only when they approve it, save that text with update_task_summary and the same task_id, and tell them where it is.",
+    "4. Show the draft to the person and ask whether to save it as it is or change it. Don't save anything yet. If they ask for changes, make them and show it again. Only when they approve it, save that text with update_task (its summary) and the same task_id, and tell them where it is.",
     `Only the issue. Leave out what was done about it and how it ended: the task's own thread already has the actions taken and the result, and people read them there. If the thread says nothing about a part, leave it out rather than guessing. ${OTHERS}`,
   ].join("\n");
 }
@@ -45,7 +45,7 @@ function triagePrompt(taskId) {
     `1. Read it with get_task (${taskId ? "task_id above" : "its task_id"}), the thread it was made from with get_original_thread_history, and what was done about it with get_task_history. Look up every user ID with resolve_user_name, and use names, not IDs.`,
     "2. Say in two or three lines what the issue is, then propose changes to the status, priority, due date, owner, reviewer and tester where the threads give a reason. Name the evidence for each, such as a message and who wrote it. Leave a field alone when nothing supports a change, and don't invent dates or people.",
     "3. To assign someone by name, find their user ID with find_user and, if there is more than one match, ask which. An incident's priority and due date never change.",
-    "4. Show the proposed changes as a short list (field, from, to, why) and ask whether to apply them as they are, change some or skip them. Don't change anything yet. If they ask for changes, make them and show the list again. Only when they approve it, apply them with update_task in one call and the same task_id, and tell them what changed.",
+    "4. Show the proposed changes as a short list (field, from, to, why) and ask whether to apply them as they are, change some or skip them. Don't change anything yet. If they ask for changes, make them and show the list again. Only when they approve it, apply them with update_task in one call and the same task_id, together with the summary if you are saving one,, and tell them what changed.",
     `Then ask whether to go on to the next task. ${OTHERS}`,
   ].join("\n");
 }

@@ -167,6 +167,9 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
+  assert.match(init.result.instructions, /show it to the person and ask whether to save it or change it, and only when they approve it save it/);
+  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json()).result.tools.find((tool) => tool.name === "update_task_summary");
+  assert.match(summaryTool.description, /only with text the person has seen and approved/);
   assert.match(init.result.instructions, /without saying which task, call get_my_tasks, list their tasks and ask which one/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
@@ -546,6 +549,8 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.match(text, /get_tracked_thread[\s\S]*resolve_user_name[\s\S]*update_task_summary and the same task_id/);
     // Only the issue: what was done and how it ended are left to the task's own thread.
     assert.match(text, /Only the issue\. Leave out what was done about it and how it ended/);
+    // The draft is shown first, and saved only once the person approves it.
+    assert.match(text, /4\. Show the draft to the person and ask whether to save it as it is or change it\. Don't save anything yet[\s\S]*Only when they approve it, save that text with update_task_summary/);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
     assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Send `/cade mcp init`.");

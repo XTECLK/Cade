@@ -230,29 +230,24 @@ test("update_task_summary links the notes page of an older task on its card, and
   assert.match((await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "x".repeat(8001) })).text, /8001 characters/);
 });
 
-test("get_thread_history adds what Cade kept to what Slack still gives, and works when Slack gives nothing", async (t) => {
+test("get_thread_history reads only from Slack, even for a task Cade keeps messages of", async (t) => {
   await putTask(env, "CDEV", "1700000000.000100", stored());
-  for (const [ts, text] of [["1700000000.000100", "We should fix login"], ["1700000060.000200", "Kept reply"]]) {
-    await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', ?, 'UBOB', ?)").bind(ts, text).run();
-  }
+  await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000060.000200', 'UBOB', 'Kept reply')").run();
   let slack = { messages: [{ user: "UBOB", ts: "1700000000.000100", text: "We should fix login" }] };
   mock(t, { "conversations.info": { channel: { name: "dev" } }, "conversations.replies": () => slack });
   const url = addressIn(await slash("mcp grant"));
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
-  const merged = await tool(url, "get_thread_history", { link });
-  assert.equal(merged.isError, false, merged.text);
-  assert.match(merged.text, /2 messages/);
-  assert.match(merged.text, /UBOB: We should fix login\n.*UBOB: Kept reply/);
+  // What Slack gives is what comes back; the kept reply isn't added.
+  const fromSlack = await tool(url, "get_thread_history", { link });
+  assert.equal(fromSlack.isError, false, fromSlack.text);
+  assert.match(fromSlack.text, /1 message,/);
+  assert.ok(!fromSlack.text.includes("Kept reply"));
 
-  // Slack has dropped the thread: Cade's copy answers.
+  // Slack has dropped the thread: it's not found here, while get_task_history still has it.
   slack = new Error("thread_not_found");
-  const kept = await tool(url, "get_thread_history", { link });
-  assert.equal(kept.isError, false, kept.text);
-  assert.match(kept.text, /2 messages/);
-
-  // An untracked thread Slack no longer has is still not found.
-  assert.match((await tool(url, "get_thread_history", { link: "https://acme.slack.com/archives/CDEV/p1600000000000100" })).text, /couldn't find that thread/);
+  assert.match((await tool(url, "get_thread_history", { link })).text, /couldn't find that thread/);
+  assert.match((await tool(url, "get_task_history", { link })).text, /Kept reply/);
 });
 
 test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, most urgent first, and filters by role and status", async (t) => {

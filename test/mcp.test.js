@@ -111,6 +111,25 @@ test("/cade mcp init gives an API key for the caller, and revoke ends it", async
   assert.match((await slash("mcp")).text, /mcp init/);
 });
 
+test("the MCP server offers the summarize_task prompt, for a task's issue only", async (t) => {
+  mock(t);
+  const url = addressIn(await slash("mcp init"));
+  const { result: list } = await (await rpc(url, { id: 1, method: "prompts/list" })).json();
+  assert.deepEqual(list.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [["summarize_task", [["task_id", true]]]]);
+  assert.ok(!("text" in list.prompts[0]));
+
+  const { result } = await (await rpc(url, { id: 2, method: "prompts/get", params: { name: "summarize_task", arguments: { task_id: "CDEV:1700000000.000100" } } })).json();
+  assert.equal(result.messages[0].role, "user");
+  const text = result.messages[0].content.text;
+  assert.match(text, /^Write the issue summary of the Cade task CDEV:1700000000\.000100\./);
+  assert.match(text, /get_tracked_thread.*get_task_history instead/s);
+  assert.match(text, /Only the issue\./);
+
+  const bad = await (await rpc(url, { id: 3, method: "prompts/get", params: { name: "summarize_task", arguments: { task_id: "12" } } })).json();
+  assert.match(bad.error.message, /channel and the message time joined by a colon/);
+  assert.match((await (await rpc(url, { id: 4, method: "prompts/get", params: { name: "nope" } })).json()).error.message, /Unknown prompt/);
+});
+
 test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header", async (t) => {
   mock(t);
   const url = addressIn(await slash("mcp init"));
@@ -131,7 +150,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const init = await (await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } })).json();
   assert.equal(init.result.protocolVersion, "2025-03-26");
   assert.equal(init.result.serverInfo.name, "cade");
-  assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
+  assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
   for (const name of ["get_my_tasks", "get_all_tasks", "get_task_history", "get_tracked_thread", "get_thread_history", "resolve_user_name", "update_task_summary"]) {
     assert.ok(init.result.instructions.includes(name), name);
@@ -399,7 +418,7 @@ test("get_tracked_thread reads the thread a task was made from, found in the fir
   const read = calls.filter((call) => call.method === "conversations.replies").at(-1).args;
   assert.deepEqual({ channel: read.channel, ts: read.ts }, { channel: "CCLIENT", ts: "1699990000.000100" });
   // The task's own thread points to the one it came from, so an agent summarizing it reads both; a typed-in task has no such note.
-  assert.match((await tool(url, "get_task_history", { task_id: `CDEV:${TASK}` })).text, /\n\nNote: "Fix login" was made from another thread.*get_tracked_thread and the same task_id\.$/s);
+  assert.match((await tool(url, "get_task_history", { task_id: `CDEV:${TASK}` })).text, /\n\nNote: "Fix login" was made from another thread.*get_tracked_thread reads it with the same task_id\./s);
   assert.ok(!(await tool(url, "get_task_history", { task_id: `CBARE:${TASK}` })).text.includes("get_tracked_thread"));
   // The same by a link to the task's message.
   assert.match((await tool(url, "get_tracked_thread", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100" })).text, /was made from this thread/);
@@ -484,8 +503,10 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.equal(view.submit, undefined);
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
     // The prompt names the task by its ID and the tools to use with it.
-    assert.match(text, /Summarize the Cade task CDEV:100\.1\./);
-    assert.match(text, /get_task_history and get_tracked_thread[\s\S]*resolve_user_name[\s\S]*update_task_summary with the same task_id/);
+    assert.match(text, /Write the issue summary of the Cade task CDEV:100\.1\./);
+    assert.match(text, /get_tracked_thread[\s\S]*resolve_user_name[\s\S]*update_task_summary and the same task_id/);
+    // Only the issue: what was done and how it ended are left to the task's own thread.
+    assert.match(text, /Only the issue\. Leave out what was done about it and how it ended/);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
     assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Send `/cade mcp init`.");
@@ -511,7 +532,7 @@ test("the prompt follows privately when the task takes too long to post for the 
   assert.deepEqual(await submitted, { response_action: "clear" });
   const ephemeral = calls.find((call) => call.method === "chat.postEphemeral");
   assert.equal(ephemeral.args.user, "UCREATOR");
-  assert.match(ephemeral.args.text, /Summarize the Cade task CDEV:100\.1\./);
+  assert.match(ephemeral.args.text, /Write the issue summary of the Cade task CDEV:100\.1\./);
   assert.match(ephemeral.args.text, /\/cade mcp init/);
 });
 

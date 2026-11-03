@@ -13,7 +13,7 @@ import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
-// The Google web app, for each group's Sheet and Doc; the acme group's doc
+// The Google web app, for each group's Doc; the acme group's doc
 // and its Summary tab.
 const GOOGLE_URL = "https://script.google.com/macros/s/test/exec";
 const DOC_ID = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
@@ -117,8 +117,7 @@ const savedTask = (channel = "CDEV", ts = "100.1") => getTask(env, channel, ts);
 // `responses.stored` (task records). `responses` maps a
 // method name to its result; every call is recorded with its decoded arguments. Link preview
 // settings are recorded as `previews` rather than with the arguments. Requests to the
-// Google web app are recorded with their JSON body: a Sheet row as the
-// "sheet" method, answered by `responses.sheet`, and the Doc's as "doc",
+// Google web app are recorded with their JSON body, as "doc",
 // answered by `responses.doc`.
 function mockSlack(t, { stored = [], ...responses } = {}) {
   DB.reset();
@@ -134,10 +133,6 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
     }
     if (url === GOOGLE_URL) {
       const body = JSON.parse(init.body);
-      if (body.action === "sheet.row") {
-        calls.push({ method: "sheet", args: body });
-        return Response.json(responses.sheet ?? { ok: true });
-      }
       calls.push({ method: "doc", args: body });
       const reply = typeof responses.doc === "function" ? responses.doc(body) : responses.doc;
       return Response.json(reply ?? { ok: true, url: DOC_TAB, elements: [] });
@@ -720,31 +715,11 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
-// Each group's own spreadsheet.
-const SHEETS = { acme: "1AcmeSheetAcmeSheetAcmeSheet", test: "1TestSheetTestSheetTestSheet" };
-const withSheets = (pairs) => pairs.map((pair) => ({ ...pair, taskSheet: `https://docs.google.com/spreadsheets/d/${SHEETS[pair.name]}/edit` }));
-// The sheet's times are in TIMEZONE; these tests expect Sri Lanka time.
-const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "google-secret", TIMEZONE: "Asia/Colombo" };
-const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
 const slackUsers = {
   "users.info": (args) => ({
     user: { profile: { display_name: { UCREATOR: "Randil", UALICE: "Alice", UBOB: "Bob", UREX: "Rex", UMIA: "Mia", UTESS: "Tess", UTOM: "Tom" }[args.user] } },
   }),
 };
-const sheetRow = (calls) => {
-  const sheet = calls.filter((call) => call.method === "sheet");
-  assert.equal(sheet.length, 1);
-  assert.equal(sheet[0].args.secret, "google-secret");
-  assert.equal(sheet[0].args.project, "acme");
-  assert.equal(sheet[0].args.spreadsheetId, SHEETS.acme);
-  return sheet[0].args.row;
-};
-test("a group without its own spreadsheet isn't recorded in a Sheet", async (t) => {
-  const calls = mockSlack(t, { ...slackUsers, stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"), {}, { ...sheetEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
-  assert.equal(calls.filter((call) => call.method === "sheet").length, 0);
-  assert.ok(calls.some((call) => call.method === "chat.update"), "the task itself still changes");
-});
 test("a group without a name is reported", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"), {}, {
@@ -757,34 +732,9 @@ test("setting Done again keeps the original completion time", async (t) => {
   const done = withStatus("DONE");
   done.task.completedAt = "2026-10-20T04:30:00.000Z";
   mockSlack(t, { ...slackUsers, stored: [done] });
-  await sendWithSheet("/slack/events", threadEvent("<@UBOT> status done"));
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
   assert.equal((await savedTask()).completedAt, "2026-10-20T04:30:00.000Z");
 });
-test("a sheet failure does not stop the command", async (t) => {
-  const calls = mockSlack(t, {
-    ...slackUsers,
-    sheet: { ok: false, error: "unauthorized" },
-    stored: [storedTask()],
-  });
-  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
-  assert.equal(calls.at(-1).method, "reactions.add");
-});
-
-// Apps Script answers a POST with a redirect to a page holding its reply.
-function mockRedirectingSheet(t, replyPage) {
-  const calls = mockSlack(t, { ...slackUsers, stored: [storedTask()] });
-  const mocked = globalThis.fetch;
-  const requests = [];
-  globalThis.fetch = async (url, init) => {
-    if (url === GOOGLE_URL) {
-      requests.push(init);
-      return new Response(null, { status: 302, headers: { location: "https://script.googleusercontent.com/echo" } });
-    }
-    if (url === "https://script.googleusercontent.com/echo") return replyPage();
-    return mocked(url, init);
-  };
-  return { calls, requests };
-}
 test("formatDueDate shows the picked date as DD/MM/YYYY", () => {
   assert.equal(formatDueDate("2026-10-31"), "31/10/2026");
   assert.equal(formatDueDate("2027-01-05"), "05/01/2027");
@@ -2755,7 +2705,7 @@ test("npm run slack:create asks for both tokens hidden", async () => {
   assert.doesNotMatch(script, /createInterface/);
 });
 
-// D1 is the source of truth; root messages and the Sheet are rendered from it.
+// D1 is the source of truth; root messages are rendered from it.
 
 test("each change is stored, and the root message is rendered from the stored task", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
@@ -2827,7 +2777,8 @@ test("the cron posts a task Slack refused, and finishes tracking it", async (t) 
   await age();
   await runCron();
 
-  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
+  // Its thread is read to be kept; with no request, the cron has no address to link its pages by.
+  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add", "conversations.replies"]);
   assert.equal(calls[0].args.channel, "CDEV");
   const task = await savedTask();
   assert.equal(task.title, "Fix login");
@@ -2835,7 +2786,8 @@ test("the cron posts a task Slack refused, and finishes tracking it", async (t) 
   // Posted once: nothing is left to retry.
   calls.length = 0;
   await runCron();
-  assert.equal(calls.length, 0);
+  // Only the summary canvas, made for the new task, is left to write (see summary.js).
+  assert.equal(withoutSummary(calls).length, 0);
 });
 
 test("the cron leaves alone posts that may still be under way", async (t) => {
@@ -4376,8 +4328,6 @@ test("/cade resync summary puts the group's open tasks in the dev channel's canv
   const markdown = canvasMarkdown(create);
   assert.match(markdown, /^_Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\. Cade keeps this up to date\._\n\n## Open\n\n4 open, most urgent first\.\n\n/);
   assert.match(markdown, /\n\n---\n\n## Closed\n\nThe last 2 done, most recently first\.\n\n/);
-  // Without a Google Sheet, there's nothing to link to.
-  assert.ok(!markdown.includes("Google Sheet"));
   assert.ok(markdown.includes("| Title | Status | Priority | Due date | Owner | Reviewer | Tester |"));
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
@@ -5641,8 +5591,8 @@ test("npm run config checks each group's suggestions and ai, and npm run group k
   assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[1], taskStatusChangeDetection: ["nope"] }] })), /test's taskStatusChangeDetection is true or false/);
 
   const { withGroup } = await import("../scripts/group.mjs");
-  const next = JSON.parse(withGroup(JSON.stringify({ projects }), "test", { sheet: "https://docs.google.com/spreadsheets/d/S/edit" }));
-  assert.deepEqual(next.projects[1], { name: "test", channel: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit", taskStatusChangeDetection: false });
+  const next = JSON.parse(withGroup(JSON.stringify({ projects }), "test", { workDoc: "https://docs.google.com/document/d/S/edit" }));
+  assert.deepEqual(next.projects[1], { name: "test", channel: "C0000000003", workDoc: "https://docs.google.com/document/d/S/edit", taskStatusChangeDetection: false });
 });
 
 test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {

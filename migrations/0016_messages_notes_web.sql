@@ -59,4 +59,7 @@ CREATE INDEX web_tokens_user ON web_tokens (user_id, kind);
 
 -- Pages for threads and notes used to be tabs in a Google Doc. Those links are
 -- dropped, and `/cade resync <link>` gives a task the new ones.
-UPDATE tasks SET notes_url = NULL, notes_tab = NULL, export_url = NULL, export_tab = NULL, export_synced = NULL;
+UPDATE tasks SET notes_url = NULL, export_url = NULL;
+ALTER TABLE tasks DROP COLUMN notes_tab;
+ALTER TABLE tasks DROP COLUMN export_tab;
+ALTER TABLE tasks DROP COLUMN export_synced;

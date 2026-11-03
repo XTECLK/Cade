@@ -309,6 +309,11 @@ async function getFlows(env, user, { name, task_id: taskId } = {}) {
 class ToolError extends Error {}
 
 // The Worker's answer to a request for /mcp.
+// The names of the tools and of the flows, for `/cade mcp info`.
+export function mcpCatalog() {
+  return { tools: TOOLS.map((tool) => tool.name), flows: FLOWS.map((flow) => flow.name) };
+}
+
 // Whether Cade's MCP endpoint is on. It is unless the Worker secret MCP is
 // "off" (`mcp: false` in cade.config.json).
 export function mcpEnabled(env) {

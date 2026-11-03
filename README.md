@@ -201,7 +201,7 @@ After a task is made from a message, its form gives way to a
 second one with a short prompt to paste into the agent, naming the task by
 its ID, and a line pointing to `/cade mcp init` for an agent that isn't
 connected (in `src/commands/track.js`); `aiAgentSummary: false` on a project
-turns that off. `/cade mcp init` replies with the MCP endpoint and the API key
+turns that off. `/cade mcp info` shows whether MCP is on, the endpoint, whether you have a key (never the key) and the tools and flows; `/cade mcp init` replies with the MCP endpoint and the API key
 to add to the agent, once; to change the key, `/cade mcp revoke` and then
 `init` again.
 

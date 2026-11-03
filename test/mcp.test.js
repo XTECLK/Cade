@@ -415,6 +415,26 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   assert.equal(calls.slice(before).filter((call) => call.method === "chat.postMessage").length, 0);
 });
 
+test("/cade mcp info shows how MCP is set up, never the key", async (t) => {
+  mock(t, SLACK_FOR_TASKS);
+  const before = JSON.stringify(await slash("mcp info", "UME"));
+  assert.match(before, /Status:\* on/);
+  assert.match(before, /worker\.example\.net\/mcp/);
+  assert.match(before, /Your API key:\* none yet/);
+  assert.match(before, /`get_tasks`.*`send_task_message`/);
+  assert.match(before, /`triage_tasks`/);
+
+  const key = addressIn(await slash("mcp init", "UME"));
+  const after = JSON.stringify(await slash("mcp info", "UME"));
+  assert.match(after, /Your API key:\* made \d{4}-\d{2}-\d{2}/);
+  assert.ok(!after.includes(key));
+  assert.match(JSON.stringify(await slash("mcp info", "UOTHER")), /none yet/);
+
+  env.MCP = "off";
+  t.after(() => delete env.MCP);
+  assert.match(JSON.stringify(await slash("mcp info", "UME")), /Status:\* off/);
+});
+
 test("turning MCP off ends the endpoint, gives no keys and drops the prompt, but still revokes keys", async (t) => {
   mock(t, SLACK_FOR_TASKS);
   const url = addressIn(await slash("mcp init", "UME"));

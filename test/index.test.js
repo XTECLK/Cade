@@ -783,7 +783,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
     assert.deepEqual(reply.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade home` · `/cade login` · `/cade mcp init` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade home` · `/cade login` · `/cade mcp init` · `/cade mcp info` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",

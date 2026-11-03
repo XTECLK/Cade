@@ -1,5 +1,5 @@
-import { hasMcpToken } from "../db.js";
-import { endpointUrl, grantToken, mcpEnabled, revokeToken } from "../mcp.js";
+import { hasMcpToken, mcpTokenCreated } from "../db.js";
+import { endpointUrl, grantToken, mcpCatalog, mcpEnabled, revokeToken } from "../mcp.js";
 
 // `/cade mcp init` gives the person an API key of their own for Cade's MCP
 // endpoint (see mcp.js), as one only they are shown, and `/cade mcp
@@ -10,10 +10,11 @@ import { endpointUrl, grantToken, mcpEnabled, revokeToken } from "../mcp.js";
 export default {
   name: "mcp",
   description: "Let your AI agent summarize threads into tasks: `init` gives you an API key for it, `revoke` ends it",
-  slashUsage: ["/cade mcp init", "/cade mcp revoke"],
+  slashUsage: ["/cade mcp init", "/cade mcp info", "/cade mcp revoke"],
   section: "work",
   async slash(command, { env }) {
     const action = command.text.trim().toLowerCase();
+    if (action === "info") return info(env, command.user);
     if (action === "init") {
       if (!mcpEnabled(env)) return "AI agent access is turned off for this Cade, so there is no key to give. An admin turns it on with `mcp` in cade.config.json.";
       if (await hasMcpToken(env, command.user)) {
@@ -26,9 +27,30 @@ export default {
         ? "Done. Your API key no longer works, so your AI agent can't use Cade until you send `/cade mcp init` again."
         : "You have no API key to revoke. Send `/cade mcp init` to get one.";
     }
-    return "Send `/cade mcp init` to set up your AI agent access to Cade, or `/cade mcp revoke` to take it away.";
+    return "Send `/cade mcp init` to set up your AI agent access to Cade, `/cade mcp info` to see how it is set up, or `/cade mcp revoke` to take it away.";
   },
 };
+
+// What `/cade mcp info` answers: whether MCP is on, where it is, whether the
+// person has a key (never the key itself), and what it offers.
+async function info(env, user) {
+  const { tools, flows } = mcpCatalog();
+  const on = mcpEnabled(env);
+  const made = await mcpTokenCreated(env, user);
+  const key = made
+    ? `made ${made.slice(0, 10)}. I can't show it again; to change it, \`/cade mcp revoke\` then \`/cade mcp init\``
+    : "none yet. Send `/cade mcp init` to get one";
+  const text = [
+    ":information_source: *Cade's MCP connection*",
+    `*Status:* ${on ? "on" : "off, so keys don't work and `/cade mcp init` gives none"}`,
+    `*Endpoint:* \`${endpointUrl(env)}\` (Streamable HTTP), with your API key in the header \`x-apikey\``,
+    `*Your API key:* ${key}`,
+    `*Tools:* ${tools.map((tool) => `\`${tool}\``).join(", ")}`,
+    `*Flows:* ${flows.map((flow) => `\`${flow}\``).join(", ")}`,
+    "Everything runs as you, so your agent reads only what you can read. Changes and messages it makes are posted in the task's thread under your name, after you approve them.",
+  ].join("\n");
+  return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
+}
 
 // The commands to run in each kind of AI agent to add Cade, for the endpoint
 // `url` and the API key `key`, sent as a header with every request.
@@ -51,7 +73,7 @@ function granted(url, key) {
     "*API key*, sent with every request in the header `x-apikey`",
     `\`\`\`${key}\`\`\``,
     setupSteps(url, key),
-    "It lets your agent read the threads you can read and write task summaries as you, so keep the key to yourself. `/cade mcp revoke` ends it, and I can't show it again: `/cade mcp init` makes a new one.",
+    "It lets your agent read the threads you can read, and change tasks and post in their threads as you, so keep the key to yourself. `/cade mcp revoke` ends it, and I can't show it again: `/cade mcp init` makes a new one.",
   ].join("\n");
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
 }

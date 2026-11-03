@@ -679,6 +679,11 @@ export async function putMcpToken(env, user, hash) {
 }
 
 // Whether the user has an MCP token.
+// When the user's API key was made, in SQLite's datetime form, or null.
+export async function mcpTokenCreated(env, user) {
+  return (await env.DB.prepare("SELECT created_at FROM mcp_tokens WHERE user_id = ?").bind(user).first())?.created_at ?? null;
+}
+
 export async function hasMcpToken(env, user) {
   return Boolean(await env.DB.prepare("SELECT 1 AS found FROM mcp_tokens WHERE user_id = ?").bind(user).first());
 }

@@ -678,6 +678,11 @@ export async function putMcpToken(env, user, hash) {
     .run();
 }
 
+// Whether the user has an MCP token.
+export async function hasMcpToken(env, user) {
+  return Boolean(await env.DB.prepare("SELECT 1 AS found FROM mcp_tokens WHERE user_id = ?").bind(user).first());
+}
+
 // The user whose MCP token has this hash, or null.
 export async function mcpTokenUser(env, hash) {
   const row = await env.DB.prepare("SELECT user_id FROM mcp_tokens WHERE token_hash = ?").bind(hash).first();

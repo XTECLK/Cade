@@ -60,7 +60,7 @@ async function slash(text, user = "UME") {
   return response.json();
 }
 
-// The address /cade mcp grant gives, from its reply.
+// The address /cade mcp init gives, from its reply.
 const addressIn = (reply) => /https:\/\/\S+\/mcp\/[\w-]+/.exec(reply.text)[0];
 
 // One JSON-RPC message to an address; returns the Response.
@@ -73,32 +73,37 @@ async function tool(url, name, args) {
   return { text: result.content[0].text, isError: Boolean(result.isError) };
 }
 
-test("/cade mcp grant gives a private address for the caller, and revoke ends it", async (t) => {
+test("/cade mcp init gives a private address for the caller, and revoke ends it", async (t) => {
   mock(t);
-  const first = addressIn(await slash("mcp grant"));
+  const first = addressIn(await slash("mcp init"));
   assert.match(first, /^https:\/\/worker\.example\.net\/mcp\/[\w-]{43}$/);
   const list = async (url) => (await rpc(url, { id: 1, method: "tools/list" })).status;
   assert.equal(await list(first), 200);
 
-  // Granting again replaces it.
-  const second = addressIn(await slash("mcp grant"));
+  // While there is one, init makes none: it can't be shown again, so changing it is revoke, then init.
+  assert.match((await slash("mcp init")).text, /address already.*send `\/cade mcp revoke`.*then `\/cade mcp init`/);
+  assert.equal(await list(first), 200);
+
+  // Only a hash is kept.
+  const { token_hash: stored } = await DB.prepare("SELECT token_hash FROM mcp_tokens WHERE user_id = ?").bind("UME").first();
+  assert.ok(!first.includes(stored));
+
+  assert.match((await slash("mcp revoke")).text, /no longer works/);
+  assert.equal(await list(first), 401);
+  const second = addressIn(await slash("mcp init"));
   assert.notEqual(second, first);
   assert.equal(await list(first), 401);
   assert.equal(await list(second), 200);
 
-  // Only a hash is kept.
-  const { token_hash: stored } = await DB.prepare("SELECT token_hash FROM mcp_tokens WHERE user_id = ?").bind("UME").first();
-  assert.ok(!second.includes(stored));
-
   assert.match((await slash("mcp revoke")).text, /no longer works/);
   assert.equal(await list(second), 401);
   assert.match((await slash("mcp revoke")).text, /no address to revoke/);
-  assert.match((await slash("mcp")).text, /mcp grant/);
+  assert.match((await slash("mcp")).text, /mcp init/);
 });
 
 test("the MCP endpoint speaks MCP, and only to a token", async (t) => {
   mock(t);
-  const url = addressIn(await slash("mcp grant"));
+  const url = addressIn(await slash("mcp init"));
 
   assert.equal((await rpc(`${ORIGIN}/mcp/${"x".repeat(43)}`, { id: 1, method: "tools/list" })).status, 401);
   assert.equal((await rpc(`${ORIGIN}/mcp/nope`, { id: 1, method: "tools/list" })).status, 401);
@@ -134,7 +139,7 @@ test("get_thread_history reads a thread, and a private channel only for someone 
   });
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
-  const mine = addressIn(await slash("mcp grant", "UME"));
+  const mine = addressIn(await slash("mcp init", "UME"));
   const { text, isError } = await tool(mine, "get_thread_history", { link });
   assert.equal(isError, false, text);
   assert.equal(
@@ -155,7 +160,7 @@ test("get_thread_history reads a thread, and a private channel only for someone 
   // UME isn't in the private channel; UBOB is.
   const priv = "https://acme.slack.com/archives/CPRIV/p1700000000000100";
   assert.match((await tool(mine, "get_thread_history", { link: priv })).text, /aren't in that channel/);
-  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.equal((await tool(bob, "get_thread_history", { link: priv })).isError, false);
 
   assert.match((await tool(mine, "get_thread_history", { link: "https://example.com" })).text, /isn't a link to a Slack message/);
@@ -169,7 +174,7 @@ test("get_thread_history joins a public channel Cade isn't in", async (t) => {
     "conversations.join": () => ((joined = true), {}),
     "conversations.replies": () => (joined ? { messages: [{ user: "UBOB", ts: "1.1", text: "hi" }] } : new Error("not_in_channel")),
   });
-  const url = addressIn(await slash("mcp grant"));
+  const url = addressIn(await slash("mcp init"));
   const { isError, text } = await tool(url, "get_thread_history", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100" });
   assert.equal(isError, false, text);
   assert.ok(calls.some((call) => call.method === "conversations.join"));
@@ -177,7 +182,7 @@ test("get_thread_history joins a public channel Cade isn't in", async (t) => {
 
 test("resolve_user_name gives a user's name from an ID or a mention", async (t) => {
   mock(t, { "users.info": (args) => (args.user === "UBOB" ? { user: { real_name: "Bob Jones", profile: { display_name: "bobby" } } } : new Error("user_not_found")) });
-  const url = addressIn(await slash("mcp grant"));
+  const url = addressIn(await slash("mcp init"));
   assert.equal((await tool(url, "resolve_user_name", { id: "UBOB" })).text, "Bob Jones (bobby)");
   assert.equal((await tool(url, "resolve_user_name", { id: "<@UBOB>" })).text, "Bob Jones (bobby)");
   assert.match((await tool(url, "resolve_user_name", { id: "bob" })).text, /isn't a Slack user ID/);
@@ -199,7 +204,7 @@ const stored = (overrides = {}) => ({
 test("update_task_summary keeps the summary in the database, on the task's notes page", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored({ notes: { url: `${ORIGIN}/n/CDEV/1000000000.000100` } }));
   const calls = mock(t);
-  const url = addressIn(await slash("mcp grant", "UME"));
+  const url = addressIn(await slash("mcp init", "UME"));
 
   const link = "https://acme.slack.com/archives/CDEV/p1000000000000100";
   const result = await tool(url, "update_task_summary", { link, summary: "  Fix login on Safari.\n- Ann owns it  " });
@@ -218,7 +223,7 @@ test("update_task_summary keeps the summary in the database, on the task's notes
 test("update_task_summary links the notes page of an older task on its card, and says what's wrong with a call", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored());
   const calls = mock(t, { "chat.update": {} });
-  const url = addressIn(await slash("mcp grant"));
+  const url = addressIn(await slash("mcp init"));
 
   const made = await tool(url, "update_task_summary", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "Summary" });
   assert.equal(made.isError, false, made.text);
@@ -235,7 +240,7 @@ test("get_thread_history reads only from Slack, even for a task Cade keeps messa
   await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000060.000200', 'UBOB', 'Kept reply')").run();
   let slack = { messages: [{ user: "UBOB", ts: "1700000000.000100", text: "We should fix login" }] };
   mock(t, { "conversations.info": { channel: { name: "dev" } }, "conversations.replies": () => slack });
-  const url = addressIn(await slash("mcp grant"));
+  const url = addressIn(await slash("mcp init"));
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
   // What Slack gives is what comes back; the kept reply isn't added.
@@ -258,7 +263,7 @@ test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, mo
   await putTask(env, "CDEV", "1000000003.000100", stored({ title: "Done one", status: "DONE", people: people(["UME"]) }));
   await putTask(env, "CDEV", "1000000004.000100", stored({ title: "Not mine", people: people(["UBOB"]) }));
   mock(t);
-  const url = addressIn(await slash("mcp grant", "UME"));
+  const url = addressIn(await slash("mcp init", "UME"));
 
   const open = await tool(url, "get_my_tasks", {});
   assert.equal(open.isError, false, open.text);
@@ -277,7 +282,7 @@ test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, mo
   assert.match((await tool(url, "get_my_tasks", { status: "soon" })).text, /status is open, all or one of/);
 
   // Someone with no tasks is told so, and only sees their own.
-  const nobody = addressIn(await slash("mcp grant", "UNOBODY"));
+  const nobody = addressIn(await slash("mcp init", "UNOBODY"));
   assert.match((await tool(nobody, "get_my_tasks", {})).text, /^You have no open tasks\./);
 });
 
@@ -293,7 +298,7 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
     "conversations.members": { members: ["UBOB"] },
   });
-  const url = addressIn(await slash("mcp grant", "UME"));
+  const url = addressIn(await slash("mcp init", "UME"));
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
   const result = await tool(url, "get_task_history", { link });
@@ -314,7 +319,7 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   // A private channel is for its members only: UME isn't in it, UBOB is.
   const priv = "https://acme.slack.com/archives/CPRIV/p1700000000000100";
   assert.match((await tool(url, "get_task_history", { link: priv })).text, /can't read that task's channel/);
-  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.match((await tool(bob, "get_task_history", { link: priv })).text, /Task "Secret" in #secret.*hush/s);
   // A task with nothing kept, a thread that isn't a task, and a bad link.
   assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CBARE/p1700000000000100" })).text, /No messages are kept for "Quiet"/);
@@ -353,7 +358,7 @@ test("get_tracked_thread reads the thread a task was made from, found in the fir
     "conversations.members": (args) => ({ members: args.channel === "CPRIV" ? ["UME"] : ["UBOB"] }),
     "conversations.replies": { messages: [{ user: "UANN", ts: "1699990000.000100", text: "Login fails on Safari" }, { user: "UBOB", ts: "1699990060.000200", text: "Same here" }] },
   });
-  const url = addressIn(await slash("mcp grant", "UME"));
+  const url = addressIn(await slash("mcp init", "UME"));
 
   const found = await tool(url, "get_tracked_thread", { task_id: `CDEV:${TASK}` });
   assert.equal(found.isError, false, found.text);
@@ -379,7 +384,7 @@ test("get_tracked_thread reads the thread a task was made from, found in the fir
   assert.match((await tool(url, "get_tracked_thread", {})).text, /Give a task_id, or a link/);
   // The task's channel and the thread it came from are each for members only: UME is in the first, not the second.
   assert.match((await tool(url, "get_tracked_thread", { task_id: `CPRIV:${TASK}` })).text, /aren't in that channel/);
-  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.match((await tool(bob, "get_tracked_thread", { task_id: `CPRIV:${TASK}` })).text, /can't read that task's channel/);
 });
 
@@ -395,7 +400,7 @@ test("get_all_tasks lists every project's tasks you can read, most urgent first,
     "conversations.members": (args) => ({ members: args.channel === "CPRIV" ? ["UBOB"] : [] }),
     "auth.test": { url: "https://acme.slack.com/" },
   });
-  const url = addressIn(await slash("mcp grant", "UME"));
+  const url = addressIn(await slash("mcp init", "UME"));
 
   const all = await tool(url, "get_all_tasks", {});
   assert.equal(all.isError, false, all.text);
@@ -414,7 +419,7 @@ test("get_all_tasks lists every project's tasks you can read, most urgent first,
   assert.ok(two.text.includes("Urgent one") && two.text.includes("High one") && !two.text.includes("Low one"));
   assert.match(two.text, /…and 1 more; raise limit/);
   // A member of the private channel sees its tasks too; a status narrows the list.
-  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.match((await tool(bob, "get_all_tasks", {})).text, /^4 tasks/);
   assert.match((await tool(url, "get_all_tasks", { status: "DONE" })).text, /^1 task, showing the 1 most urgent:\n1\. .*Done one/);
   assert.match((await tool(url, "get_all_tasks", { status: "TODO", limit: 1 })).text, /^2 tasks, showing the 1 most urgent:\n1\. \[High\] High one/);
@@ -451,11 +456,13 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.equal(view.type, "modal");
     assert.equal(view.submit, undefined);
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
-    // The prompt names the thread and the task, by their links.
-    assert.match(text, /Summarize the Slack thread https:\/\/acme\.slack\.com\/archives\/CGEN\/p5001\?thread_ts=500\.1&cid=CGEN into the Cade task https:\/\/acme\.slack\.com\/archives\/CDEV\/p1001\./);
-    assert.match(text, /get_thread_history[\s\S]*resolve_user_name[\s\S]*update_task_summary/);
-    // And says how to connect an agent that isn't.
-    assert.match(text, /\/cade mcp grant/);
+    // The prompt names the task by its ID and the tools to use with it.
+    assert.match(text, /Summarize the Cade task CDEV:100\.1\./);
+    assert.match(text, /get_task_history and get_tracked_thread[\s\S]*resolve_user_name[\s\S]*update_task_summary with the same task_id/);
+    // Short: the prompt, and one line for an agent that isn't connected yet.
+    assert.equal(view.blocks.length, 2);
+    assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Send `/cade mcp init`.");
+    assert.ok(!text.includes("claude mcp add"));
     assert.ok(view.blocks.every((block) => (block.text?.text ?? "").length <= 3000));
     DB.reset();
   }
@@ -477,8 +484,8 @@ test("the prompt follows privately when the task takes too long to post for the 
   assert.deepEqual(await submitted, { response_action: "clear" });
   const ephemeral = calls.find((call) => call.method === "chat.postEphemeral");
   assert.equal(ephemeral.args.user, "UCREATOR");
-  assert.match(ephemeral.args.text, /Summarize the Slack thread .* into the Cade task https:\/\/acme\.slack\.com\/archives\/CDEV\/p1001/);
-  assert.match(ephemeral.args.text, /\/cade mcp grant/);
+  assert.match(ephemeral.args.text, /Summarize the Cade task CDEV:100\.1\./);
+  assert.match(ephemeral.args.text, /\/cade mcp init/);
 });
 
 test("the prompt isn't offered for a task not made from a message, from a DM, or in a project that turned it off", async (t) => {

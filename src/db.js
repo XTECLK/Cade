@@ -138,6 +138,24 @@ export async function getTaskIncludingDeleted(env, channel, ts) {
   return row ? { ...taskFromRow(row), deleted: Boolean(row.deleted_at) } : null;
 }
 
+// The posted tasks `user` has a role in, in any channel, as { channel, ts,
+// task }, oldest first: `roles` are the ones to count (owner, reviewer,
+// tester), `statuses` the ones to include. Deleted and archived tasks aren't.
+export async function tasksOfUser(env, user, { roles, statuses }) {
+  if (!/^[UW][A-Z0-9]+$/.test(user)) return [];
+  const columns = { owner: "developers", reviewer: "reviewers", tester: "testers" };
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM tasks
+     WHERE ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL
+       AND (${roles.map((role) => `${columns[role]} LIKE ?`).join(" OR ")})
+       AND status IN (${statuses.map(() => "?").join(", ")})
+     ORDER BY ts`,
+  )
+    .bind(...roles.map(() => `%"${user}"%`), ...statuses)
+    .all();
+  return results.map((row) => ({ channel: row.channel, ts: row.ts, task: taskFromRow(row) }));
+}
+
 // The posted tasks in `channel` with one of `statuses`, as { ts, task },
 // oldest first.
 export async function tasksWithStatus(env, channel, statuses) {

@@ -113,8 +113,10 @@ test("the MCP endpoint speaks MCP, and only to a token", async (t) => {
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_thread_history", "resolve_user_name", "update_task_summary"]);
-  assert.ok(result.tools.every((tool) => tool.inputSchema.required.length && !("run" in tool)));
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_thread_history", "get_task_history", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
+  // Each takes what it needs (get_my_tasks has only optional filters), and none leaks its code.
+  assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
+  assert.ok(result.tools.filter((tool) => tool.name !== "get_my_tasks").every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -251,6 +253,78 @@ test("get_thread_history adds what Cade kept to what Slack still gives, and work
 
   // An untracked thread Slack no longer has is still not found.
   assert.match((await tool(url, "get_thread_history", { link: "https://acme.slack.com/archives/CDEV/p1600000000000100" })).text, /couldn't find that thread/);
+});
+
+test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, most urgent first, and filters by role and status", async (t) => {
+  const people = (owner = [], reviewer = [], tester = []) => ({ owner, reviewer, tester });
+  await putTask(env, "CDEV", "1000000000.000100", stored({ title: "Mine, low", priority: "Low", people: people(["UME"]), link: "https://acme.slack.com/archives/CDEV/p1000000000000100" }));
+  await putTask(env, "CDEV", "1000000001.000100", stored({ title: "Review me", priority: "Urgent", status: "IN_REVIEW", dueDate: "31/12/2026", people: people(["UBOB"], ["UME"]), link: "https://acme.slack.com/archives/CDEV/p1000000001000100" }));
+  await putTask(env, "CBARE", "1000000002.000100", stored({ title: "Test me too", priority: "High", status: "IN_TESTING", people: people(["UME"], ["UBOB"], ["UME"]), link: "https://acme.slack.com/archives/CBARE/p1000000002000100" }));
+  await putTask(env, "CDEV", "1000000003.000100", stored({ title: "Done one", status: "DONE", people: people(["UME"]) }));
+  await putTask(env, "CDEV", "1000000004.000100", stored({ title: "Not mine", people: people(["UBOB"]) }));
+  mock(t);
+  const url = addressIn(await slash("mcp grant", "UME"));
+
+  const open = await tool(url, "get_my_tasks", {});
+  assert.equal(open.isError, false, open.text);
+  assert.match(open.text, /^3 tasks, most urgent first:/);
+  // Urgent first, then High, then Low; done and other people's tasks left out.
+  assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["High", "Test me too"], ["Low", "Mine, low"]]);
+  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
+  assert.match(open.text, /Test me too — .*\(you: owner, tester\)/);
+  assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine"));
+
+  assert.match((await tool(url, "get_my_tasks", { role: "reviewer" })).text, /^1 task, most urgent first:\n1\. \[Urgent\] Review me/);
+  assert.match((await tool(url, "get_my_tasks", { status: "all" })).text, /^4 tasks/);
+  assert.match((await tool(url, "get_my_tasks", { status: "DONE" })).text, /Done one/);
+  assert.match((await tool(url, "get_my_tasks", { role: "tester", status: "TODO" })).text, /^You have no tasks as tester in .*To do\./);
+  assert.match((await tool(url, "get_my_tasks", { role: "boss" })).text, /role is one of owner, reviewer, tester/);
+  assert.match((await tool(url, "get_my_tasks", { status: "soon" })).text, /status is open, all or one of/);
+
+  // Someone with no tasks is told so, and only sees their own.
+  const nobody = addressIn(await slash("mcp grant", "UNOBODY"));
+  assert.match((await tool(nobody, "get_my_tasks", {})).text, /^You have no open tasks\./);
+});
+
+test("get_task_history gives the messages Cade kept, only for a task it tracks and a channel you can read", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored());
+  await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
+  await putTask(env, "CBARE", "1700000000.000100", stored({ title: "Quiet" }));
+  const keep = (channel, ts, user, text) => DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES (?, '1700000000.000100', ?, ?, ?)").bind(channel, ts, user, text).run();
+  await keep("CDEV", "1700000000.000100", "UBOB", "We should fix login\nit fails on Safari");
+  await keep("CDEV", "1700000060.000200", "UANN", "I'll take it");
+  await keep("CPRIV", "1700000000.000100", "UBOB", "hush");
+  const calls = mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: ["UBOB"] },
+  });
+  const url = addressIn(await slash("mcp grant", "UME"));
+  const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
+
+  const result = await tool(url, "get_task_history", { link });
+  assert.equal(result.isError, false, result.text);
+  assert.equal(
+    result.text,
+    [
+      'Task "Fix login" in #dev (CDEV), 2 kept messages, oldest first:',
+      "[2023-11-14 22:13 UTC] UBOB: We should fix login\n    it fails on Safari",
+      "[2023-11-14 22:14 UTC] UANN: I'll take it",
+    ].join("\n"),
+  );
+  // It is read from the database: Slack is only asked whether you may read the channel.
+  assert.ok(!calls.some((call) => call.method === "conversations.replies"));
+
+  // A reply's link stands for its thread.
+  assert.match((await tool(url, "get_task_history", { link: `${link.replace("p1700000000000100", "p1700000060000200")}?thread_ts=1700000000.000100&cid=CDEV` })).text, /2 kept messages/);
+  // A private channel is for its members only: UME isn't in it, UBOB is.
+  const priv = "https://acme.slack.com/archives/CPRIV/p1700000000000100";
+  assert.match((await tool(url, "get_task_history", { link: priv })).text, /can't read that task's channel/);
+  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  assert.match((await tool(bob, "get_task_history", { link: priv })).text, /Task "Secret" in #secret.*hush/s);
+  // A task with nothing kept, a thread that isn't a task, and a bad link.
+  assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CBARE/p1700000000000100" })).text, /No messages are kept for "Quiet"/);
+  assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CDEV/p1600000000000100" })).text, /isn't to a task Cade tracks/);
+  assert.match((await tool(url, "get_task_history", { link: "https://example.com" })).text, /isn't a link to a Slack message/);
 });
 
 // The track form, submitted from a message: `move` is where it came from.

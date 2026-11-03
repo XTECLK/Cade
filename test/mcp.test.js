@@ -122,7 +122,7 @@ test("the MCP server offers the summarize_task prompt, for a task's issue only",
   assert.equal(result.messages[0].role, "user");
   const text = result.messages[0].content.text;
   assert.match(text, /^Write the issue summary of the Cade task CDEV:1700000000\.000100\./);
-  assert.match(text, /get_original_thread_history.*get_task_history instead/s);
+  assert.match(text, /get_thread_history.*get_task_history instead/s);
   assert.match(text, /Only the issue\./);
 
   // Without a task, the agent is told to ask which one, from the person's own tasks.
@@ -131,7 +131,7 @@ test("the MCP server offers the summarize_task prompt, for a task's issue only",
     const ask = asking.messages[0].content.text;
     assert.match(ask, /^First, ask which task\. Call get_tasks with mine/);
     assert.match(ask, /Write the issue summary of the Cade task they choose\./);
-    assert.match(ask, /get_original_thread_history \(its task_id\)/);
+    assert.match(ask, /get_task \(its task_id\)/);
     assert.match(ask, /Only the issue\./);
   }
   assert.ok(!/ask which task/i.test(text), "a named task isn't asked about");
@@ -163,7 +163,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "find_user", "get_task_history", "get_original_thread_history", "get_thread_history", "resolve_user_name"]) {
+  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "find_user", "get_task_history", "get_thread_history", "resolve_user_name"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -176,10 +176,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_original_thread_history", "get_tasks", "resolve_user_name", "find_user", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "resolve_user_name", "find_user", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_original_thread_history"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -494,57 +494,46 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   assert.match((await tool(url, "get_task_history", {})).text, /Give a task_id, or a link/);
 });
 
-test("get_original_thread_history reads the thread a task was made from, found in the first message of the task's own thread", async (t) => {
+test("get_task names the thread a task was made from, which get_thread_history reads", async (t) => {
   const TASK = "1700000000.000100";
   await putTask(env, "CDEV", TASK, stored());
   await putTask(env, "CBARE", TASK, stored({ title: "Typed in" }));
-  await putTask(env, "CPRIV", TASK, stored({ title: "Secret" }));
   await putTask(env, "CEMPTY", TASK, stored({ title: "Nothing kept" }));
   const keep = (channel, ts, text) => DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES (?, ?, ?, 'UBOT', ?)").bind(channel, TASK, ts, text).run();
   const moved = (channel) => `Moved from <@UANN>'s <https://acme.slack.com/archives/${channel}/p1699990000000100?thread_ts=1699990000.000100&amp;cid=${channel}|message>:\n> Login fails on Safari`;
   await keep("CDEV", TASK, "Fix login");
   await keep("CDEV", "1700000001.000200", moved("CCLIENT"));
-  await keep("CDEV", "1700000002.000300", "later, in the task's thread");
   await keep("CBARE", TASK, "Typed in");
   await keep("CBARE", "1700000001.000200", "just a reply");
-  await keep("CPRIV", TASK, "Secret");
-  await keep("CPRIV", "1700000001.000200", moved("CSECRET"));
   const calls = mock(t, {
-    "conversations.info": (args) => ({ channel: { CSECRET: { name: "client-secret", is_private: true }, CPRIV: { name: "secret", is_private: true } }[args.channel] ?? { name: args.channel === "CCLIENT" ? "client" : "dev" } }),
-    "conversations.members": (args) => ({ members: args.channel === "CPRIV" ? ["UME"] : ["UBOB"] }),
+    "conversations.info": (args) => ({ channel: { CSECRET: { name: "client-secret", is_private: true } }[args.channel] ?? { name: args.channel === "CCLIENT" ? "client" : "dev" } }),
+    "conversations.members": { members: ["UBOB"] },
     "conversations.replies": { messages: [{ user: "UANN", ts: "1699990000.000100", text: "Login fails on Safari" }, { user: "UBOB", ts: "1699990060.000200", text: "Same here" }] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
 
-  const found = await tool(url, "get_original_thread_history", { task_id: `CDEV:${TASK}` });
-  assert.equal(found.isError, false, found.text);
-  assert.equal(
-    found.text,
-    [
-      '"Fix login" was made from this thread:',
-      "Thread in #client (CCLIENT), 2 messages, oldest first:",
-      "[2023-11-14 19:26 UTC] UANN: Login fails on Safari",
-      "[2023-11-14 19:27 UTC] UBOB: Same here",
-    ].join("\n"),
-  );
-  // The source is read from Slack, as the link names it (a link to a reply stands for its thread).
-  const read = calls.filter((call) => call.method === "conversations.replies").at(-1).args;
-  assert.deepEqual({ channel: read.channel, ts: read.ts }, { channel: "CCLIENT", ts: "1699990000.000100" });
-  // The task's own thread points to the one it came from, so an agent summarizing it reads both; a typed-in task has no such note.
-  assert.match((await tool(url, "get_task_history", { task_id: `CDEV:${TASK}` })).text, /\n\nNote: "Fix login" was made from another thread.*get_original_thread_history reads it with the same task_id\./s);
-  assert.ok(!(await tool(url, "get_task_history", { task_id: `CBARE:${TASK}` })).text.includes("get_original_thread_history"));
-  // The same by a link to the task's message.
-  assert.match((await tool(url, "get_original_thread_history", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100" })).text, /was made from this thread/);
+  // get_task names it, by ID and link, without reading it.
+  const task = (await tool(url, "get_task", { task_id: `CDEV:${TASK}` })).text;
+  assert.match(task, /Original thread \(where the problem was first raised\): thread ID CCLIENT:1699990000\.000100, https:\/\/acme\.slack\.com\/archives\/CCLIENT\/p1699990000000100\?thread_ts=1699990000\.000100&cid=CCLIENT\. Read it with get_thread_history/);
+  assert.ok(!calls.some((call) => call.method === "conversations.replies"));
+  assert.match((await tool(url, "get_task", { task_id: `CBARE:${TASK}` })).text, /Original thread: none, the task wasn't made from another thread/);
+  assert.match((await tool(url, "get_task", { task_id: `CEMPTY:${TASK}` })).text, /Original thread: unknown, no messages are kept/);
 
-  // A task typed in directly, one with nothing kept, and one that isn't a task.
-  assert.match((await tool(url, "get_original_thread_history", { task_id: `CBARE:${TASK}` })).text, /"Typed in" wasn't made from another thread/);
-  assert.match((await tool(url, "get_original_thread_history", { task_id: `CEMPTY:${TASK}` })).text, /No messages are kept for "Nothing kept"/);
-  assert.match((await tool(url, "get_original_thread_history", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
-  assert.match((await tool(url, "get_original_thread_history", {})).text, /Give a task_id, or a link/);
-  // The task's channel and the thread it came from are each for members only: UME is in the first, not the second.
-  assert.match((await tool(url, "get_original_thread_history", { task_id: `CPRIV:${TASK}` })).text, /aren't in that channel/);
-  const bob = addressIn(await slash("mcp init", "UBOB"));
-  assert.match((await tool(bob, "get_original_thread_history", { task_id: `CPRIV:${TASK}` })).text, /can't read that task's channel/);
+  // get_thread_history reads it by that ID.
+  const read = await tool(url, "get_thread_history", { thread_id: "CCLIENT:1699990000.000100" });
+  assert.equal(read.isError, false, read.text);
+  assert.equal(
+    read.text,
+    ["Thread in #client (CCLIENT), 2 messages, oldest first:", "[2023-11-14 19:26 UTC] UANN: Login fails on Safari", "[2023-11-14 19:27 UTC] UBOB: Same here"].join("\n"),
+  );
+  const asked = calls.filter((call) => call.method === "conversations.replies").at(-1).args;
+  assert.deepEqual({ channel: asked.channel, ts: asked.ts }, { channel: "CCLIENT", ts: "1699990000.000100" });
+  assert.match((await tool(url, "get_thread_history", { thread_id: "nope" })).text, /A thread ID is the channel and the message time/);
+  assert.match((await tool(url, "get_thread_history", {})).text, /isn't a link to a Slack message/);
+
+  // The task's own thread points to the one it came from; a typed-in task has no such note.
+  assert.match((await tool(url, "get_task_history", { task_id: `CDEV:${TASK}` })).text, /\n\nNote: "Fix login" was made from another thread.*get_task names it and get_thread_history reads it\./s);
+  assert.ok(!(await tool(url, "get_task_history", { task_id: `CBARE:${TASK}` })).text.includes("get_thread_history"));
 });
 
 test("get_tasks lists every project's tasks you can read, most urgent first, up to a limit", async (t) => {
@@ -644,7 +633,7 @@ test("after a task is made from a message, its form gives way to the prompt for 
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
     // The prompt names the task by its ID and the tools to use with it.
     assert.match(text, /Write the issue summary of the Cade task CDEV:100\.1\./);
-    assert.match(text, /get_original_thread_history[\s\S]*resolve_user_name[\s\S]*update_task \(its summary\) and the same task_id/);
+    assert.match(text, /get_thread_history[\s\S]*resolve_user_name[\s\S]*update_task \(its summary\) and the same task_id/);
     // Only the issue: what was done and how it ended are left to the task's own thread.
     assert.match(text, /Only the issue\. Leave out what was done about it and how it ended/);
     // The draft is shown first, and saved only once the person approves it.

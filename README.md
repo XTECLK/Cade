@@ -183,13 +183,11 @@ their agent, and `/cade mcp revoke` ends it; only a hash is kept, in
 `mcp_tokens`. Its nine tools are `get_flows(name?, task_id?)`, which lists the flows Cade
 supports (`src/flows.js`: `summarize_task`, `explain_task`, `plan_my_work`) and
 gives the steps of one, so a client that doesn't show MCP prompts can follow them
-too; `get_task(task_id | link)`, which reads one task from D1 (details, summary and notes, without its threads); and `get_thread_history(link)`, which reads a
+too; `get_task(task_id | link)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
 `get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
-has what Slack's free plan hides after 90 days; `get_original_thread_history(task_id | link)`, which follows the first message of a
-task's own thread to the thread the task was made from and reads it from
-Slack; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
+has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; `resolve_user_name(id)`;
 `find_user(name)`, which gives a Slack user ID for assigning; `update_task(task_id | link, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
 from the thread the task was made from; what was done and how it ended are in

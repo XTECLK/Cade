@@ -3,7 +3,7 @@ import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../
 import { CLOSE_ALL, callSlack, escapeSlack, plainText } from "../slack.js";
 import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
-import { summaryPrompt } from "../summaryprompt.js";
+import { summaryPrompt } from "../flows.js";
 import { addPages } from "../export.js";
 import {
   INCIDENT,

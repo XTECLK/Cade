@@ -2690,10 +2690,15 @@ test("the Slack app's description fits Slack's 140 characters", async () => {
   assert.ok(template.display_information.description.length <= 140);
 });
 
-test("npm run setup leaves tokens to the scripts it runs", async () => {
+test("npm run setup leaves secrets to the scripts it runs, and asks for the one token it needs hidden", async () => {
   const { readFile } = await import("node:fs/promises");
   const script = await readFile(new URL("../scripts/setup.mjs", import.meta.url), "utf8");
-  assert.doesNotMatch(script, /askHidden|TOKEN|secret put/);
+  // It sets no secrets itself.
+  assert.doesNotMatch(script, /secret put/);
+  // The only token it asks for (the Slack bot token, to name the Google account after the workspace) is
+  // typed hidden, so a pasted token isn't shown, never through the plain prompt.
+  assert.deepEqual([...script.matchAll(/askHidden\("([^"]*)"/g)].map(([, question]) => question.split(" (")[0]), ["Slack bot token"]);
+  assert.doesNotMatch(script, /ask\([^)]*token/i);
   const guide = await readFile(new URL("../GETTING_STARTED.md", import.meta.url), "utf8");
   assert.match(guide, /npm run setup/);
 });

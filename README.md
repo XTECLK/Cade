@@ -187,7 +187,7 @@ too; `get_task(task_id | link)`, which reads one task from D1 (details, summary 
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
 `get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
-has what Slack's free plan hides after 90 days; `get_tracked_thread(task_id | link)`, which follows the first message of a
+has what Slack's free plan hides after 90 days; `get_original_thread_history(task_id | link)`, which follows the first message of a
 task's own thread to the thread the task was made from and reads it from
 Slack; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; `resolve_user_name(id)`;

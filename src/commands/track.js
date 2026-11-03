@@ -4,6 +4,7 @@ import { CLOSE_ALL, callSlack, escapeSlack, plainText } from "../slack.js";
 import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
 import { summaryPrompt } from "../flows.js";
+import { mcpEnabled } from "../mcp.js";
 import { addPages } from "../export.js";
 import {
   INCIDENT,
@@ -242,7 +243,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }, 
 // on what to do if the agent isn't connected to Cade yet (`/cade mcp init`,
 // see commands/mcp.js). Only for a task made from a message, and not one from
 // a direct message, which Cade can't read. A project turns it off with
-// `aiAgentSummary` (false).
+// `aiAgentSummary` (false), and turning MCP off (`mcp`: false) does too.
 
 // How long the first form waits for the task to be posted, so its ID can
 // go in the prompt, before it closes and the prompt follows as a private
@@ -252,7 +253,7 @@ const TIMED_OUT = Symbol("timed out");
 
 // Whether the form for a task from `origin` is followed by the prompt.
 function guides(env, origin) {
-  return Boolean(origin.move) && !origin.move.channel.startsWith("D") && !groupDisabled(env, origin.channel, "aiAgentSummary", "AI_AGENT_SUMMARY");
+  return mcpEnabled(env) && Boolean(origin.move) && !origin.move.channel.startsWith("D") && !groupDisabled(env, origin.channel, "aiAgentSummary", "AI_AGENT_SUMMARY");
 }
 
 // Makes the task as createTask does, then answers its form with the prompt

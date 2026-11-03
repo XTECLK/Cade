@@ -40,7 +40,7 @@ Other scripts:
 | --- | --- |
 | `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, optionally Google, then your first group |
 | `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Doc, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--exportDoc new] [--workDoc new] [--taskSheet new]` it takes them at once |
-| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`, `MCP`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
@@ -189,7 +189,7 @@ thread straight from Slack, as it is, kept or not (a private channel's only for 
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; 
-`get_user(id)`, which gives a Slack user's name; `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id | link, text)`, which posts a message in the task's thread as Cade, marked "Sent by @person via their AI agent" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id | link, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
+`get_user(id)`, which gives a Slack user's name; `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id | link, text)`, which posts a message in the task's thread as Cade, with a line saying "Sent by @person" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id | link, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
 from the thread the task was made from; what was done and how it ended are in
 the task's own thread. The same flows are MCP prompts, which Claude Code lists as slash commands such
 as `/mcp__cade__summarize_task`, and the form after a task is made shows the

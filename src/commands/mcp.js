@@ -1,5 +1,5 @@
 import { hasMcpToken } from "../db.js";
-import { endpointUrl, grantToken, revokeToken } from "../mcp.js";
+import { endpointUrl, grantToken, mcpEnabled, revokeToken } from "../mcp.js";
 
 // `/cade mcp init` gives the person an API key of their own for Cade's MCP
 // endpoint (see mcp.js), as one only they are shown, and `/cade mcp
@@ -15,6 +15,7 @@ export default {
   async slash(command, { env }) {
     const action = command.text.trim().toLowerCase();
     if (action === "init") {
+      if (!mcpEnabled(env)) return "AI agent access is turned off for this Cade, so there is no key to give. An admin turns it on with `mcp` in cade.config.json.";
       if (await hasMcpToken(env, command.user)) {
         return "You have an API key already, and I can't show it again. To get a new one, send `/cade mcp revoke` to end it, then `/cade mcp init`.";
       }

@@ -403,8 +403,8 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   const blocks = JSON.parse(post.blocks);
   // Only a person's mention is kept; @channel and links are shown as typed.
   assert.equal(blocks[0].text.text, "Hi <@UANN> &amp; &lt;!channel&gt;, see &lt;https://evil.example|this&gt;.");
-  assert.equal(blocks[1].elements[0].text, "Sent by <@UME> via their AI agent");
-  assert.match(post.text, /Sent by <@UME> via their AI agent/);
+  assert.equal(blocks[1].elements[0].text, "Sent by <@UME>");
+  assert.match(post.text, /Sent by <@UME>/);
 
   const before = calls.length;
   assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "  " })).text, /message is empty/);
@@ -413,6 +413,25 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   assert.match((await tool(url, "send_task_message", { task_id: "CDEV:1600000000.000100", text: "hi" })).text, /isn't a task Cade tracks/);
   assert.match((await tool(url, "send_task_message", { text: "hi" })).text, /Give a task_id/);
   assert.equal(calls.slice(before).filter((call) => call.method === "chat.postMessage").length, 0);
+});
+
+test("turning MCP off ends the endpoint, gives no keys and drops the prompt, but still revokes keys", async (t) => {
+  mock(t, SLACK_FOR_TASKS);
+  const url = addressIn(await slash("mcp init", "UME"));
+  assert.equal((await rpc(url, { id: 1, method: "tools/list" })).status, 200);
+
+  env.MCP = "off";
+  t.after(() => delete env.MCP);
+  assert.equal((await rpc(url, { id: 1, method: "tools/list" })).status, 404);
+  const init = await slash("mcp init", "UNEW");
+  assert.match(JSON.stringify(init), /AI agent access is turned off/);
+  assert.doesNotMatch(JSON.stringify(init), /x-apikey/);
+  const move = { channel: "CGEN", ts: "500.1", link: "https://acme.slack.com/archives/CGEN/p5001" };
+  assert.deepEqual(await submitTrack({ channel: "CDEV", move }), { response_action: "clear" });
+  assert.match(JSON.stringify(await slash("mcp revoke", "UME")), /no longer works/);
+
+  env.MCP = "on";
+  assert.equal((await slash("mcp init", "UME")).text?.includes("API key"), true);
 });
 
 test("get_users lists the people of the workspace, up to a limit", async (t) => {

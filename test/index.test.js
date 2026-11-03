@@ -2435,6 +2435,15 @@ test("the Home tab's project picker keeps the person's project for next time", a
   assert.equal(await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UME").first().then((row) => row.home_project), null);
 });
 
+test("npm run config sets MCP on or off from mcp", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  assert.equal(readConfig(JSON.stringify({ projects })).MCP, undefined);
+  assert.equal(readConfig(JSON.stringify({ projects, mcp: false })).MCP, "off");
+  assert.equal(readConfig(JSON.stringify({ projects, mcp: true })).MCP, "on");
+  assert.throws(() => readConfig(JSON.stringify({ projects, mcp: "no" })), /mcp is true or false/);
+});
+
 test("npm run config checks the activeTasksPinning, summaryCanvas and newMessageTaskDetection switches", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = [{ name: "acme", channel: "C0000000002" }];

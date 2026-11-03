@@ -47,6 +47,7 @@ values).
 | --- | --- | --- | --- |
 | `projects` | **Required** | One entry per project, each with the settings in the next table. The project is a Slack channel where the team tracks its tasks and incidents, optionally with its own Google Doc for executive summaries. | `npm run group` (step 8), or write them by hand. |
 | `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (`/cade mcp init`). `false` turns the MCP endpoint off: it answers 404, `/cade mcp init` gives no keys and the new-task prompt for an agent isn't shown. Keys already made stop working, and `/cade mcp revoke` still deletes them. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
 | `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
 
 Each entry in `projects` takes these. Nothing else is set at the top of the file: the settings below belong to a project, so two projects can differ.

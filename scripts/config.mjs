@@ -9,6 +9,9 @@
 //             (optional)
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             every project's Doc
+//   mcp       whether people can connect their AI agent to      → MCP
+//             Cade's MCP endpoint (optional, on): false turns
+//             it off, and `/cade mcp init` gives no keys
 //
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required
@@ -65,7 +68,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["projects", "timezone", "googleUrl"];
+  const known = ["projects", "timezone", "googleUrl", "mcp"];
   // `channels` is the old name for `projects`.
   const unknown = Object.keys(config).find((key) => !known.includes(key) && key !== "channels");
   if (PROJECT_SETTINGS.includes(unknown)) {
@@ -113,6 +116,11 @@ export function readConfig(json) {
 
   const secrets = { PROJECTS: JSON.stringify(list) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
+  if (config.mcp !== undefined) {
+    if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
+    // Both are set, so turning it back on replaces an earlier "off".
+    secrets.MCP = config.mcp ? "on" : "off";
+  }
   if (config.googleUrl !== undefined) {
     if (!/^https:\/\/script\.google\.com\/\S+\/exec$/.test(config.googleUrl)) {
       throw new Error("googleUrl should be the web app URL from Apps Script: https://script.google.com/…/exec.");
@@ -173,6 +181,7 @@ export async function uploadConfig() {
     console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
+  if (secrets.MCP) console.log(`mcp: ${secrets.MCP}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.

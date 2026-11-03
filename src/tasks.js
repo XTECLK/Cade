@@ -1,10 +1,9 @@
-import { projects, groupEnabled, projectFor } from "./channels.js";
+import { projects, groupEnabled } from "./channels.js";
 import { getTask, putTask } from "./db.js";
-import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
 
 // Tasks are stored in D1 (see db.js). The root message in the tasks channel
-// and the task's row in the Google Sheet are rendered from the stored task.
+// is rendered from the stored task.
 
 // Slack cannot colour text, so each value is shown with a coloured emoji
 // in menus and lists. Task messages show the priority as the colour of the
@@ -203,13 +202,11 @@ export async function loadTask(env, channel, ts) {
   return getTask(env, channel, ts);
 }
 
-// Stores the task, then renders it to its root message, the Sheet and the
-// summaries.
+// Stores the task, then renders it to its root message and the summaries.
 export async function saveTask(env, channel, ts, task) {
   await putTask(env, channel, ts, task);
   console.log("Task saved", { ts, people: task.people });
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
-  await syncTask(env, channel, ts, task);
   await refreshSummary(env, channel);
 }
 
@@ -223,44 +220,7 @@ export async function refreshSummary(env, channel, options) {
   await summary.refreshSummary(env, channel, options);
 }
 
-// Records the task's current state in the Google Sheet. The sheet is a
-// record, so failures are logged rather than failing the command.
-export async function syncTask(env, channel, ts, task, { deleted = false, archived = false } = {}) {
-  const group = projectFor(env, channel);
-  if (!sheetEnabled(env, group)) return;
-  try {
-    // Tasks keep their link from when they were created; this is in case
-    // looking it up failed then.
-    if (!task.link && !deleted) {
-      ({ permalink: task.link } = await callSlack(env, "chat.getPermalink", {
-        channel,
-        message_ts: ts,
-      }));
-      await putTask(env, channel, ts, task);
-    }
-    const names = (ids) => (ids.length ? userNames(env, ids) : "Unassigned");
-    await sendRow(env, group, {
-      "Task ID": `${channel}:${ts}`,
-      Title: task.title,
-      Status: deleted ? "Deleted" : archived ? "Archived" : statusName(task.status),
-      Priority: task.priority,
-      "Due date": task.dueDate,
-      Owner: await names(task.people.owner),
-      Reviewer: await names(task.people.reviewer),
-      Tester: await names(task.people.tester),
-      "Tracked by": await userNames(env, [task.createdBy]),
-      // A Slack message timestamp is the time it was posted.
-      "Tracked at": formatTime(env, new Date(Number(ts) * 1000)),
-      "Completed at": task.completedAt ? formatTime(env, new Date(task.completedAt)) : "",
-      "Task link": deleted ? "" : task.link,
-    });
-    console.log("Task synced to sheet", { ts, status: task.status, deleted });
-  } catch (error) {
-    console.warn("Could not sync task to sheet", { ts, error: error.message });
-  }
-}
-
-// The status label without its emoji, for the sheet.
+// The status label without its emoji.
 export function statusName(status) {
   return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
 }

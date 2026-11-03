@@ -34,7 +34,6 @@ with the client; Cade doesn't need to be in it.
   > Flaky test: `booking.spec.ts` times out on CI about 1 run in 5.
 - A second group (say `test`) in `CHANNEL_PAIRS`, so the **Project** picker
   shows; with one group, the shortcuts skip it.
-- Google Sheet open in a browser tab, if set up.
 - In `cade.config.json`: `"pinning": true` and `"canvas": true` (both off by
   default; the pinned card and the summary canvas only show with them), and
   `"ai": true` for step 9. Without `ai`, Cade reads phrases and only adds
@@ -285,12 +284,7 @@ open. Switch the **Project** picker and press **Refresh**.
   status from the menu (it's posted in the task's thread).
 - `/cade standup -unassigned` → give *Remove legacy coupon code* an owner.
 
-### 24. The Google Sheet
-Switch tabs: every task with status, priority, due date, people, tracked /
-completed times and task links, including the deleted one marked
-**Deleted**.
-
-### 25. Help
+### 24. Help
 > `@Cade help`
 
 ---
@@ -323,8 +317,7 @@ completed times and task links, including the deleted one marked
 | `/cade tasks` + filters | 21 |
 | App Home tab: My Tasks, Unassigned (Assign to me), All Tasks | 22 |
 | `/cade standup`, `-unassigned` | 23 |
-| Google Sheet sync | 24 |
-| `@Cade help` | 25 |
+| `@Cade help` | 24 |
 
 Not shown on camera (mention in voice-over): posts that Slack refuses are
 retried automatically every few minutes.
@@ -334,7 +327,7 @@ retried automatically every few minutes.
 - **Everyone can read the request** — it's copied into the task, even from a DM.
 - **Cade only asks, privately** — suggestions never change anything without a click.
 - **Tidy channels** — stray messages get moved; the tray shows what's handled.
-- **One source of truth** — task cards, summaries and the Sheet update together.
+- **One source of truth** — task cards and summaries update together.
 
 ## Recording tips
 - 1080p, Slack zoom ~110%, hide unrelated channels in the sidebar.

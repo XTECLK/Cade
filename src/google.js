@@ -1,7 +1,6 @@
-// Each group's Google Sheet (its tasks, see sheet.js) and Google Doc (its
-// executive summaries, see doc.js) are written through one Apps Script web
-// app (google/Code.gs), a standalone script serving every group: GOOGLE_URL,
-// with GOOGLE_SECRET. Each request names its `action`.
+// Each group's Google Doc (its executive summaries, see doc.js) is written
+// through one Apps Script web app (google/Code.gs), a standalone script serving
+// every group: GOOGLE_URL, with GOOGLE_SECRET. Each request names its `action`.
 export function googleEnabled(env) {
   return Boolean(env.GOOGLE_URL && env.GOOGLE_SECRET);
 }

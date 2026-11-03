@@ -3,17 +3,17 @@
 // checking it the way Cade reads it. Edit the file, then run `npm run config`;
 // changes take effect without a deploy. See GETTING_STARTED.md.
 //
-//   projects  each project: its Slack channel, Doc, Sheet and  → PROJECTS
+//   projects  each project: its Slack channel, Doc and        → PROJECTS
 //             settings (below)
-//   timezone  for times in the Google Sheet (optional)        → TIMEZONE
+//   timezone  for times on the web pages and summaries        → TIMEZONE
+//             (optional)
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
-//             every project's Sheet and Doc
+//             every project's Doc
 //
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required
-//   doc, sheet    the project's Google Doc, for executive summaries, and
-//                 Google Sheet, for its tasks (addresses; without `sheet`
-//                 its tasks aren't recorded in a Sheet)
+//   workDoc       the project's Google Doc, for executive summaries (an
+//                 address; without it `/cade brief` can't be used)
 //   taskStatusChangeDetection
 //                 the proactive agent: Cade reading messages in the threads
 //                 it manages and offering changes (optional, on): true, or
@@ -29,6 +29,11 @@
 //                 channel: track it as a task, report it as an incident or
 //                 move it to a task (optional, on); false to leave such
 //                 messages alone
+//   aiAgentSummary
+//                 whether, after a task is made from a message, Cade offers
+//                 a prompt for the person's AI agent to summarize the
+//                 message's thread into it, through Cade's MCP endpoint
+//                 (optional, on); false to skip it (see mcp.js)
 //   activeTasksPinning
 //                 whether open tasks are pinned in the channel (optional, off)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
@@ -47,7 +52,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projects } from "../src/channels.js";
 import { docId } from "../src/doc.js";
-import { sheetId } from "../src/sheet.js";
 import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -76,22 +80,14 @@ export function readConfig(json) {
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one project.`);
   for (const project of list) {
-    // `doc` and `sheet` are the old names of exportDoc and taskSheet.
-    if (project.doc !== undefined) {
-      project.exportDoc ??= project.doc;
-      delete project.doc;
-    }
-    if (project.sheet !== undefined) {
-      project.taskSheet ??= project.sheet;
-      delete project.sheet;
-    }
+    // The Doc was once `doc`, then `exportDoc`; tasks and threads are kept in
+    // the database now, so a Sheet and the other Doc are dropped.
+    project.workDoc ??= project.exportDoc ?? project.doc;
+    if (project.workDoc === undefined) delete project.workDoc;
+    for (const old of ["doc", "exportDoc", "sheet", "taskSheet"]) delete project[old];
   }
-  const badDoc = list.find((project) => project.exportDoc !== undefined && !docId(project.exportDoc));
-  if (badDoc) throw new Error(`${badDoc.name}'s exportDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
   const badWorkDoc = list.find((project) => project.workDoc !== undefined && !docId(project.workDoc));
   if (badWorkDoc) throw new Error(`${badWorkDoc.name}'s workDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
-  const badSheet = list.find((project) => project.taskSheet !== undefined && !sheetId(project.taskSheet));
-  if (badSheet) throw new Error(`${badSheet.name}'s taskSheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
 
   for (const project of list) {
     try {
@@ -128,8 +124,8 @@ export function readConfig(json) {
 
 // Features with `true` or `false`, set on each project: activeTasksPinning and summaryCanvas
 // are off unless turned on; taskStatusChangeDetection and
-// newMessageTaskDetection are on unless turned off.
-const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection"];
+// newMessageTaskDetection and aiAgentSummary are on unless turned off.
+const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection", "aiAgentSummary"];
 
 // What a project can set, which used to be allowed at the top of the file.
 const PROJECT_SETTINGS = ["aiSuggestions", "aiModel", ...SWITCHES];
@@ -173,10 +169,8 @@ export async function uploadConfig() {
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
     const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
-    const doc = project.exportDoc ? `, exportDoc ${project.exportDoc}` : "";
     const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
-    const sheet = project.taskSheet ? `, taskSheet ${project.taskSheet}` : "";
-    console.log(`${project.name}: channel ${project.channel}${doc}${workDoc}${sheet}${own}`);
+    console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);

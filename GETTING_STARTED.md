@@ -1,9 +1,10 @@
 # Getting started
 
-Self-host Cade for your team: one Cloudflare Worker, one Slack app, and an
-optional Google Sheet. There is no server to run; Cade keeps its tasks in
-a Cloudflare D1 database that comes with the Worker, and shows them in Slack
-(and your Sheet, if you add one).
+Self-host Cade for your team: one Cloudflare Worker and one Slack app, and
+an optional Google Doc for executive summaries. There is no server to run;
+Cade keeps its tasks, their threads and their notes in a Cloudflare D1
+database that comes with the Worker, and shows them in Slack and on pages of
+the Worker.
 
 ## The quick way
 
@@ -14,7 +15,7 @@ npm run setup
 ```
 
 It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
-Slack app, optionally Google Sheets and Docs, then your first group. It
+Slack app, optionally a Google Doc for executive summaries, then your first group. It
 pauses where a person has to click in a browser, skips what's done already,
 and can be run again to carry on. Tokens and secrets are asked for by the
 scripts it runs, hidden, and never stored in a file.
@@ -28,13 +29,13 @@ someone to click in a browser.
 - Node.js 20 or newer, and git.
 - A Cloudflare account (the free plan is enough).
 - A Slack workspace where you can create apps.
-- Optional: a Google account, for the Sheet.
+- Optional: a Google account, for executive summaries.
 
 ## Settings
 
 Cade has two kinds of settings. **Config** is what you edit as your team
 changes; it lives in `cade.config.json` on your machine (git ignores it) and
-`npm run config` uploads it. **Secrets** give access to Slack or the Sheet;
+`npm run config` uploads it. **Secrets** give access to Slack or Google;
 they're set once with `npx wrangler secret put NAME` and live only in
 Cloudflare, never in a file. Both take effect straight away and survive every
 `npm run deploy`. `npx wrangler secret list` shows which are set (not their
@@ -44,9 +45,9 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `projects` | **Required** | One entry per project, each with the settings in the next table. The project is a Slack channel where the team tracks its tasks and incidents, optionally with its own Google Doc and Sheet. | `npm run group` (step 8), or write them by hand. |
-| `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Sheet and Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
+| `projects` | **Required** | One entry per project, each with the settings in the next table. The project is a Slack channel where the team tracks its tasks and incidents, optionally with its own Google Doc for executive summaries. | `npm run group` (step 8), or write them by hand. |
+| `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
 
 Each entry in `projects` takes these. Nothing else is set at the top of the file: the settings below belong to a project, so two projects can differ.
 
@@ -54,9 +55,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | --- | --- | --- |
 | `name` | **Required** | The project's name, as `/cade brief acme` and the project picker show it. |
 | `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). `npm run group` makes or finds it for you. |
-| `exportDoc` | Optional | The address of the project's message exports Google Doc, where Cade exports task threads. Only Cade writes it: share it as **Viewer**. |
-| `workDoc` | Optional | The address of the project's work Google Doc, where `/cade brief` writes its executive summaries and each task's notes page. People edit it: share it as **Editor**. Without one, these go in `exportDoc`. |
-| `taskSheet` | Optional | The address of the project's own Google Sheet for its tasks. Without it, its tasks aren't recorded in a Sheet. |
+| `workDoc` | Optional | The address of the project's Google Doc, where `/cade brief` writes its executive summaries. People edit it: share it as **Editor**. Without one, `/cade brief` and `/cade debrief` say how to link one. |
 | `taskStatusChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
 | `newMessageTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskStatusChangeDetection`. |
 | `aiSuggestions` | Optional (`false`) | **AI suggestions**: the proactive agent reads messages in a task's thread with [Workers AI](https://developers.cloudflare.com/workers-ai/) instead of by their phrases, so one message can change several roles, the status, the priority and the due date, and people can be removed ("take this over from @bob"). `true` or `false`. Needs `taskStatusChangeDetection` on. If the model fails or takes over 8 seconds, the message is read by its phrases instead. PR links are always read by their phrases. Uses the `AI` binding in `wrangler.toml`; Workers AI's usage beyond its free daily allowance is billed to your Cloudflare account. |
@@ -72,7 +71,7 @@ you through it: the group's name, then each channel (a new one, which Cade
 makes and is then in, or one that exists: a public one Cade joins itself, a
 private one once you send `/invite @Cade` in it), people to add to them by
 email or member ID, and, once the Google web app is set up (step 7), the
-group's Doc and Sheet. It says what it will do before doing it, then saves
+group's Doc. It says what it will do before doing it, then saves
 and uploads the file. It asks for Cade's bot token (or takes
 `SLACK_BOT_TOKEN`), and needs the app's channel permissions (`npm run
 slack:update`, then reinstall the app, if it was made before them).
@@ -80,11 +79,11 @@ slack:update`, then reinstall the app, if it was made before them).
 Or give the settings at once:
 
 ```sh
-npm run group -- --name acme --channel C… --exportDoc new --workDoc new --taskSheet new
+npm run group -- --name acme --channel C… --workDoc new
 ```
 
-`--exportDoc`, `--workDoc` and `--taskSheet` take
-`new` (made for you, named "acme message exports", "acme executive summaries and notes" and "acme tasks") or
+`--workDoc` takes
+`new` (made for you, named "acme executive summaries") or
 `none` to unlink; leave them out to keep what the group has. It checks and
 uploads the file, as `npm run config` does.
 
@@ -203,10 +202,9 @@ and paste it when the script asks. If you skipped that:
 npx wrangler secret put SLACK_BOT_TOKEN
 ```
 
-## 7. Optional: Google Sheets and Docs
+## 7. Optional: a Google Doc for executive summaries
 
-Each group can have its own Google Sheet, a record of every task (Slack's
-free plan keeps 90 days of history), and its own Google Doc, where `/cade
+Each group can have its own Google Doc, where `/cade
 brief` writes executive summaries to go through with the client and
 `/cade debrief` reads back what was added. One web app serves them all. It
 needs a Google account.
@@ -229,9 +227,9 @@ needs a Google account.
 3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
 
-Each group's Doc and Sheet are made when you set the group up (step 8). The
-script needs Google's `documents`, `spreadsheets` and `drive` access (the Docs and
-Sheets services and link sharing need them). It only touches the files
+Each group's Doc is made when you set the group up (step 8). The
+script needs Google's `documents` and `drive` access (the Docs service and
+link sharing need them). It only touches the files
 the Worker names. Skip this step for now and add them
 later with `npm run group`.
 
@@ -266,7 +264,7 @@ npm run group
    new one by name, which Cade makes, public or private, and is then in.
 4. People to add to the channel, by email or Slack member ID.
 5. With the Google web app (step 7), whether to turn on the group's Google
-   Doc and Google Sheet. Cade makes them.
+   Doc. Cade makes it.
 6. What it will do, to confirm. It then does it, saves the group in
    `cade.config.json` (git ignores it) and uploads it as the Worker secrets
    `CHANNEL_PAIRS` and `TIMEZONE`.
@@ -336,7 +334,10 @@ After updating, the **Home** tab and any new shortcuts or events come with
 ## Limits to know
 
 - Slack's free plan hides messages older than 90 days, including old tasks'
-  threads. The tasks themselves stay in the database (and the Sheet).
+  threads. Cade keeps every message of a tracked task's thread in its
+  database as it is sent, so the task's history page still has them, and
+  so do the tasks themselves. Send `/cade login` for a link that signs you
+  in to those pages.
 - D1's free plan allows 100,000 row writes a day and 500 MB per database;
   each change to a task is a single row write.
 - If Slack won't take a new task or incident (for example
@@ -353,10 +354,9 @@ After updating, the **Home** tab and any new shortcuts or events come with
 - **Test channels.** Several channel groups can run at once (see
   [Settings](#settings)), so a test channel can sit alongside the real
   one.
-- **Google Sheets and Docs**: each group's own spreadsheet records its
-  tasks (filter its Status column to see completed ones), and its work doc
-  holds its executive summaries and notes. See [google/README.md](google/README.md);
-  a group without `taskSheet` isn't recorded in a Sheet.
+- **Google Doc**: each group's work doc holds its executive summaries. See
+  [google/README.md](google/README.md). Task threads and notes are in the
+  database, on pages of the Worker (`/cade login` to open them).
 
 ## Using Cade
 

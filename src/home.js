@@ -1,7 +1,7 @@
 import { projects } from "./channels.js";
 import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
-import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
+import { formatTime } from "./format.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
 import { PRIORITIES, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
@@ -89,7 +89,7 @@ async function draw(env, user, tab) {
       })),
     },
   ];
-  if (tab !== "mine") return listView(env, tab, tabs, open, today, user, groups);
+  if (tab !== "mine") return listView(env, tab, tabs, open, today, user);
 
   const entries = open.filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
 
@@ -140,7 +140,7 @@ function projectPicker(groups, project) {
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first. Unassigned ones have an Assign to me button there, and only there.
-function listView(env, tab, tabs, open, today, user, groups) {
+function listView(env, tab, tabs, open, today, user) {
   const unassigned = tab === "unassigned";
   const entries = (unassigned ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
   const blocks = [
@@ -149,13 +149,6 @@ function listView(env, tab, tabs, open, today, user, groups) {
     ...tabs,
     { type: "divider" },
   ];
-  // Only open tasks are listed, so the Sheet, which has them all, closed ones
-  // too, is linked: one for each project that has one.
-  const sheets = groups.filter((group) => sheetEnabled(env, group));
-  if (!unassigned && sheets.length) {
-    const links = sheets.map((group) => `<https://docs.google.com/spreadsheets/d/${sheetId(group.taskSheet)}/edit|${sheets.length > 1 ? escapeSlack(group.name) : "Google Sheet"}>`);
-    blocks.splice(2, 0, { type: "context", elements: [mrkdwn(`:bar_chart: Closed and older tasks are in the ${links.join("  ·  ")}.`)] });
-  }
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
   blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today, user, unassigned)));
   if (entries.length > MAX_LISTED) {

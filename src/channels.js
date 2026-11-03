@@ -14,14 +14,7 @@ export function projects(env) {
   if (!Array.isArray(list) || !list.length || list.some((project) => !project?.name || !(project.channel ?? project.tasks))) {
     throw new Error("PROJECTS must list { name, channel } for each project");
   }
-  // `doc` and `sheet` are the old names of exportDoc and taskSheet, in
-  // settings uploaded before the rename.
-  return list.map(({ tasks, doc, sheet, ...project }) => ({
-    ...project,
-    channel: project.channel ?? tasks,
-    ...((project.exportDoc ?? doc) !== undefined && { exportDoc: project.exportDoc ?? doc }),
-    ...((project.taskSheet ?? sheet) !== undefined && { taskSheet: project.taskSheet ?? sheet }),
-  }));
+  return list.map(({ tasks, ...project }) => ({ ...project, channel: project.channel ?? tasks }));
 }
 
 function parseProjects(json) {

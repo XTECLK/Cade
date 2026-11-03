@@ -5,15 +5,12 @@
 //   npm run group                      asks for each setting, and can make
 //                                      the group's Slack channels too
 //   npm run group -- --name acme --channel C…
-//                    [--exportDoc new] [--workDoc new] [--taskSheet new]
+//                    [--workDoc new]
 //
-// --exportDoc, --workDoc and --taskSheet turn on the group's message exports
-// Google Doc (written only by Cade: share it view-only), its work Google
-// Doc (executive summaries and task notes, which people edit) and Google
-// Sheet (for its tasks): `new` has the Google web app
-// (npm run google:create) make one, owned by you, named
-// "<name> message exports", "<name> executive summaries and notes" and "<name> tasks". The web app only reaches
-// files it made, so existing files can't be linked. For a group already
+// --workDoc turns on the group's Google Doc for executive summaries, which
+// people edit: `new` has the Google web app (npm run google:create) make one,
+// owned by you, named "<name> executive summaries". The web app only reaches
+// files it made, so an existing file can't be linked. For a group already
 // there, only what's given changes; `none` removes a setting.
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
@@ -28,15 +25,13 @@ const SECRET_FILE = `${ROOT}google/Secret.gs`;
 
 // Each kind of file: where its address names its ID, and what it's called.
 const KINDS = {
-  exportDoc: { path: "document", noun: "Google Doc", action: "doc" },
   workDoc: { path: "document", noun: "Google Doc", action: "doc" },
-  taskSheet: { path: "spreadsheets", noun: "Google Sheet", action: "sheet" },
 };
 
-const FIELDS = ["channel", "exportDoc", "workDoc", "taskSheet"];
+const FIELDS = ["channel", "workDoc"];
 
 // What each file is called when `new` makes it.
-const NEW_TITLES = { exportDoc: (name) => `${name} message exports`, workDoc: (name) => `${name} executive summaries and notes`, taskSheet: (name) => `${name} tasks` };
+const NEW_TITLES = { workDoc: (name) => `${name} executive summaries` };
 
 // The command line as { name, channel, … }, each as given.
 export function readArgs(args) {
@@ -53,7 +48,7 @@ export function readArgs(args) {
 }
 
 const USAGE =
-  "Use: npm run group -- --name acme --channel C… [--exportDoc new|none] [--workDoc new|none] [--taskSheet new|none]";
+  "Use: npm run group -- --name acme --channel C… [--workDoc new|none]";
 
 // cade.config.json with the group `name` added or changed: `fields` are its
 // settings, a value of "none" removing one. A new group needs `channel`.
@@ -63,13 +58,6 @@ export function withGroup(configJson, name, fields) {
   const channels = (config.projects ?? config.channels ?? []).map(({ tasks, ...old }) => ({ ...old, channel: old.channel ?? tasks }));
   const at = channels.findIndex((group) => group.name === name);
   const group = { ...(at === -1 ? { name } : channels[at]) };
-  // `doc` and `sheet` are the old names of exportDoc and taskSheet.
-  for (const [old, now] of [["doc", "exportDoc"], ["sheet", "taskSheet"]]) {
-    if (group[old] !== undefined) {
-      group[now] ??= group[old];
-      delete group[old];
-    }
-  }
   for (const [field, value] of Object.entries(fields)) {
     if (value === "none") delete group[field];
     else group[field] = value;
@@ -97,7 +85,7 @@ async function fileAddress(kind, value, name, config) {
   return `https://docs.google.com/${KINDS[kind].path}/d/${id}/edit`;
 }
 
-// Asks the Google web app at `url` for a new doc or spreadsheet called
+// Asks the Google web app at `url` for a new doc called
 // `title`, and returns its ID. It answers as the Worker reads it: through
 // the page it redirects to.
 async function createFile(kind, url, title) {
@@ -153,15 +141,11 @@ export async function group(args) {
   const json = await currentConfig();
   const config = JSON.parse(json);
   const fields = { ...given };
-  for (const field of ["exportDoc", "workDoc", "taskSheet"]) {
-    if (given[field]) fields[field] = await fileAddress(field, given[field], name, config);
-  }
+  if (given.workDoc) fields.workDoc = await fileAddress("workDoc", given.workDoc, name, config);
   const saved = await saveGroup(json, name, fields);
   console.log(`
 Done. In Slack, invite Cade to the project channel (${saved.channel}) with /invite @Cade, if it isn't there.`);
-  if (saved.exportDoc) console.log(`Message exports doc: ${saved.exportDoc}\n  Cade writes it; share it as Viewer only.`);
-  if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries and notes.`);
-  if (saved.taskSheet) console.log(`Sheet: ${saved.taskSheet}`);
+  if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries.`);
 }
 
 // The project's channels, as the guided setup asks for them.
@@ -275,11 +259,11 @@ async function tokenPage() {
 // `npm run group` with no options: asks for each setting in turn, says what
 // it will do, and does it once confirmed. For each channel it makes a new
 // one or links an existing one (see channelPlan), adds people to all of
-// them (those already in are skipped), makes or links the group's Google
-// Doc and Sheet, and saves and uploads the group.
+// them (those already in are skipped), makes the group's Google Doc if
+// asked, and saves and uploads the group.
 async function guided() {
   if (!process.stdin.isTTY) throw new Error(`Run it in a terminal to be asked for each setting, or give them: ${USAGE}`);
-  console.log("Setting up a group: its Slack channels, then its Google Doc and Sheet. Nothing changes until you confirm.\n");
+  console.log("Setting up a group: its Slack channels, then its Google Doc. Nothing changes until you confirm.\n");
   let token = process.env.SLACK_BOT_TOKEN;
   if (!token) {
     console.log(`Cade's bot token is under Bot User OAuth Token at ${await tokenPage()}\n`);
@@ -311,7 +295,7 @@ async function guided() {
     if (!config.timezone) {
       const local = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       while (!settings.timezone) {
-        const zone = await ask(`\nYour team's time zone, for times in the Sheet (an IANA name such as Asia/Colombo) [${local}]: `, local);
+        const zone = await ask(`\nYour team's time zone, for times (an IANA name such as Asia/Colombo) [${local}]: `, local);
         try {
           settings.timezone = checkZone(zone);
         } catch (error) {
@@ -339,13 +323,13 @@ async function guided() {
 
     const files = {};
     if (config.googleUrl) {
-      for (const [field, what] of [["exportDoc", "Google Doc for message exports (view-only)"], ["workDoc", "Google Doc for executive summaries and task notes (editable)"], ["taskSheet", "Google Sheet for its tasks"]]) {
+      for (const [field, what] of [["workDoc", "Google Doc for executive summaries (editable)"]]) {
         if (current[field]) {
           if (/^(-|u|unlink)$/i.test(await ask(`\n${what}: already on. Enter to keep it, - to unlink: `))) files[field] = "none";
         } else if (/^y/i.test(await ask(`\nTurn on ${what}? Cade makes it (y/N): `))) files[field] = "new";
       }
     } else {
-      console.log("\nThe Google web app isn't set up (npm run google:create), so I'll skip the group's Doc and Sheet.");
+      console.log("\nThe Google web app isn't set up (npm run google:create), so I'll skip the group's Doc.");
     }
 
     console.log(`\nFor ${name}, I'll:`);
@@ -362,8 +346,7 @@ async function guided() {
     }
     if (ids.length) console.log(`  add ${ids.length === 1 ? "1 person" : `${ids.length} people`} to the channels`);
     for (const [field, value] of Object.entries(files)) {
-      const what = field === "taskSheet" ? "Google Sheet" : field === "workDoc" ? "work Google Doc" : "message exports Google Doc";
-      console.log(`  ${what}: ${value === "new" ? `make "${NEW_TITLES[field](name)}"` : value === "none" ? "unlink it" : `link ${value}`}`);
+      console.log(`  work Google Doc: ${value === "new" ? `make "${NEW_TITLES[field](name)}"` : value === "none" ? "unlink it" : `link ${value}`}`);
     }
     if (settings.timezone) console.log(`  set the time zone to ${settings.timezone}`);
     console.log("  save the group in cade.config.json and upload it");
@@ -407,9 +390,7 @@ async function guided() {
     for (const role of ROLES) {
       if (saved[role.field]) console.log(`  ${role.what.split(",")[0]}: ${url}archives/${saved[role.field]}`);
     }
-    if (saved.exportDoc) console.log(`Message exports doc: ${saved.exportDoc}\n  Cade writes it; share it as Viewer only.`);
-  if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries and notes.`);
-    if (saved.taskSheet) console.log(`Sheet: ${saved.taskSheet}`);
+    if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries.`);
   } finally {
     prompt.close();
   }

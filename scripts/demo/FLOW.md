@@ -121,5 +121,5 @@ approver at once, so multi-person hand-offs are noted but not shown.
 - Move to existing from a DM, and the Project picker (this workspace has one group, so no picker).
 - Not-yet-seen: `@Cade pr add/remove`, `unassign`, `@Cade task` / `@Cade move` on an old message
   and the "already moved" guard, 🎫 / 🔀 emoji, `/cade tasks -all` and its filters,
-  `/cade standup -unassigned`, admin `/cade remove <link>` (double confirm), the Google Sheet tab.
+  `/cade standup -unassigned`, admin `/cade remove <link>` (double confirm).
 - The "Not approve" path, and Done -> unpinned.

@@ -1,6 +1,6 @@
 // Tasks are stored in D1 (the DB binding). Each is stored before its root
 // message is posted; once posted, it is found by the message's channel and
-// ts. The root message and the Google Sheet row are rendered from the row
+// ts. The root message is rendered from the row
 // after every change (see saveTask). The schema is in migrations/; the
 // requirements table, and tasks' source_channel, source_thread_ts and
 // source_link, are left from when a client channel could be paired, and no
@@ -19,6 +19,15 @@ export async function getTask(env, channel, ts) {
     .bind(channel, ts)
     .first();
   return row ? { ...taskFromRow(row), releases: await releasesOf(env, row.id) } : null;
+}
+
+// The title of the task whose root message is `ts`, archived or not, or null
+// if there is none or it was deleted: what its pages are headed with.
+export async function taskTitleOf(env, channel, ts) {
+  const row = await env.DB.prepare("SELECT title FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL")
+    .bind(channel, ts)
+    .first();
+  return row ? row.title : null;
 }
 
 // The task's releases that aren't NOT_APPROVED, oldest first, as
@@ -141,17 +150,6 @@ export async function tasksWithStatus(env, channel, statuses) {
     .bind(channel, ...statuses)
     .all();
   return results.map((row) => ({ ts: row.ts, task: taskFromRow(row) }));
-}
-
-// Every posted task in `channel` that wasn't deleted, as { ts, task,
-// archived }, oldest first: for sending them all to the Sheet at once.
-export async function postedTasks(env, channel) {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM tasks WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL ORDER BY ts`,
-  )
-    .bind(channel)
-    .all();
-  return results.map((row) => ({ ts: row.ts, task: taskFromRow(row), archived: Boolean(row.archived_at) }));
 }
 
 // The tasks whose root message Slack hasn't taken yet, as { id, channel,
@@ -489,10 +487,7 @@ function taskToRow(task) {
     source_incident: task.incident ? 1 : 0,
     link: task.link ?? null,
     notes_url: task.notes?.url ?? null,
-    notes_tab: task.notes?.tab ?? null,
     export_url: task.export?.url ?? null,
-    export_tab: task.export?.tab ?? null,
-    export_synced: task.export?.synced ?? null,
   };
 }
 
@@ -513,44 +508,45 @@ function taskFromRow(row) {
     // Whether it is an incident: always urgent and due immediately.
     incident: Boolean(row.source_incident),
     link: row.link || undefined,
-    // The task's page in its project's Google Doc, once made (see notes.js).
-    notes: row.notes_url ? { url: row.notes_url, tab: row.notes_tab } : undefined,
-    // Its thread's page in the Doc's Export tab, once exported (see export.js).
-    export: row.export_url ? { url: row.export_url, tab: row.export_tab, synced: row.export_synced ?? undefined } : undefined,
+    // The address of the task's notes page on the Worker, once it has one (see notes.js).
+    notes: row.notes_url ? { url: row.notes_url } : undefined,
+    // Its thread's page, likewise (see export.js).
+    export: row.export_url ? { url: row.export_url } : undefined,
   };
 }
 
-// Messages waiting to be written to a task's page in the Doc (see
-// pending_messages in migrations). Slack redelivers events, so a message
-// already waiting is left as it is.
-export async function addPendingMessage(env, { channel, taskTs, ts, userId, username, text, files }) {
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO pending_messages (channel, task_ts, ts, user_id, username, text, files)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(channel, taskTs, ts, userId ?? null, username ?? null, text ?? "", files?.length ? JSON.stringify(files) : null)
-    .run();
+// Messages in a tracked task's thread, kept for good (see messages in
+// migrations). Slack redelivers events, and a resync reads a thread again, so
+// a message already kept is left as it is. Written several to a statement, as
+// D1 allows 100 values in one and a Worker only so many queries.
+const MESSAGE_ROWS = 14;
+
+export async function addMessages(env, rows) {
+  for (let from = 0; from < rows.length; from += MESSAGE_ROWS) {
+    const chunk = rows.slice(from, from + MESSAGE_ROWS);
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO messages (channel, task_ts, ts, user_id, username, text, files) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+    )
+      .bind(
+        ...chunk.flatMap(({ channel, taskTs, ts, userId, username, text, files }) => [
+          channel,
+          taskTs,
+          ts,
+          userId ?? null,
+          username ?? null,
+          text ?? "",
+          files?.length ? JSON.stringify(files) : null,
+        ]),
+      )
+      .run();
+  }
 }
 
-// Up to `limit` tasks, oldest waiting message first, that have messages waiting
-// and a page known to be up to date to write them to (the others wait for a
-// resync, and must not crowd out these).
-export async function tasksWithPending(env, limit) {
-  const { results } = await env.DB.prepare(
-    `SELECT p.channel, p.task_ts FROM pending_messages p
-     JOIN tasks t ON t.channel = p.channel AND t.ts = p.task_ts
-     WHERE t.export_synced IS NOT NULL
-     GROUP BY p.channel, p.task_ts ORDER BY MIN(p.created_at), MIN(p.ts) LIMIT ?`,
-  )
-    .bind(limit)
-    .all();
-  return results;
-}
+export const addMessage = (env, row) => addMessages(env, [row]);
 
-export async function pendingMessages(env, channel, taskTs) {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM pending_messages WHERE channel = ? AND task_ts = ? ORDER BY ts",
-  )
+// A task's kept messages, oldest first, as { user, username, ts, text, files }.
+export async function threadMessages(env, channel, taskTs) {
+  const { results } = await env.DB.prepare("SELECT * FROM messages WHERE channel = ? AND task_ts = ? ORDER BY ts")
     .bind(channel, taskTs)
     .all();
   return results.map((row) => ({
@@ -562,15 +558,102 @@ export async function pendingMessages(env, channel, taskTs) {
   }));
 }
 
-// Removes the waiting messages up to and including `ts`, once they're written.
-export async function deletePendingMessages(env, channel, taskTs, ts) {
-  await env.DB.prepare("DELETE FROM pending_messages WHERE channel = ? AND task_ts = ? AND ts <= ?")
-    .bind(channel, taskTs, ts)
+// The task's notes page: { summary, summaryBy, summaryAt, body, updatedBy,
+// updatedAt }, empty for a task with none yet.
+export async function getNotes(env, channel, taskTs) {
+  const row = await env.DB.prepare("SELECT * FROM task_notes WHERE channel = ? AND task_ts = ?").bind(channel, taskTs).first();
+  return {
+    summary: row?.summary ?? "",
+    summaryBy: row?.summary_by ?? undefined,
+    summaryAt: row?.summary_at ?? undefined,
+    body: row?.body ?? "",
+    updatedBy: row?.updated_by ?? undefined,
+    updatedAt: row?.updated_at ?? undefined,
+  };
+}
+
+// Replaces the summary an AI agent wrote for `user`.
+export async function putSummary(env, channel, taskTs, summary, user) {
+  await env.DB.prepare(
+    `INSERT INTO task_notes (channel, task_ts, summary, summary_by, summary_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT (channel, task_ts) DO UPDATE SET summary = excluded.summary, summary_by = excluded.summary_by, summary_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(channel, taskTs, summary, user)
     .run();
 }
 
-export async function setExportSynced(env, channel, ts, synced) {
-  await env.DB.prepare("UPDATE tasks SET export_synced = ? WHERE channel = ? AND ts = ?")
-    .bind(synced, channel, ts)
+// Replaces the notes people write, as edited by `user`.
+export async function putNotesBody(env, channel, taskTs, body, user) {
+  await env.DB.prepare(
+    `INSERT INTO task_notes (channel, task_ts, body, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT (channel, task_ts) DO UPDATE SET body = excluded.body, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(channel, taskTs, body, user)
     .run();
+}
+
+// Names of Slack users, as a Map of the ones kept.
+export async function keptNames(env, ids) {
+  const names = new Map();
+  for (const id of ids) {
+    const row = await env.DB.prepare("SELECT name FROM user_names WHERE user_id = ?").bind(id).first();
+    if (row) names.set(id, row.name);
+  }
+  return names;
+}
+
+export async function keepName(env, id, name) {
+  await env.DB.prepare(
+    `INSERT INTO user_names (user_id, name) VALUES (?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(id, name)
+    .run();
+}
+
+// Keeps the hash of a web sign-in token for `user`: a 'login' for `minutes`,
+// a 'session' for `minutes` too. Old and used ones are cleared as new are made.
+export async function putWebToken(env, hash, user, kind, minutes) {
+  await env.DB.prepare("DELETE FROM web_tokens WHERE expires_at < datetime('now')").run();
+  if (kind === "login") await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? AND kind = 'login'").bind(user).run();
+  await env.DB.prepare("INSERT INTO web_tokens (token_hash, user_id, kind, expires_at) VALUES (?, ?, ?, datetime('now', ?))")
+    .bind(hash, user, kind, `+${minutes} minutes`)
+    .run();
+}
+
+// The user a live token of this kind belongs to, or null. A 'login' is used
+// up by being looked up.
+export async function webTokenUser(env, hash, kind) {
+  const sql =
+    kind === "login"
+      ? "DELETE FROM web_tokens WHERE token_hash = ? AND kind = ? AND expires_at > datetime('now') RETURNING user_id"
+      : "SELECT user_id FROM web_tokens WHERE token_hash = ? AND kind = ? AND expires_at > datetime('now')";
+  const row = await env.DB.prepare(sql).bind(hash, kind).first();
+  return row ? row.user_id : null;
+}
+
+export async function deleteWebToken(env, hash) {
+  await env.DB.prepare("DELETE FROM web_tokens WHERE token_hash = ?").bind(hash).run();
+}
+
+// Keeps `hash` as the MCP token of `user`, in place of any they had.
+export async function putMcpToken(env, user, hash) {
+  await env.DB.prepare(
+    `INSERT INTO mcp_tokens (user_id, token_hash) VALUES (?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET token_hash = excluded.token_hash, created_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(user, hash)
+    .run();
+}
+
+// The user whose MCP token has this hash, or null.
+export async function mcpTokenUser(env, hash) {
+  const row = await env.DB.prepare("SELECT user_id FROM mcp_tokens WHERE token_hash = ?").bind(hash).first();
+  return row ? row.user_id : null;
+}
+
+// Removes the user's MCP token, and returns whether they had one.
+export async function deleteMcpToken(env, user) {
+  const row = await env.DB.prepare("DELETE FROM mcp_tokens WHERE user_id = ? RETURNING user_id").bind(user).first();
+  return Boolean(row);
 }

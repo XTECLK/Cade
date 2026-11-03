@@ -1,77 +1,36 @@
-# Google Sheets and Docs
+# Google Docs
 
-Each group can have its own **Google Sheet**, a record of its
-tasks (Slack's free plan only keeps recent history), and its own **Google
-Doc**, where `/cade brief` writes its executive summaries to go through
-with the client and `/cade debrief` reads back what was added. A free Google
-account is enough.
+Each group can have its own **Google Doc**, where `/cade brief` writes its
+executive summaries to go through with the client and `/cade debrief` reads
+back what was added. A free Google account is enough. Everything else
+(tasks, threads and notes) is kept in Cade's database, not in Google.
 
-The Worker reaches both through one Apps Script web app, this folder:
-`Code.gs` takes each request and runs its `action`, `Sheet.gs` keeps the
-spreadsheets and `Doc.gs` the docs. It's a standalone script, in no
-spreadsheet or doc, serving every group, and runs as you. Google
-only lets `DocumentApp` and `SpreadsheetApp` run with the `documents` and
-`spreadsheets` scopes, so it can open your Docs and Sheets, not just the ones it
-made. It only touches the IDs the Worker gives it. Any of them can
-be deleted without affecting the others.
+The Worker reaches the docs through one Apps Script web app, this folder:
+`Code.gs` takes each request and runs its `action`, and `Doc.gs` keeps the
+docs. It's a standalone script, in no doc, serving every group, and runs as
+you. It only touches the IDs the Worker gives it.
 
-## Linking a group's files
+## Linking a group's Doc
 
 ```sh
-npm run group -- --name acme --taskSheet new --exportDoc new --workDoc new
+npm run group -- --name acme --workDoc new
 ```
 
-`new` has the web app make the file (yours, named "acme tasks", "acme
-message exports" and "acme executive summaries and notes"); `none` unlinks.
-They're saved on the group in `cade.config.json` as `taskSheet`, `exportDoc` and `workDoc`, and
-uploaded. A group without `taskSheet` isn't recorded in a Sheet; without a
-`workDoc` (or `exportDoc`), `/cade brief` and `/cade debrief` say how to link
-one. Share the work doc as **Editor** and the message exports doc as
-**Viewer**.
-
-## Adding a Sheet later
-
-If the group already has tasks when you add its Sheet, send `/cade resync
-sheet` in its dev channel once. It sends every task (archived ones too, marked
-Archived) and says how many. From then on each change reaches the Sheet by
-itself.
-
-## The Sheet
-
-Cade keeps a **Tasks** tab in the group's spreadsheet, made on the first
-update (a new spreadsheet's empty first tab is removed then). A tab named
-after the group, as older versions made, is renamed Tasks, rows and all. Every
-task has one row, updated on every change:
-
-Title, Status, Priority, Due date, Owner, Reviewer, Tester, Tracked by,
-Tracked at, Completed at, Task link, Request link, Task ID
-
-Deleted tasks stay, with the status "Deleted". To see completed tasks,
-filter the **Status** column to "Done" (**Data → Create a filter**).
-**Completed at** is the first time the task was set to Done; it's cleared if
-the task is reopened. **Task ID** is the dev thread's ID
-(`channel:timestamp`): each update finds the task's row by it and overwrites
-it, so you can sort and filter freely, but don't edit or delete that column.
-Times are in `TIMEZONE` (UTC if unset). Tasks that existed before the
-spreadsheet was linked appear the next time they change; to move rows from
-another spreadsheet, copy them into the tab under its header row.
+`new` has the web app make the file (yours, named "acme executive
+summaries"); `none` unlinks. It's saved on the group in `cade.config.json` as
+`workDoc`, and uploaded. A group without a `workDoc` can't use `/cade brief`
+or `/cade debrief`, which say how to link one. Share the doc as **Editor**
+with whoever goes through the summaries.
 
 ## The Doc
 
 Cade writes in the doc's **Summary** tab, and adds the tab if the doc has
 none. A group's summaries cover its tasks, incidents first. Each summary is
-a section of its own, newest at the top: a heading
-with the day it was written and the group, the period, then **Completed**,
-**Incidents** and each health (**Blocked**, **Delayed**, **At risk**, **On
-track**). Every line is a bullet whose title links to its Slack thread, with
-its notes as bullets under it.
-
-Tasks have pages too. A new task in a group with a doc gets an empty tab of
-its own, named after it, under the doc's **Notes** tab (added if the doc has
-none), and its card links it as "Extra notes here". The tab is for notes you
-write by hand: Cade never writes in it. Tasks made before this have none:
-**Refresh** on the card (or `/cade resync <link>`) makes theirs. A task that
-has a page is left alone, so a page whose tab was deleted stays linked.
+a section of its own, newest at the top: a heading with the day it was
+written and the group, the period, then **Completed**, **Incidents** and each
+health (**Blocked**, **Delayed**, **At risk**, **On track**). Every line is a
+bullet whose title links to its Slack thread, with its notes as bullets under
+it.
 
 During the call, add to the section:
 
@@ -98,30 +57,26 @@ what's new is.
    config`) and the secret (`GOOGLE_SECRET`). Its IDs are saved to
    `.cade/google-app.json`.
 4. **Approve the script (person).** Open the script link it prints, choose
-   `authorize` at the top, click **Run**, and allow access to the
-   your Google Docs and Sheets (`documents`, `spreadsheets`, `drive`). Until then, the web app can't use them.
-5. **Link each group's files** with `npm run group`, as above.
+   `authorize` at the top, click **Run**, and allow access to your Google Docs
+   (`documents`, `drive`). Until then, the web app can't use them.
+5. **Link each group's Doc** with `npm run group`, as above.
 
 If the scripts here change, `npm run google:update` pushes them and
 redeploys the same address. By hand: paste the new files, then **Deploy →
 Manage deployments → Edit → Version: New version → Deploy**. Run
-`authorize` again if it asks for new access.
+`authorize` again if it asks for new access. This update removes the Sheet
+and the notes and thread tabs, which Cade no longer uses.
 
 ## Troubleshooting
 
-The Worker logs `Could not sync task to sheet` or `Could not add the
-executive summary to the doc` with the reason in `npx wrangler tail`:
+The Worker logs `Could not add the executive summary to the doc` with the
+reason in `npx wrangler tail`:
 
 - `unauthorized`: `GOOGLE_SECRET` doesn't match `SECRET` in `Secret.gs`.
 - `HTTP 401/403`: the web app's access isn't set to **Anyone**.
 - `You do not have permission`, or a file that can't be found: the group's
-  `taskSheet`, `exportDoc` or `workDoc` address is wrong, or you (who deployed the script) can't
-  edit it.
-- No log at all for a task: `googleUrl` isn't set, or the group has no
-  `taskSheet`, so syncing is off.
+  `workDoc` address is wrong, or you (who deployed the script) can't edit it.
 - `HTTP 404` from the doc: on some Google accounts the page holding the
-  script's reply is missing. Sheet rows can do without the reply (so a wrong
-  secret may not show in the logs there); summaries can't. Check
-  **Executions** in Apps Script: every request shows as a `doPost` **Web
-  App** run, with its error.
+  script's reply is missing. Check **Executions** in Apps Script: every
+  request shows as a `doPost` **Web App** run, with its error.
 - "Authorization required" in **Executions**: step 4 is still to do.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Takes you through GETTING_STARTED.md in one command: Cloudflare login, the
-// Worker, the Slack app, optionally Google Sheets and Docs, then your first
+// Worker, the Slack app, optionally a Google Doc for executive summaries, then your first
 // group. It runs the same npm scripts the guide names, so each can also be
 // run alone, and it skips what's already done: run it again to carry on.
 //
@@ -183,17 +183,17 @@ You'll be asked for it, then to install the app and give its bot token; both hid
     if ((await runLive("node", ["scripts/slack-app.mjs", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
   });
 
-  await step("Google Sheets and Docs (optional)", async () => {
+  await step("Google Doc for executive summaries (optional)", async () => {
     if (await exists(GOOGLE_APP)) {
       console.log("The Google web app is already created (.cade/google-app.json).");
       return;
     }
-    if (!(await yes("Keep each group's tasks in a Google Sheet, and executive summaries in a Google Doc?", false))) {
+    if (!(await yes("Keep each group's executive summaries in a Google Doc?", false))) {
       console.log("Skipped. Add them later with npm run google:create.");
       return;
     }
     console.log(`
-Cade's script, Docs and Sheets are best owned by a Google account of their
+Cade's script and Docs are best owned by a Google account of their
 own, so Cade can only reach what it makes, not your personal Drive.`);
     if (await yes("Create a separate Google account for Cade? (No: use an existing account.)")) {
       // slack:create saves the workspace's name when it was given the bot token; without it, none.
@@ -214,7 +214,7 @@ and turn on the Apps Script API at https://script.google.com/home/usersettings.`
   });
 
   await step("First group", async () => {
-    if (!(await yes("Set up a group (its Slack channel, and its Sheet and Doc) now?"))) {
+    if (!(await yes("Set up a group (its Slack channel, and its Doc) now?"))) {
       console.log("Later, with npm run group.");
       return;
     }

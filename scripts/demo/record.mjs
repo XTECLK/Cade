@@ -229,7 +229,7 @@ const ACTS = {
 
   6: {
     file: "act-6-everyones-view",
-    async run(c, { channels: { dev }, sheetUrl }) {
+    async run(c, { channels: { dev } }) {
       // 21. My tasks, with filters. Unverified: how the `@Mia` and `<@tomorrow`
       // in these are taken when typed rather than picked from the @-menu.
       for (const cmd of [
@@ -255,13 +255,7 @@ const ACTS = {
       await c.openTask("rex", dev, UNASSIGNED_TASK);
       await c.reply("rex", "@Cade assign owner @rex");
       await pause(5000);
-      // 23. The Google Sheet.
-      if (sheetUrl) {
-        const page = await c.as("randil");
-        await page.goto(sheetUrl);
-        await pause(6000);
-      }
-      // 24. Help.
+      // 23. Help.
       await c.say("randil", dev, "@Cade help");
       await pause(6000);
     },

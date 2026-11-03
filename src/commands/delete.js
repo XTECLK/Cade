@@ -1,6 +1,6 @@
 import { getTaskIncludingDeleted, markTaskDeleted } from "../db.js";
 import { callSlack, escapeSlack, linkedMessage, mrkdwn, plainText, respondLater } from "../slack.js";
-import { NOT_A_TASK, refreshSummary, syncTask } from "../tasks.js";
+import { NOT_A_TASK, refreshSummary } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
@@ -143,8 +143,6 @@ async function deleteTask(env, channel, ts, user) {
   if (!task) return;
 
   await deleteReplies(env, channel, ts);
-  // A task already marked deleted is in the sheet as Deleted.
-  if (!task.deleted) await syncTask(env, channel, ts, task, { deleted: true });
   // Deleting a message also removes its pin.
   await deleteMessage(env, channel, ts);
   if (!task.deleted) await markTaskDeleted(env, channel, ts);

@@ -1,7 +1,6 @@
 # Only the script itself is uploaded to Apps Script.
 **/**
 !Code.gs
-!Sheet.gs
 !Doc.gs
 !Secret.gs
 !appsscript.json

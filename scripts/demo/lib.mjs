@@ -43,7 +43,7 @@ export function readSessions() {
 // channel (DEMO_GROUP picks one by name; default is the first). Cade has no
 // client channel, so sarah's client messages go in that same channel
 // (DEMO_CLIENT_CHANNEL overrides it), and DEMO_LEAD_DM is the DM between sarah
-// and you. DEMO_SHEET_URL (optional) is the Google Sheet for Act 6. The workspace is whichever the saved logins
+// and you. The workspace is whichever the saved logins
 // belong to; its team id is read from the URL once Slack loads.
 export function loadConfig() {
   if (!existsSync(CADE_CONFIG_FILE)) throw new Error("cade.config.json is missing.");
@@ -56,7 +56,6 @@ export function loadConfig() {
     sessions: readSessions(),
     channels: { dev: group?.channel ?? group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL ?? group?.channel ?? group?.tasks },
     leadDm: process.env.DEMO_LEAD_DM,
-    sheetUrl: process.env.DEMO_SHEET_URL,
   };
 }
 

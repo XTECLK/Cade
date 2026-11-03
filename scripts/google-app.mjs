@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Creates the Google web app Cade keeps each group's Google Sheet and Google
-// Doc with (google/Code.gs, Sheet.gs and Doc.gs), or updates its script,
+// Creates the Google web app Cade keeps each group's executive summaries in a
+// Google Doc with (google/Code.gs and Doc.gs), or updates its script,
 // using clasp (Google's Apps Script command line). See GETTING_STARTED.md.
 //
 //   npm run google:create [-- --title "Cade_Acme"]
@@ -9,12 +9,12 @@
 // Both need `npx clasp login`, and the Apps Script API turned on for your
 // Google account (https://script.google.com/home/usersettings).
 //
-// Creating makes a standalone script, in no spreadsheet or doc, generates
+// Creating makes a standalone script, in no doc, generates
 // the shared secret into google/Secret.gs (not committed), deploys the web
 // app, then gives the Worker its address (googleUrl in cade.config.json,
 // uploaded with npm run config) and the secret (GOOGLE_SECRET). The script's
 // IDs are saved to .cade/google-app.json, so updates redeploy to the same
-// address. Each group's spreadsheet and doc are made with npm run group.
+// address. Each group's doc is made with npm run group.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -165,15 +165,15 @@ export async function create(args) {
 
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-to your Google Docs and Sheets (documents, spreadsheets, drive). Open the script, choose the "authorize"
+to your Google Docs (documents, drive). Open the script, choose the "authorize"
 function, click Run, and allow it:
   https://script.google.com/d/${app.scriptId}/edit
 Open it signed in as the Google account that made the script (the one you logged in to clasp
 with). If Google says "Sorry, unable to open the file at this time", you're signed in as another
 account: open the link in an incognito (private) window and sign in as that account there.
 
-Then have each group's spreadsheet and doc made with npm run group:
-  npm run group -- --name <group> --sheet new --doc new
+Then have each group's doc made with npm run group:
+  npm run group -- --name <group> --workDoc new
 `);
 }
 

@@ -1,5 +1,5 @@
 import { projects, findProject } from "../channels.js";
-import { userNames } from "../sheet.js";
+import { userNames } from "../format.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
 import { assigned, request } from "../notify.js";
 import { STATUSES, loadTask, saveTask } from "../tasks.js";

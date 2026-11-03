@@ -1,12 +1,10 @@
 import { callGoogle, googleEnabled } from "./google.js";
 
 // Each group's executive summaries are kept in its work doc (its `workDoc` in
-// CHANNEL_PAIRS, or its `exportDoc` for a group without one), which the team edits
-// and goes through on calls: a section per summary in its Summary tab, newest
-// first. Its tasks' notes pages are there too. The `exportDoc` is kept for
-// the message export, which only Cade writes. After a
-// call, `/cade debrief` reads the section back to find what was added. They
-// are written and read through the Google web app (see google.js).
+// PROJECTS), which the team edits and goes through on calls: a section per
+// summary in its Summary tab, newest first. After a call, `/cade debrief`
+// reads the section back to find what was added. They are written and read
+// through the Google web app (see google.js).
 export const docsEnabled = googleEnabled;
 
 // The tab summaries are written in, made if the doc has none.
@@ -32,10 +30,10 @@ export async function readSection(env, docId, key) {
   return elements ?? null;
 }
 
-// The ID of the group's work doc, where summaries and notes pages go: its
-// `workDoc`, or its `exportDoc` if it has none. "" if neither.
+// The ID of the group's work doc, where summaries go: its `workDoc`, or ""
+// if it has none.
 export function workDocId(group) {
-  return docId(group?.workDoc) || docId(group?.exportDoc);
+  return docId(group?.workDoc);
 }
 
 // The doc's ID in its address (…/document/d/<id>/…), or `value` itself if it

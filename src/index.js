@@ -1,11 +1,13 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, intents, reactions, shortcuts, views } from "./commands/registry.js";
-import { bufferMessage, flushPending } from "./export.js";
+import { recordMessage } from "./export.js";
 import { publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
+import { handleMcp } from "./mcp.js";
 import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
+import { handleWeb } from "./web.js";
 
 const ROUTES = {
   "/slack/events": handleEvent,
@@ -15,7 +17,17 @@ const ROUTES = {
 
 export default {
   async fetch(request, env, ctx) {
-    const route = ROUTES[new URL(request.url).pathname];
+    // The links Cade puts on cards are to this Worker, at the address this
+    // request came by unless PUBLIC_URL says otherwise (see links.js).
+    env = env.PUBLIC_URL ? env : { ...env, PUBLIC_URL: new URL(request.url).origin };
+    const path = new URL(request.url).pathname;
+    // AI agents reach Cade's MCP endpoint with a token of their own, not
+    // Slack's signature (see mcp.js).
+    if (path.startsWith("/mcp/")) return handleMcp(request, env);
+    // People reach a task's thread and notes pages with a session of their
+    // own, which `/cade login` starts (see web.js).
+    if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
+    const route = ROUTES[path];
     if (!route) return new Response("Not found", { status: 404 });
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
@@ -34,6 +46,8 @@ export default {
     // waitUntil and runs after the response has been sent.
     const context = {
       env,
+      // The Worker's address, for what has to tell people it (see commands/mcp.js).
+      origin: new URL(request.url).origin,
       waitUntil: (promise) =>
         ctx.waitUntil(
           promise.catch((error) =>
@@ -44,11 +58,9 @@ export default {
     return route(body, request, context);
   },
 
-  // The cron in wrangler.toml, every minute: writes the messages waiting for
-  // the Doc (see flushPending), and every fifth minute posts tasks Slack
+  // The cron in wrangler.toml, every minute; every fifth posts tasks Slack
   // refused.
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(flushPending(env).catch((error) => console.error("Flush failed", { error: error.message })));
     if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) ctx.waitUntil(retryUnposted(env));
   },
 };
@@ -82,8 +94,8 @@ async function handleEvent(body, request, context) {
   }
   if (envelope.event.type !== "message") return respond();
 
-  // A reply in a task's thread is kept for the project's Doc (see bufferMessage).
-  context.waitUntil(bufferMessage(context.env, envelope.event));
+  // A reply in a task's thread is kept in the database (see recordMessage).
+  context.waitUntil(recordMessage(context.env, envelope.event).catch((error) => console.error("Could not keep a message", { error: error.message })));
 
   const command = parseMessage(envelope.event, botUserId);
   if (command) {

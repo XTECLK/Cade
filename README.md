@@ -25,7 +25,7 @@ npm run deploy  # the Worker on Cloudflare
 ```
 
 `npm run dev` serves the Worker at `http://localhost:8787`, reloading as you
-edit. It takes the channels, time zone and Sheet address from
+edit. It takes the channels and time zone from
 `cade.config.json`, and asks for the secrets each time without saving them
 (or takes them from the environment, such as `SLACK_BOT_TOKEN=… npm run
 dev`). Slack can't reach `localhost`, so to try it against Slack, expose it
@@ -39,12 +39,12 @@ Other scripts:
 | Script | Does |
 | --- | --- |
 | `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, optionally Google, then your first group |
-| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Docs and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--exportDoc new] [--workDoc new] [--taskSheet new]` it takes them at once |
+| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Doc, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--exportDoc new] [--workDoc new] [--taskSheet new]` it takes them at once |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
-| `npm run google:create` | Creates the Google web app (each group's Sheet and Doc) with clasp, and gives the Worker its address and secret |
+| `npm run google:create` | Creates the Google web app (each group's executive-summary Doc) with clasp, and gives the Worker its address and secret |
 | `npm run google:update` | Pushes `google/` and redeploys it to the same address |
 
 ## How it works
@@ -96,6 +96,16 @@ hedged messages ("not done yet") don't count as progress.
 
 ### Where things are kept
 
+A tracked task's thread is kept in the `messages` table: each reply is stored
+by the event itself (`recordMessage` in `export.js`), and a new task's thread
+is read from Slack as it is made, so Slack's 90-day limit on the free plan
+doesn't lose it. The task's card links two pages of the Worker (`web.js`): its
+thread, `/t/<channel>/<ts>`, and its notes, `/n/<channel>/<ts>`, where the
+AI agent's summary and notes people type are kept (`task_notes`). Pages are
+for people who can read the channel and are signed in: `/cade login` gives a
+link that works once and sets a 30-day cookie (`web_tokens`, hashes only). The
+links are built on `PUBLIC_URL`, or the address a request came by.
+
 Tasks are stored in D1, the `DB` binding (`db.js`, with the tables in
 `migrations/`). A new one is stored before its root message is posted
 (`createTask` in `commands/track.js`), with `ts` empty until Slack takes the
@@ -104,8 +114,7 @@ five minutes (`retry.js`, through `publishTask`), up to five tries in all.
 Once posted, a row is found by its channel and `ts`. `loadTask` and
 `saveTask` in `tasks.js` read and write a task; `saveTask` stores the row
 first, then renders it to the root message in the dev channel
-(`taskMessage`) and to its row in the Google Sheet (`syncTask`). Slack and
-the Sheet are only written to, never read back: `/cade tasks` is a query of
+(`taskMessage`). Slack is only written to, never read back: `/cade tasks` is a query of
 open tasks. An incident is a task with `source_incident` set: always urgent
 and due immediately. A task's PRs sent to the client with `@Cade release`
 are rows of `releases`, one per release, with its PRs and what it
@@ -130,17 +139,20 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`, `brief`, `debrief` |
+| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`, `brief`, `debrief` |
 | `src/db.js` | Reading and writing tasks in D1 |
 | `src/retry.js` | The cron's job: posting tasks Slack refused |
-| `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |
+| `src/tasks.js` | The task message: layout, saving, pins |
 | `src/channels.js` | `CHANNEL_PAIRS`: each group's dev channel |
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/google.js` | Calling the Google web app |
-| `src/sheet.js` | Writing rows to each group's Google Sheet |
+| `src/format.js` | Times in `TIMEZONE`, and Slack users' names |
+| `src/export.js` | Keeping each tracked thread's messages in D1 (`messages`) |
+| `src/notes.js`, `src/links.js` | A task's notes page and the addresses of its pages |
+| `src/web.js`, `src/access.js` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in with `/cade login`, and who may read a channel |
 | `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
-| `google/` | The Google web app's Apps Script (`Code.gs`, `Sheet.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
+| `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
 | `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
@@ -159,6 +171,23 @@ to recognise a new kind of message, add an `intent({ … })` to a handler's
 `intents` (the comment at the top of `src/intents.js` has the shape), or add
 words to an existing list such as `HANDOFFS`. If it needs a new Slack scope
 or event, add it to `slack/manifest.json` and run `npm run slack:update`.
+
+## AI agents
+
+Cade is also an [MCP](https://modelcontextprotocol.io) server at
+`/mcp/<token>`, so a person's own AI agent can summarize a thread into a task
+(`src/mcp.js`). `/cade mcp grant` gives the person a token of their own,
+shown only to them, and `/cade mcp revoke` ends it; only a hash is kept, in
+`mcp_tokens`. Its three tools are `get_thread_history(link)`, which reads a
+thread (a private channel's only for someone in it), `resolve_user_name(id)`
+and `update_task_summary(link, summary)`. The summary goes to the top of the
+task's notes page, a page of the Worker (`/n/<channel>/<ts>`) where the team
+also types notes by hand; it is kept in `task_notes`, marked as generated by
+the person. `get_thread_history` adds the messages Cade kept (`messages`) to
+what Slack still gives, so threads older than Slack's 90 days still read. After a task is made from a message, its form gives way to a
+second one with the prompt to paste into the agent and how to connect it
+(in `src/commands/track.js`); `aiAgentSummary: false` on a project turns that
+off.
 
 ## Tests
 

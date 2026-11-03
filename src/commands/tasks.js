@@ -1,6 +1,6 @@
 import { projects, findProject } from "../channels.js";
 import { tasksWithStatus } from "../db.js";
-import { userNames } from "../sheet.js";
+import { userNames } from "../format.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
 

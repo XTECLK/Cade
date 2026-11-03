@@ -11,7 +11,7 @@ import {
   setExportPeriod,
 } from "../db.js";
 import { docsEnabled, workDocId, writeSection } from "../doc.js";
-import { formatTime } from "../sheet.js";
+import { formatTime } from "../format.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
 import { byUrgency, groupTasks, threadLink, todayIn } from "./tasks.js";

@@ -11,7 +11,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Eight tools:
+// task, with the model and subscription they already have. Nine tools:
 //
 //   get_flows(name?, task_id?)         the flows Cade supports, such as writing
 //                                      a task's summary, and their steps
@@ -25,6 +25,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 //                                      tasks, most urgent first: the person's
 //                                      own, or every project's they can read
 //   get_user(id)                       a Slack user's name, for the IDs in it
+//   get_users(limit?)                  the workspace's people and their IDs
 //   find_user_by_name(name)            a Slack user's ID, by name, for assigning
 //   update_task(task_id, …)            a task's status, priority, due date,
 //                                      people and summary; the fields are told
@@ -49,6 +50,8 @@ const MAX_PAGES = 10;
 const MAX_SUMMARY = 8000;
 const MAX_TASKS = 100;
 const DEFAULT_TASKS = 20;
+const MAX_USERS = 200;
+const DEFAULT_USERS = 50;
 
 // Makes a new API key for `user`, ending any they had, and returns it. It
 // can't be read again; `/cade mcp revoke` ends it, and a new one follows.
@@ -83,7 +86,7 @@ const INSTRUCTIONS = [
   "Cade tracks a team's tasks in Slack. Each task has an ID, the channel and the time of its message joined by a colon, such as C0123ABCD:1700000000.000100.",
   "Find tasks: get_tasks lists tasks, open ones by default: mine or role for the ones you are on, assignee or unassigned for others, status and limit to narrow it. It gives each task's ID and link.",
   "Read a task with get_task (details, summary and notes; no threads), and its threads separately: get_task names the thread the task was made from (where the problem or request was first raised), which get_thread_history reads from Slack, and get_task_history gives the messages Cade kept of the task's own thread, even those Slack no longer returns, which is what was done about it: the solution applied, the actions taken and how it ended. Pass either the task_id.",
-  "Read any other thread with get_thread_history and a message link; it asks Slack, which hides messages older than 90 days on the free plan. Look up the people in a thread (the user IDs on its messages and in <@…> mentions) with get_user.",
+  "Read any other thread with get_thread_history and a message link; it asks Slack, which hides messages older than 90 days on the free plan. Look up the people in a thread (the user IDs on its messages and in <@…> mentions) with get_user. get_users lists the workspace's people with their IDs, and find_user_by_name finds one by name.",
   "Cade has flows, step-by-step ways to do a job with its tools, such as writing a task's summary (summarize_task), triaging tasks (triage_tasks), explaining a task (explain_task) and planning the person's work (plan_my_work). When asked to do one, call get_flows with its name to get the steps, and follow them; get_flows with no name lists them.",
   "If the person asks to summarize or prepare a task's summary without saying which task, call get_tasks with mine, list their tasks and ask which one; don't guess.",
   "To summarize a task, write its issue only: read the thread it was made from (get_task gives its ID) with get_thread_history, look up the people, then draft the summary, show it to the person and ask whether to save it or change it, and only when they approve it save it with update_task and the same task_id. Leave out the actions and the result, which the task's own thread already has. It replaces the summary written before. The summarize_task prompt does all of this.",
@@ -185,6 +188,17 @@ const TOOLS = [
       required: ["id"],
     },
     run: resolveUserName,
+  },
+  {
+    name: "get_users",
+    description:
+      "Lists the people of the Slack workspace, with their user IDs (bots and deactivated accounts left out): name, username and ID, such as Ann Lee (ann.lee): U0123ABCD. " +
+      `Takes a limit, ${DEFAULT_USERS} by default and at most ${MAX_USERS}. In a large workspace use find_user_by_name to find one person instead.`,
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return. Default ${DEFAULT_USERS}` } },
+    },
+    run: getUsers,
   },
   {
     name: "find_user_by_name",
@@ -581,25 +595,45 @@ async function resolveUserName(env, user, { id }) {
   }
 }
 
-// Slack users whose name matches, to give a user ID to assign.
-async function findUser(env, user, { name }) {
-  const wanted = String(name ?? "").trim().toLowerCase().replace(/^@/, "");
-  if (wanted.length < 2) throw new ToolError("Give at least two letters of the person's name.");
-  const found = [];
+// The people of the workspace, up to `max` of those `keep(names)` accepts, as
+// { line, total }: a "Name (handle): ID" line each, and how many there were in
+// all (not counted past the pages read). Bots and deactivated accounts are left out.
+async function workspacePeople(env, keep, max) {
+  const lines = [];
+  let total = 0;
   let cursor;
-  for (let page = 0; page < MAX_PAGES && found.length < 10; page++) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     const result = await callSlack(env, "users.list", { limit: PAGE, ...(cursor && { cursor }) }).catch((error) => {
       throw new ToolError(`I couldn't list the workspace's people (${error.message}).`);
     });
     for (const member of result.members ?? []) {
       if (member.deleted || member.is_bot || member.id === "USLACKBOT") continue;
       const names = [member.real_name, member.profile?.real_name, member.profile?.display_name, member.name].filter(Boolean);
-      if (names.some((candidate) => candidate.toLowerCase().includes(wanted))) found.push(`${names[0]} (${member.name ?? names.at(-1)}): ${member.id}`);
+      if (!keep(names)) continue;
+      total++;
+      if (lines.length < max) lines.push(`${names[0]} (${member.name ?? names.at(-1)}): ${member.id}`);
     }
     cursor = result.response_metadata?.next_cursor;
     if (!cursor) break;
   }
-  return found.length ? [`${found.length} match${found.length === 1 ? "" : "es"}:`, ...found.slice(0, 10)].join("\n") : `No one in the workspace matches "${name}".`;
+  return { lines, total };
+}
+
+// Slack users whose name matches, to give a user ID to assign.
+async function findUser(env, user, { name }) {
+  const wanted = String(name ?? "").trim().toLowerCase().replace(/^@/, "");
+  if (wanted.length < 2) throw new ToolError("Give at least two letters of the person's name.");
+  const { lines, total } = await workspacePeople(env, (names) => names.some((candidate) => candidate.toLowerCase().includes(wanted)), 10);
+  if (!total) return `No one in the workspace matches "${name}".`;
+  return [`${total} match${total === 1 ? "" : "es"}${total > lines.length ? `, showing ${lines.length}` : ""}:`, ...lines].join("\n");
+}
+
+// The people of the workspace, by name, with their user IDs.
+async function getUsers(env, user, { limit } = {}) {
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_USERS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_USERS}.`);
+  const { lines, total } = await workspacePeople(env, () => true, limit ?? DEFAULT_USERS);
+  if (!total) return "No one is in the workspace.";
+  return [`${total} ${total === 1 ? "person" : "people"}${total > lines.length ? `, showing the first ${lines.length}; raise limit (up to ${MAX_USERS}) or use find_user_by_name` : ""}:`, ...lines].join("\n");
 }
 
 // The DD/MM/YYYY date a due_date argument names, "" for none, or a ToolError.

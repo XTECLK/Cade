@@ -163,7 +163,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "get_user", "find_user_by_name", "get_task_history", "get_thread_history"]) {
+  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "get_user", "get_users", "find_user_by_name", "get_task_history", "get_thread_history"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -176,10 +176,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_user", "find_user_by_name", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_user", "get_users", "find_user_by_name", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -382,6 +382,25 @@ test("get_tasks filters by assignee and unassigned", async (t) => {
   assert.doesNotMatch(none, /Rex's/);
   assert.match((await tool(url, "get_tasks", { assignee: "rex" })).text, /assignee is a Slack user ID/);
   assert.match((await tool(url, "get_tasks", { unassigned: true, mine: true })).text, /can't be combined/);
+});
+
+test("get_users lists the people of the workspace, up to a limit", async (t) => {
+  const calls = mock(t, {
+    "users.list": {
+      members: [
+        { id: "UANN", name: "ann.lee", real_name: "Ann Lee" },
+        { id: "UBOT", name: "robot", real_name: "A Bot", is_bot: true },
+        { id: "UGONE", name: "old", real_name: "Old", deleted: true },
+        { id: "UBOB", name: "bob", real_name: "Bob" },
+        { id: "UCAT", name: "cat", real_name: "Cat" },
+      ],
+    },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  assert.equal((await tool(url, "get_users", {})).text, ["3 people:", "Ann Lee (ann.lee): UANN", "Bob (bob): UBOB", "Cat (cat): UCAT"].join("\n"));
+  assert.match((await tool(url, "get_users", { limit: 2 })).text, /^3 people, showing the first 2; raise limit \(up to 200\) or use find_user_by_name:\nAnn Lee/);
+  for (const limit of [0, 201, 2.5, "5"]) assert.match((await tool(url, "get_users", { limit })).text, /limit is a whole number from 1 to 200/);
+  assert.ok(calls.every((call) => call.method === "users.list"));
 });
 
 test("find_user_by_name gives the IDs of people by name", async (t) => {

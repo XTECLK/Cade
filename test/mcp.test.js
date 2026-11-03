@@ -398,6 +398,9 @@ test("get_tracked_thread reads the thread a task was made from, found in the fir
   // The source is read from Slack, as the link names it (a link to a reply stands for its thread).
   const read = calls.filter((call) => call.method === "conversations.replies").at(-1).args;
   assert.deepEqual({ channel: read.channel, ts: read.ts }, { channel: "CCLIENT", ts: "1699990000.000100" });
+  // The task's own thread points to the one it came from, so an agent summarizing it reads both; a typed-in task has no such note.
+  assert.match((await tool(url, "get_task_history", { task_id: `CDEV:${TASK}` })).text, /\n\nNote: "Fix login" was made from another thread.*get_tracked_thread and the same task_id\.$/s);
+  assert.ok(!(await tool(url, "get_task_history", { task_id: `CBARE:${TASK}` })).text.includes("get_tracked_thread"));
   // The same by a link to the task's message.
   assert.match((await tool(url, "get_tracked_thread", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100" })).text, /was made from this thread/);
 

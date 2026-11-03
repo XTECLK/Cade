@@ -180,7 +180,7 @@ Cade is also an [MCP](https://modelcontextprotocol.io) server at
 header, never in the address. `/cade mcp init` gives the person a key of
 their own, shown only to them with the endpoint and the commands to add it to
 their agent, and `/cade mcp revoke` ends it; only a hash is kept, in
-`mcp_tokens`. Its nine tools are `get_flows(name?, task_id?)`, which lists the flows Cade
+`mcp_tokens`. Its ten tools are `get_flows(name?, task_id?)`, which lists the flows Cade
 supports (`src/flows.js`: `summarize_task`, `explain_task`, `plan_my_work`) and
 gives the steps of one, so a client that doesn't show MCP prompts can follow them
 too; `get_task(task_id | link)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
@@ -189,7 +189,7 @@ thread straight from Slack, as it is, kept or not (a private channel's only for 
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; 
-`get_user(id)`, which gives a Slack user's name; `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `update_task(task_id | link, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
+`get_user(id)`, which gives a Slack user's name; `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id | link, text)`, which posts a message in the task's thread as Cade, marked "Sent by @person via their AI agent" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id | link, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
 from the thread the task was made from; what was done and how it ended are in
 the task's own thread. The same flows are MCP prompts, which Claude Code lists as slash commands such
 as `/mcp__cade__summarize_task`, and the form after a task is made shows the

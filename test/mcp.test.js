@@ -163,7 +163,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "get_user", "get_users", "find_user_by_name", "get_task_history", "get_thread_history"]) {
+  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "send_task_message", "get_user", "get_users", "find_user_by_name", "get_task_history", "get_thread_history"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -176,10 +176,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_user", "get_users", "find_user_by_name", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -382,6 +382,37 @@ test("get_tasks filters by assignee and unassigned", async (t) => {
   assert.doesNotMatch(none, /Rex's/);
   assert.match((await tool(url, "get_tasks", { assignee: "rex" })).text, /assignee is a Slack user ID/);
   assert.match((await tool(url, "get_tasks", { unassigned: true, mine: true })).text, /can't be combined/);
+});
+
+test("send_task_message posts in the task's thread as Cade, marked as sent by the person", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored({ link: "https://acme.slack.com/archives/CDEV/p1700000000000100" }));
+  await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
+  const calls = mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: ["UBOB"] },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const TASK = "CDEV:1700000000.000100";
+
+  const sent = await tool(url, "send_task_message", { task_id: TASK, text: "  Hi <@UANN> & <!channel>, see <https://evil.example|this>.  " });
+  assert.equal(sent.isError, false, sent.text);
+  assert.match(sent.text, /^Posted in the task's thread: https:\/\/acme\.slack\.com\/archives\/CDEV/);
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.channel, "CDEV");
+  assert.equal(post.thread_ts, "1700000000.000100");
+  const blocks = JSON.parse(post.blocks);
+  // Only a person's mention is kept; @channel and links are shown as typed.
+  assert.equal(blocks[0].text.text, "Hi <@UANN> &amp; &lt;!channel&gt;, see &lt;https://evil.example|this&gt;.");
+  assert.equal(blocks[1].elements[0].text, "Sent by <@UME> via their AI agent");
+  assert.match(post.text, /Sent by <@UME> via their AI agent/);
+
+  const before = calls.length;
+  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "  " })).text, /message is empty/);
+  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "x".repeat(3001) })).text, /3001 characters/);
+  assert.match((await tool(url, "send_task_message", { task_id: "CPRIV:1700000000.000100", text: "hi" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:1600000000.000100", text: "hi" })).text, /isn't a task Cade tracks/);
+  assert.match((await tool(url, "send_task_message", { text: "hi" })).text, /Give a task_id/);
+  assert.equal(calls.slice(before).filter((call) => call.method === "chat.postMessage").length, 0);
 });
 
 test("get_users lists the people of the workspace, up to a limit", async (t) => {

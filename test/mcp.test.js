@@ -163,7 +163,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_my_tasks", "get_all_tasks", "get_task_history", "get_tracked_thread", "get_thread_history", "resolve_user_name", "update_task_summary"]) {
+  for (const name of ["get_flows", "get_my_tasks", "get_all_tasks", "get_task", "get_task_history", "get_tracked_thread", "get_thread_history", "resolve_user_name", "update_task_summary"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -176,10 +176,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_thread_history", "get_task_history", "get_tracked_thread", "get_all_tasks", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tracked_thread", "get_all_tasks", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
   // Each takes what it needs (get_my_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_all_tasks", "get_my_tasks", "get_task_history", "get_tracked_thread"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_all_tasks", "get_my_tasks", "get_task", "get_task_history", "get_tracked_thread"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -342,6 +342,30 @@ test("get_my_tasks lists the open tasks you are owner, reviewer or tester of, mo
   // Someone with no tasks is told so, and only sees their own.
   const nobody = addressIn(await slash("mcp init", "UNOBODY"));
   assert.match((await tool(nobody, "get_my_tasks", {})).text, /^You have no open tasks\./);
+});
+
+test("get_task gives one task whole, only for a channel you can read", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored());
+  await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
+  await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000000.000100', 'UBOB', 'Fixed it')").run();
+  await DB.prepare("INSERT INTO task_notes (channel, task_ts, summary, summary_by, body) VALUES ('CDEV', '1700000000.000100', 'Login fails on Safari', 'UME', 'Check the cache')").run();
+  mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: ["UBOB"] },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const text = (await tool(url, "get_task", { task_id: "CDEV:1700000000.000100" })).text;
+  assert.match(text, /Task ".*" in #dev/);
+  assert.match(text, /Task ID: CDEV:1700000000.000100/);
+  assert.match(text, /Status: /);
+  assert.match(text, /Login fails on Safari/);
+  assert.match(text, /Check the cache/);
+  assert.match(text, /UBOB: Fixed it/);
+
+  assert.match((await tool(url, "get_task", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "get_task", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
+  assert.match((await tool(url, "get_task", {})).text, /Give a task_id/);
 });
 
 test("get_task_history gives the messages Cade kept, only for a task it tracks and a channel you can read", async (t) => {

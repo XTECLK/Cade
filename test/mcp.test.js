@@ -344,7 +344,7 @@ test("get_tasks with mine lists the open tasks you are owner, reviewer or tester
   assert.match((await tool(nobody, "get_tasks", { mine: true })).text, /^You have no open tasks\./);
 });
 
-test("get_task gives one task whole, only for a channel you can read", async (t) => {
+test("get_task gives one task without its threads, only for a channel you can read", async (t) => {
   await putTask(env, "CDEV", "1700000000.000100", stored());
   await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
   await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000000.000100', 'UBOB', 'Fixed it')").run();
@@ -361,7 +361,8 @@ test("get_task gives one task whole, only for a channel you can read", async (t)
   assert.match(text, /Status: /);
   assert.match(text, /Login fails on Safari/);
   assert.match(text, /Check the cache/);
-  assert.match(text, /UBOB: Fixed it/);
+  assert.doesNotMatch(text, /Fixed it/);
+  assert.match(text, /get_task_history/);
 
   assert.match((await tool(url, "get_task", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
   assert.match((await tool(url, "get_task", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);

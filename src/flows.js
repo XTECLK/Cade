@@ -42,7 +42,7 @@ function triagePrompt(taskId) {
   return [
     ...(taskId ? [] : ASK_WHICH),
     `Triage the Cade task ${task}: check its status, priority, due date and people against what its threads say, and propose what to change.`,
-    `1. Read it whole with get_task (${taskId ? "task_id above" : "its task_id"}), and the thread it was made from with get_tracked_thread. Look up every user ID with resolve_user_name, and use names, not IDs.`,
+    `1. Read it with get_task (${taskId ? "task_id above" : "its task_id"}), the thread it was made from with get_tracked_thread, and what was done about it with get_task_history. Look up every user ID with resolve_user_name, and use names, not IDs.`,
     "2. Say in two or three lines what the issue is, then propose changes to the status, priority, due date, owner, reviewer and tester where the threads give a reason. Name the evidence for each, such as a message and who wrote it. Leave a field alone when nothing supports a change, and don't invent dates or people.",
     "3. To assign someone by name, find their user ID with find_user and, if there is more than one match, ask which. An incident's priority and due date never change.",
     "4. Show the proposed changes as a short list (field, from, to, why) and ask whether to apply them as they are, change some or skip them. Don't change anything yet. If they ask for changes, make them and show the list again. Only when they approve it, apply them with update_task in one call and the same task_id, and tell them what changed.",

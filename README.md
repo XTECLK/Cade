@@ -178,13 +178,15 @@ Cade is also an [MCP](https://modelcontextprotocol.io) server at
 `/mcp/<token>`, so a person's own AI agent can summarize a thread into a task
 (`src/mcp.js`). `/cade mcp grant` gives the person a token of their own,
 shown only to them, and `/cade mcp revoke` ends it; only a hash is kept, in
-`mcp_tokens`. Its six tools are `get_thread_history(link)`, which reads a
+`mcp_tokens`. Its seven tools are `get_thread_history(link)`, which reads a
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
 `get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
 task's thread from D1 (the ID, `channel:ts`, is what `get_my_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_tracked_thread(task_id | link)`, which follows the first message of a
 task's own thread to the thread the task was made from and reads it from
-Slack; `get_my_tasks(role?,
+Slack; `get_all_tasks(limit?,
+status?)`, every project's tasks in channels the person can read, most urgent
+first, at most `limit` (20 by default, 100 at most); `get_my_tasks(role?,
 status?)`, the open tasks the person is owner, reviewer or tester of, most
 urgent first, each with a link to give to the other tools; `resolve_user_name(id)`;
 and `update_task_summary(link, summary)`. The summary goes to the top of the

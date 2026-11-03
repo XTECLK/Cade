@@ -1,13 +1,13 @@
 import { hashToken, isMember, newToken, readableName } from "./access.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
-import { deleteMcpToken, mcpTokenUser, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, threadMessages } from "./db.js";
+import { deleteMcpToken, mcpTokenUser, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { syncNotes } from "./notes.js";
 import { callSlack, linkedMessage, linkedThread } from "./slack.js";
 import { ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Six tools:
+// task, with the model and subscription they already have. Seven tools:
 //
 //   get_thread_history(link)           the whole thread of a message, read
 //                                      from Slack
@@ -15,6 +15,8 @@ import { ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
 //                                      thread, from its own database
 //   get_tracked_thread(task_id | link) the thread a task was made from, read
 //                                      from Slack
+//   get_all_tasks(limit?, status?)     every project's tasks you can read,
+//                                      most urgent first
 //   get_my_tasks(role?, status?)       the tasks the person is owner,
 //                                      reviewer or tester of
 //   resolve_user_name(id)              a Slack user's name, for the IDs in it
@@ -38,6 +40,7 @@ const PAGE = 200;
 const MAX_PAGES = 10;
 const MAX_SUMMARY = 8000;
 const MAX_TASKS = 100;
+const DEFAULT_TASKS = 20;
 
 // Makes a new token for `user`, ending any they had, and returns the address
 // of the MCP endpoint it opens, on the Worker at `origin`. The token can't be
@@ -111,6 +114,20 @@ const TOOLS = [
       anyOf: [{ required: ["task_id"] }, { required: ["link"] }],
     },
     run: getTrackedThread,
+  },
+  {
+    name: "get_all_tasks",
+    description:
+      "Lists the Cade tasks of every project, not only yours, most urgent first, from channels you can read: priority, title, status, due date, who is owner, reviewer and tester (Slack user IDs, for resolve_user_name), " +
+      "the task's ID and a link. Open tasks (not done) by default. Takes a limit, 20 by default and at most 100, for how many to return.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many tasks to return, most urgent first. Default ${DEFAULT_TASKS}` },
+        status: { type: "string", enum: ["open", "all", ...Object.keys(STATUSES)], description: "open (default: everything not done), all, or one status" },
+      },
+    },
+    run: getAllTasks,
   },
   {
     name: "get_my_tasks",
@@ -343,26 +360,61 @@ async function getTrackedThread(env, user, args) {
 // The tasks `user` has a role in.
 async function getMyTasks(env, user, { role, status } = {}) {
   if (role !== undefined && !ROLES[role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
-  const wanted = status ?? "open";
-  if (!["open", "all"].includes(wanted) && !STATUSES[wanted]) throw new ToolError(`status is open, all or one of ${Object.keys(STATUSES).join(", ")}.`);
-  const statuses = wanted === "open" ? OPEN : wanted === "all" ? Object.keys(STATUSES) : [wanted];
+  const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : Object.keys(ROLES), statuses }))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency);
   if (!found.length) return `You have no ${wanted === "open" ? "open " : ""}tasks${role ? ` as ${role}` : ""}${statuses.length === 1 ? ` in ${statusName(wanted)}` : ""}.`;
+  const shown = found.slice(0, MAX_TASKS);
+  const yours = ({ task }) => `you: ${Object.keys(ROLES).filter((key) => task.people[key].includes(user)).join(", ")}`;
+  const more = found.length > shown.length ? `\n…and ${found.length - shown.length} more.` : "";
+  return [`${found.length} task${found.length === 1 ? "" : "s"}, most urgent first:`, ...(await taskLines(env, shown, yours))].join("\n") + more;
+}
 
+// Every task in the projects whose channels you can read, most urgent first.
+async function getAllTasks(env, user, { limit, status } = {}) {
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
+  const { wanted, statuses } = statusFilter(status);
+  const max = limit ?? DEFAULT_TASKS;
+  const found = (await tasksWithStatuses(env, statuses)).map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident })).sort(byUrgency);
+
+  // A channel's tasks are for those who can read it, so each is asked about once, as the tasks come.
+  const readable = new Map();
+  const shown = [];
+  let allowed = 0;
+  for (const entry of found) {
+    if (!readable.has(entry.channel)) readable.set(entry.channel, (await readableName(env, entry.channel, user)) !== null);
+    if (!readable.get(entry.channel)) continue;
+    allowed++;
+    if (shown.length < max) shown.push(entry);
+  }
+  if (!allowed) return `There are no ${wanted === "open" ? "open " : ""}tasks you can see${statuses.length === 1 ? ` in ${statusName(wanted)}` : ""}.`;
+  const people = ({ task }) =>
+    Object.entries(ROLES).map(([key, label]) => `${label.toLowerCase()}: ${task.people[key].join(", ") || "—"}`).join("; ");
+  const more = allowed > shown.length ? `\n…and ${allowed - shown.length} more; raise limit (up to ${MAX_TASKS}) or filter by status to see them.` : "";
+  return [`${allowed} task${allowed === 1 ? "" : "s"}, showing the ${shown.length} most urgent:`, ...(await taskLines(env, shown, people))].join("\n") + more;
+}
+
+// A status argument as { wanted, statuses }: open (the default), all, or one status.
+function statusFilter(status) {
+  const wanted = status ?? "open";
+  if (!["open", "all"].includes(wanted) && !STATUSES[wanted]) throw new ToolError(`status is open, all or one of ${Object.keys(STATUSES).join(", ")}.`);
+  return { wanted, statuses: wanted === "open" ? OPEN : wanted === "all" ? Object.keys(STATUSES) : [wanted] };
+}
+
+// A numbered entry for each task: its priority, title, status and due date, `about(entry)`, its ID and its link.
+async function taskLines(env, entries, about) {
   // A task made before its link was kept gets one built from the workspace's address.
   let base;
   const lines = [];
-  for (const [i, { channel, ts, task }] of found.slice(0, MAX_TASKS).entries()) {
+  for (const [i, entry] of entries.entries()) {
+    const { channel, ts, task } = entry;
     if (!task.link && base === undefined) base = (await callSlack(env, "auth.test", {}).catch(() => ({}))).url ?? "";
     const link = task.link || (base ? threadLink(base, channel, ts) : `${channel}/${ts}`);
-    const roles = Object.keys(ROLES).filter((key) => task.people[key].includes(user)).join(", ");
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
-    lines.push(`${i + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (you: ${roles})\n   Task ID: ${channel}:${ts}\n   ${link}`);
+    lines.push(`${i + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
   }
-  const more = found.length > MAX_TASKS ? `\n…and ${found.length - MAX_TASKS} more.` : "";
-  return [`${found.length} task${found.length === 1 ? "" : "s"}, most urgent first:`, ...lines].join("\n") + more;
+  return lines;
 }
 
 async function resolveUserName(env, user, { id }) {

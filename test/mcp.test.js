@@ -113,10 +113,10 @@ test("the MCP endpoint speaks MCP, and only to a token", async (t) => {
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_thread_history", "get_task_history", "get_tracked_thread", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_thread_history", "get_task_history", "get_tracked_thread", "get_all_tasks", "get_my_tasks", "resolve_user_name", "update_task_summary"]);
   // Each takes what it needs (get_my_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_my_tasks", "get_task_history", "get_tracked_thread"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_all_tasks", "get_my_tasks", "get_task_history", "get_tracked_thread"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -381,6 +381,47 @@ test("get_tracked_thread reads the thread a task was made from, found in the fir
   assert.match((await tool(url, "get_tracked_thread", { task_id: `CPRIV:${TASK}` })).text, /aren't in that channel/);
   const bob = addressIn(await slash("mcp grant", "UBOB"));
   assert.match((await tool(bob, "get_tracked_thread", { task_id: `CPRIV:${TASK}` })).text, /can't read that task's channel/);
+});
+
+test("get_all_tasks lists every project's tasks you can read, most urgent first, up to a limit", async (t) => {
+  const people = (owner = [], reviewer = [], tester = []) => ({ owner, reviewer, tester });
+  await putTask(env, "CDEV", "1000000000.000100", stored({ title: "Low one", priority: "Low", people: people(["UBOB"]) }));
+  await putTask(env, "CDEV", "1000000001.000100", stored({ title: "Urgent one", priority: "Urgent", status: "IN_REVIEW", dueDate: "31/12/2026", people: people(["UBOB"], ["UANN"], ["UTOM"]) }));
+  await putTask(env, "CBARE", "1000000002.000100", stored({ title: "High one", priority: "High" }));
+  await putTask(env, "CPRIV", "1000000003.000100", stored({ title: "Secret one", priority: "Urgent" }));
+  await putTask(env, "CDEV", "1000000004.000100", stored({ title: "Done one", status: "DONE" }));
+  const calls = mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": (args) => ({ members: args.channel === "CPRIV" ? ["UBOB"] : [] }),
+    "auth.test": { url: "https://acme.slack.com/" },
+  });
+  const url = addressIn(await slash("mcp grant", "UME"));
+
+  const all = await tool(url, "get_all_tasks", {});
+  assert.equal(all.isError, false, all.text);
+  // Done tasks and the private channel's (UME isn't in it) are left out.
+  assert.match(all.text, /^3 tasks, showing the 3 most urgent:/);
+  assert.deepEqual([...all.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Urgent one"], ["High", "High one"], ["Low", "Low one"]]);
+  assert.match(all.text, /Urgent one — .*In review, due 31\/12\/2026 \(owner: UBOB; reviewer: UANN; tester: UTOM\)\n   Task ID: CDEV:1000000001\.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\//);
+  assert.match(all.text, /High one — .*\(owner: —; reviewer: —; tester: —\)/);
+  assert.ok(!all.text.includes("Secret one") && !all.text.includes("Done one"));
+  // Each channel is asked about once, however many tasks it has.
+  assert.equal(calls.filter((call) => call.method === "conversations.info" && call.args.channel === "CDEV").length, 1);
+
+  // A limit keeps the most urgent, and says how many more there are.
+  const two = await tool(url, "get_all_tasks", { limit: 2 });
+  assert.match(two.text, /^3 tasks, showing the 2 most urgent:/);
+  assert.ok(two.text.includes("Urgent one") && two.text.includes("High one") && !two.text.includes("Low one"));
+  assert.match(two.text, /…and 1 more; raise limit/);
+  // A member of the private channel sees its tasks too; a status narrows the list.
+  const bob = addressIn(await slash("mcp grant", "UBOB"));
+  assert.match((await tool(bob, "get_all_tasks", {})).text, /^4 tasks/);
+  assert.match((await tool(url, "get_all_tasks", { status: "DONE" })).text, /^1 task, showing the 1 most urgent:\n1\. .*Done one/);
+  assert.match((await tool(url, "get_all_tasks", { status: "TODO", limit: 1 })).text, /^2 tasks, showing the 1 most urgent:\n1\. \[High\] High one/);
+  assert.match((await tool(url, "get_all_tasks", { status: "CLIENT_REVIEW" })).text, /^There are no tasks you can see in .*Client review\./);
+
+  for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_all_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
+  assert.match((await tool(url, "get_all_tasks", { status: "soon" })).text, /status is open, all or one of/);
 });
 
 // The track form, submitted from a message: `move` is where it came from.

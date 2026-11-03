@@ -9,7 +9,7 @@ import { ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Eight tools:
+// task, with the model and subscription they already have. Nine tools:
 //
 //   get_flows(name?, task_id?)         the flows Cade supports, such as writing
 //                                      a task's summary, and their steps

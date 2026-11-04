@@ -268,7 +268,7 @@
         <ul>
           <li><code>get_projects</code> → <code>projects[]</code></li>
           <li><code>get_tasks</code> (mine, role, assignee, unassigned, status, project, fields, limit) → <code>total</code>, <code>tasks[]</code>; <code>fields</code> picks what each task has, such as <code>summary</code> or <code>notes</code></li>
-          <li><code>get_task</code> (task_id | link) → fields, summary, notes, <code>original_thread</code></li>
+          <li><code>get_task</code> (task_id | link, fields) → the task, its summary and notes, <code>original_thread</code>; <code>fields</code> picks only what you need</li>
         </ul></div>
       <div class="feature"><div class="bar"></div><h3>Read threads</h3>
         <ul>

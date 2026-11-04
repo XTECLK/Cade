@@ -366,6 +366,14 @@ test("get_task gives one task without its threads, only for a channel you can re
   assert.doesNotMatch(text, /Fixed it/);
   assert.match(text, /get_task_history/);
 
+  // fields gives only what is asked for, in the text and the data.
+  const some = await tool(url, "get_task", { task_id: "CDEV:1700000000.000100", fields: ["status", "summary"] });
+  assert.deepEqual(some.data, { task_id: "CDEV:1700000000.000100", status: "TODO", summary: "Login fails on Safari" });
+  assert.match(some.text, /Login fails on Safari/);
+  assert.doesNotMatch(some.text, /Check the cache|People:|Original thread/);
+  assert.match((await tool(url, "get_task", { task_id: "CDEV:1700000000.000100", fields: ["nope"] })).text, /fields is a list of: title, project/);
+  assert.equal((await tool(url, "get_task", { task_id: "CDEV:1700000000.000100" })).data.notes, "Check the cache");
+
   assert.match((await tool(url, "get_task", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
   assert.match((await tool(url, "get_task", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
   assert.match((await tool(url, "get_task", {})).text, /Give a task_id/);

@@ -155,6 +155,8 @@ const EXTRA_FIELDS = {
   created_by: str("Who raised it"),
 };
 const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
+// get_task can also give where the task came from.
+const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state"];
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
 
 const TOOLS = [
@@ -188,10 +190,14 @@ const TOOLS = [
       properties: {
         task_id: { type: "string", description: "The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100" },
         link: { type: "string", description: "Instead of task_id: a link to the task's message, or any message in its thread" },
+        fields: { type: "array", items: { type: "string", enum: TASK_VIEW_FIELDS }, description: "Only these fields, to keep the result small; task_id is always there. Default: all" },
       },
       anyOf: [{ required: ["task_id"] }, { required: ["link"] }],
     },
-    outputSchema: outputOf({
+    outputSchema: {
+      type: "object",
+      required: ["task_id"],
+      properties: {
       ...TASK_ITEM.properties,
       created_by: str("Who raised it"),
       notes_link: str("A link to the notes page, or empty"),
@@ -200,7 +206,8 @@ const TOOLS = [
       notes: str("The notes people wrote, or empty"),
       original_thread_state: { type: "string", enum: ["found", "none", "unknown"], description: "found: original_thread names it; none: made from no other thread; unknown: no messages kept yet" },
       original_thread: THREAD,
-    }),
+      },
+    },
     run: getTaskView,
   },
   {
@@ -642,38 +649,25 @@ function taskData(env, channel, ts, task, link) {
   };
 }
 
-// One task: its details, summary and notes, without its threads. Nothing is asked of Slack.
+// One task: its details, summary and notes, without its threads, or only the `fields` asked
+// for. Nothing is asked of Slack.
 async function getTaskView(env, user, args) {
   const { channel, ts } = taskRef(args);
+  const { fields } = args;
+  if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_VIEW_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_VIEW_FIELDS.join(", ")}.`);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
   const where = await readableName(env, channel, user);
   if (where === null) throw new ToolError("You can't read that task's channel, so I can't read it for you.");
-  const [notes, kept] = await Promise.all([getNotes(env, channel, ts), threadMessages(env, channel, ts)]);
+  // Only what is asked for is read.
+  const want = (...names) => !fields || names.some((name) => fields.includes(name));
+  const [notes, kept] = await Promise.all([
+    want("summary", "summary_by", "notes") ? getNotes(env, channel, ts) : {},
+    want("original_thread", "original_thread_state") ? threadMessages(env, channel, ts) : [],
+  ]);
   const original = sourceThreadOf(kept);
-  const people = Object.entries(ROLES).map(([key, label]) => `${label.toLowerCase()}: ${task.people[key].join(", ") || "—"}`).join("; ");
-  const lines = [
-    `Task "${task.title}" in #${where}`,
-    `Task ID: ${channel}:${ts}`,
-    `Status: ${statusName(task.status)}  ·  Priority: ${task.priority}${task.incident ? " (incident)" : ""}  ·  Due: ${task.dueDate || "—"}`,
-    `People: ${people}; raised by ${task.createdBy ?? "unknown"}`,
-    `Links: ${[task.link && `thread ${task.link}`, task.notes?.url && `notes ${task.notes.url}`].filter(Boolean).join("; ") || "—"}`,
-    "",
-    "Summary of the issue" + (notes.summary && notes.summaryBy ? ` (written by ${notes.summaryBy})` : "") + ":",
-    notes.summary || "(none yet)",
-    "",
-    "Notes written by people:",
-    notes.body || "(none)",
-    "",
-    original
-      ? `Original thread (where the problem was first raised): thread ID ${original.channel}:${original.ts}, ${original.link}. Read it with get_thread_history.`
-      : kept.length
-        ? "Original thread: none, the task wasn't made from another thread."
-        : "Original thread: unknown, no messages are kept for the task yet. Someone can send /cade resync with the task's link.",
-    "Task thread (what was done about it): read it with get_task_history.",
-  ];
   const state = original ? "found" : kept.length ? "none" : "unknown";
-  const data = {
+  const all = {
     ...taskData(env, channel, ts, task, task.link ?? ""),
     created_by: task.createdBy ?? "",
     notes_link: task.notes?.url ?? "",
@@ -683,6 +677,30 @@ async function getTaskView(env, user, args) {
     original_thread_state: state,
     original_thread: threadOut(original),
   };
+  const data = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : all;
+
+  const people = Object.entries(ROLES).map(([key, label]) => `${label.toLowerCase()}: ${task.people[key].join(", ") || "—"}`).join("; ");
+  const lines = [`Task "${task.title}" in #${where}`, `Task ID: ${channel}:${ts}`];
+  if (want("status", "priority", "due_date", "incident")) {
+    lines.push(`Status: ${statusName(task.status)}  ·  Priority: ${task.priority}${task.incident ? " (incident)" : ""}  ·  Due: ${task.dueDate || "—"}`);
+  }
+  if (want("owner", "reviewer", "tester", "created_by")) lines.push(`People: ${people}; raised by ${task.createdBy ?? "unknown"}`);
+  if (want("link", "notes_link")) lines.push(`Links: ${[task.link && `thread ${task.link}`, task.notes?.url && `notes ${task.notes.url}`].filter(Boolean).join("; ") || "—"}`);
+  if (want("summary", "summary_by")) {
+    lines.push("", "Summary of the issue" + (notes.summary && notes.summaryBy ? ` (written by ${notes.summaryBy})` : "") + ":", notes.summary || "(none yet)");
+  }
+  if (want("notes")) lines.push("", "Notes written by people:", notes.body || "(none)");
+  if (want("original_thread", "original_thread_state")) {
+    lines.push(
+      "",
+      original
+        ? `Original thread (where the problem was first raised): thread ID ${original.channel}:${original.ts}, ${original.link}. Read it with get_thread_history.`
+        : kept.length
+          ? "Original thread: none, the task wasn't made from another thread."
+          : "Original thread: unknown, no messages are kept for the task yet. Someone can send /cade resync with the task's link.",
+    );
+  }
+  if (!fields) lines.push("Task thread (what was done about it): read it with get_task_history.");
   return { text: lines.join("\n"), data };
 }
 

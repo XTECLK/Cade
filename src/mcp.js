@@ -144,8 +144,9 @@ const MESSAGE_ITEM = {
 const PERSON = {
   type: "object",
   properties: { user_id: USER_ID, name: str("Real name"), username: str("Slack username") },
-  required: ["user_id", "name", "username"],
+  required: ["user_id"],
 };
+const USER_FIELDS_ARG = { type: "array", items: { type: "string", enum: ["name", "username"] }, description: "Only these fields for each person, to keep the result small; user_id is always there. Default: all" };
 // What get_tasks can include for each task, besides its task_id: the base fields, and these.
 const EXTRA_FIELDS = {
   summary: str("The summary of the issue, or empty"),
@@ -157,6 +158,8 @@ const EXTRA_FIELDS = {
 const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
 // get_task can also give where the task came from.
 const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state"];
+// What get_users and find_user_by_name can give for each person, besides user_id.
+const USER_FIELDS = ["name", "username"];
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
 
 const TOOLS = [
@@ -312,7 +315,7 @@ const TOOLS = [
       `Takes a limit, ${DEFAULT_USERS} by default and at most ${MAX_USERS}. In a large workspace use find_user_by_name to find one person instead.`,
     inputSchema: {
       type: "object",
-      properties: { limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return. Default ${DEFAULT_USERS}` } },
+      properties: { limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return. Default ${DEFAULT_USERS}` }, fields: USER_FIELDS_ARG },
     },
     outputSchema: outputOf({ total: { type: "integer", description: "How many people there are" }, users: { type: "array", items: PERSON } }),
     run: getUsers,
@@ -324,7 +327,7 @@ const TOOLS = [
       "If there is more than one match, ask the person which; never guess.",
     inputSchema: {
       type: "object",
-      properties: { name: { type: "string", description: "Part of the person's name, such as Ann or ann.lee" } },
+      properties: { name: { type: "string", description: "Part of the person's name, such as Ann or ann.lee" }, fields: USER_FIELDS_ARG },
       required: ["name"],
     },
     outputSchema: outputOf({ total: { type: "integer", description: "How many people match" }, users: { type: "array", items: PERSON, description: "Up to 10 of them" } }),
@@ -873,7 +876,7 @@ async function resolveUserName(env, user, { id }) {
 // The people of the workspace, up to `max` of those `keep(names)` accepts, as
 // { line, total }: a "Name (handle): ID" line each, and how many there were in
 // all (not counted past the pages read). Bots and deactivated accounts are left out.
-async function workspacePeople(env, keep, max) {
+async function workspacePeople(env, keep, max, fields) {
   const lines = [];
   const users = [];
   let total = 0;
@@ -888,8 +891,11 @@ async function workspacePeople(env, keep, max) {
       if (!keep(names)) continue;
       total++;
       if (lines.length < max) {
-        lines.push(`${names[0]} (${member.name ?? names.at(-1)}): ${member.id}`);
-        users.push({ user_id: member.id, name: names[0], username: member.name ?? names.at(-1) });
+        const person = { user_id: member.id, name: names[0], username: member.name ?? names.at(-1) };
+        const shown = fields ?? USER_FIELDS;
+        const label = shown.includes("name") && shown.includes("username") ? `${person.name} (${person.username}): ` : shown.length ? `${person[shown[0]]}: ` : "";
+        lines.push(`${label}${member.id}`);
+        users.push(fields ? Object.fromEntries(["user_id", ...fields].map((field) => [field, person[field]])) : person);
       }
     }
     cursor = result.response_metadata?.next_cursor;
@@ -898,19 +904,26 @@ async function workspacePeople(env, keep, max) {
   return { lines, users, total };
 }
 
+// A ToolError unless `fields` is undefined or a list of USER_FIELDS.
+function checkUserFields(fields) {
+  if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => USER_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${USER_FIELDS.join(", ")}.`);
+}
+
 // Slack users whose name matches, to give a user ID to assign.
-async function findUser(env, user, { name }) {
+async function findUser(env, user, { name, fields }) {
+  checkUserFields(fields);
   const wanted = String(name ?? "").trim().toLowerCase().replace(/^@/, "");
   if (wanted.length < 2) throw new ToolError("Give at least two letters of the person's name.");
-  const { lines, users, total } = await workspacePeople(env, (names) => names.some((candidate) => candidate.toLowerCase().includes(wanted)), 10);
+  const { lines, users, total } = await workspacePeople(env, (names) => names.some((candidate) => candidate.toLowerCase().includes(wanted)), 10, fields);
   if (!total) return { text: `No one in the workspace matches "${name}".`, data: { total: 0, users: [] } };
   return { text: [`${total} match${total === 1 ? "" : "es"}${total > lines.length ? `, showing ${lines.length}` : ""}:`, ...lines].join("\n"), data: { total, users } };
 }
 
 // The people of the workspace, by name, with their user IDs.
-async function getUsers(env, user, { limit } = {}) {
+async function getUsers(env, user, { limit, fields } = {}) {
+  checkUserFields(fields);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_USERS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_USERS}.`);
-  const { lines, users, total } = await workspacePeople(env, () => true, limit ?? DEFAULT_USERS);
+  const { lines, users, total } = await workspacePeople(env, () => true, limit ?? DEFAULT_USERS, fields);
   if (!total) return { text: "No one is in the workspace.", data: { total: 0, users: [] } };
   return { text: [`${total} ${total === 1 ? "person" : "people"}${total > lines.length ? `, showing the first ${lines.length}; raise limit (up to ${MAX_USERS}) or use find_user_by_name` : ""}:`, ...lines].join("\n"), data: { total, users } };
 }

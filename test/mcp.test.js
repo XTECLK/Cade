@@ -478,6 +478,13 @@ test("get_users lists the people of the workspace, up to a limit", async (t) => 
   });
   const url = addressIn(await slash("mcp init", "UME"));
   assert.equal((await tool(url, "get_users", {})).text, ["3 people:", "Ann Lee (ann.lee): UANN", "Bob (bob): UBOB", "Cat (cat): UCAT"].join("\n"));
+  // fields gives only what is asked for; user_id is always there.
+  const named = await tool(url, "get_users", { fields: ["name"] });
+  assert.deepEqual(named.data.users, [{ user_id: "UANN", name: "Ann Lee" }, { user_id: "UBOB", name: "Bob" }, { user_id: "UCAT", name: "Cat" }]);
+  assert.equal(named.text, ["3 people:", "Ann Lee: UANN", "Bob: UBOB", "Cat: UCAT"].join("\n"));
+  assert.deepEqual((await tool(url, "get_users", { fields: [] })).data.users.map((person) => Object.keys(person)), [["user_id"], ["user_id"], ["user_id"]]);
+  assert.deepEqual((await tool(url, "find_user_by_name", { name: "ann", fields: ["username"] })).data.users, [{ user_id: "UANN", username: "ann.lee" }]);
+  assert.match((await tool(url, "get_users", { fields: ["email"] })).text, /fields is a list of: name, username/);
   assert.match((await tool(url, "get_users", { limit: 2 })).text, /^3 people, showing the first 2; raise limit \(up to 200\) or use find_user_by_name:\nAnn Lee/);
   for (const limit of [0, 201, 2.5, "5"]) assert.match((await tool(url, "get_users", { limit })).text, /limit is a whole number from 1 to 200/);
   assert.ok(calls.every((call) => call.method === "users.list"));

@@ -252,6 +252,18 @@
       </article>
 
       <article class="entry">
+        <h3><code>/cade project init</code> <code>/cade project settings</code> <code>/cade project</code></h3>
+        <div class="tags"><span class="where">Admin</span><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
+        <p><code>init</code>, sent in a channel, makes it a project, named after the channel or by <code>/cade project init &lt;name&gt;</code>, so its tasks are tracked there like a project in <code>cade.config.json</code>. In a channel that is a project already it only warns. Its name and channel can't be changed afterwards. <code>settings</code> gives the link to the projects page on the Worker, where each project's switches (task status change detection, new message task detection, AI suggestions, active tasks pinning, summary canvas, AI agent summary) can be turned on or off over the config, or set back to it. <code>/cade project</code> tells whether the channel is a project. Only the people listed under <code>admins</code> in <code>cade.config.json</code> can use them.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade web logout</code></h3>
+        <div class="tags"><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
+        <p>Signs you out of Cade's web pages in every browser, and cancels any sign-in link you hadn't used. <code>/cade login</code> (or <code>/cade web login</code>) signs you in again.</p>
+      </article>
+
+      <article class="entry">
         <h3>The Home tab</h3>
         <div class="tags"><span class="where">Cade's app page</span><span class="where">Only you see it</span></div>
         <p>Open Cade under Apps in Slack and its <b>Home</b> tab shows your open tasks, redrawn each time you open it or press <b>Refresh</b>. <b>My Tasks</b> groups yours by what you do on each: to work on, to review and to test, with the ones waiting on you first and an overdue count. <b>Unassigned</b> lists tasks with no one on them, each with <b>Assign to me</b>. <b>All Tasks</b> lists every open task, most urgent first. A project picker narrows it to one group, and Cade remembers your choice and tab. Closed and older tasks are in the group's Google Sheet, linked from the lists. Needs the app updated with <code>npm run slack:update</code>.</p>

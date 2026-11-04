@@ -1,6 +1,7 @@
 {
   "timezone": "Asia/Colombo",
   "mcp": true,
+  "admins": ["U0000000001"],
   "googleUrl": "https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec",
   "projects": [
     {

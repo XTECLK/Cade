@@ -13,6 +13,7 @@ import mcp from "./mcp.js";
 import menu from "./menu.js";
 import move from "./move.js";
 import pr from "./pr.js";
+import project from "./project.js";
 import release from "./release.js";
 import resync from "./resync.js";
 import retry from "./retry.js";
@@ -22,6 +23,7 @@ import suggest from "./suggest.js";
 import tasks from "./tasks.js";
 import track, { incident } from "./track.js";
 import unassign from "./unassign.js";
+import web from "./web.js";
 
 // To add a command, create a handler module and list it here. A handler is:
 //   {
@@ -51,7 +53,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, login, mcp, tasks, standup, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, login, web, mcp, project, tasks, standup, brief, debrief];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

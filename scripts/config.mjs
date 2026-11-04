@@ -9,6 +9,9 @@
 //             (optional)
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             every project's Doc
+//   admins    the Slack user IDs of the people who can run        → ADMINS
+//             `/cade project init` and `/cade project settings`
+//             and open the projects page (/admin); none without it
 //   mcp       whether people can connect their AI agent to      → MCP
 //             Cade's MCP endpoint (optional, on): false turns
 //             it off, and `/cade mcp init` gives no keys
@@ -68,7 +71,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["projects", "timezone", "googleUrl", "mcp"];
+  const known = ["projects", "timezone", "googleUrl", "mcp", "admins"];
   // `channels` is the old name for `projects`.
   const unknown = Object.keys(config).find((key) => !known.includes(key) && key !== "channels");
   if (PROJECT_SETTINGS.includes(unknown)) {
@@ -116,6 +119,12 @@ export function readConfig(json) {
 
   const secrets = { PROJECTS: JSON.stringify(list) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
+  // Always set, so taking someone out of the file takes them out of the Worker.
+  const admins = config.admins ?? [];
+  if (!Array.isArray(admins) || admins.some((id) => !/^[UW][A-Z0-9]{2,}$/.test(String(id)))) {
+    throw new Error("admins is a list of Slack user IDs, such as [\"U0123ABCD\"] (from a person's profile → ⋯ → Copy member ID).");
+  }
+  secrets.ADMINS = JSON.stringify([...new Set(admins)]);
   if (config.mcp !== undefined) {
     if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
     // Both are set, so turning it back on replaces an earlier "off".
@@ -182,6 +191,7 @@ export async function uploadConfig() {
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.MCP) console.log(`mcp: ${secrets.MCP}`);
+  console.log(`admins: ${JSON.parse(secrets.ADMINS).join(", ") || "none"}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.

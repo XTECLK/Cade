@@ -683,6 +683,13 @@ export async function deleteWebToken(env, hash) {
   await env.DB.prepare("DELETE FROM web_tokens WHERE token_hash = ?").bind(hash).run();
 }
 
+// Ends every sign-in of `user`, the browsers' sessions and any sign-in link not used yet;
+// returns how many sessions there were.
+export async function deleteWebTokensOf(env, user) {
+  const { results } = await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? RETURNING kind").bind(user).all();
+  return results.filter((row) => row.kind === "session").length;
+}
+
 // Keeps `hash` as the MCP token of `user`, in place of any they had.
 export async function putMcpToken(env, user, hash) {
   await env.DB.prepare(
@@ -713,4 +720,33 @@ export async function mcpTokenUser(env, hash) {
 export async function deleteMcpToken(env, user) {
   const row = await env.DB.prepare("DELETE FROM mcp_tokens WHERE user_id = ? RETURNING user_id").bind(user).first();
   return Boolean(row);
+}
+
+// The settings changed on the admin page, as { channel, key, value (JSON) }.
+export async function projectSettings(env) {
+  const { results } = await env.DB.prepare("SELECT channel, key, value FROM project_settings").all();
+  return results;
+}
+
+export async function setProjectSetting(env, channel, key, value, user) {
+  await env.DB.prepare(
+    `INSERT INTO project_settings (channel, key, value, updated_by) VALUES (?, ?, ?, ?)
+     ON CONFLICT (channel, key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(channel, key, JSON.stringify(value), user)
+    .run();
+}
+
+export async function clearProjectSetting(env, channel, key) {
+  await env.DB.prepare("DELETE FROM project_settings WHERE channel = ? AND key = ?").bind(channel, key).run();
+}
+
+// The projects added with `/cade project init`, as { channel, name }.
+export async function addedProjects(env) {
+  const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY created_at, channel").all();
+  return results;
+}
+
+export async function addProject(env, channel, name, user) {
+  await env.DB.prepare("INSERT INTO projects (channel, name, created_by) VALUES (?, ?, ?)").bind(channel, name, user).run();
 }

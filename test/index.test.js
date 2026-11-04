@@ -783,12 +783,12 @@ test("/cade help and unknown slash commands list the commands privately", async 
     assert.deepEqual(reply.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade home` · `/cade login` · `/cade mcp init` · `/cade mcp info` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade home` · `/cade login` · `/cade web logout` · `/cade mcp init` · `/cade mcp info` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
       "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
-      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>`",
+      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings`",
       "Send `/cade help` any time to see this again.",
     ]);
     for (const usage of ["/cade task", "/cade incident", "@Cade task", "@Cade priority high", "@Cade due 31/12/2026"]) {
@@ -2444,6 +2444,15 @@ test("npm run config sets MCP on or off from mcp", async () => {
   assert.throws(() => readConfig(JSON.stringify({ projects, mcp: "no" })), /mcp is true or false/);
 });
 
+test("npm run config sets ADMINS from admins, always, and checks them", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  assert.equal(readConfig(JSON.stringify({ projects })).ADMINS, "[]");
+  assert.equal(readConfig(JSON.stringify({ projects, admins: ["UANN", "UBOB", "UANN"] })).ADMINS, '["UANN","UBOB"]');
+  assert.throws(() => readConfig(JSON.stringify({ projects, admins: ["ann"] })), /admins is a list of Slack user IDs/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, admins: "UANN" })), /admins is a list of Slack user IDs/);
+});
+
 test("npm run config checks the activeTasksPinning, summaryCanvas and newMessageTaskDetection switches", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = [{ name: "acme", channel: "C0000000002" }];
@@ -2516,10 +2525,11 @@ test("npm run config turns cade.config.json into the Worker's secrets", async ()
   const projects = [{ name: "acme", channel: "C0000000002" }];
   assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", projects })), {
     PROJECTS: JSON.stringify(projects),
+    ADMINS: "[]",
     TIMEZONE: "Asia/Colombo",
   });
   // The timezone is optional.
-  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects) });
+  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects), ADMINS: "[]" });
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {

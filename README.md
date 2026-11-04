@@ -102,7 +102,7 @@ is read from Slack as it is made, so Slack's 90-day limit on the free plan
 doesn't lose it. The task's card links two pages of the Worker (`web.js`): its
 thread, `/t/<channel>/<ts>`, and its notes, `/n/<channel>/<ts>`, where the
 AI agent's summary and notes people type are kept (`task_notes`). Pages are
-for people who can read the channel and are signed in: `/cade login` gives a
+for people who can read the channel and are signed in (`/cade web logout` signs out of every browser): `/cade login` gives a
 link that works once and sets a 30-day cookie (`web_tokens`, hashes only). The
 links are built on `PUBLIC_URL`, or the address a request came by.
 
@@ -150,6 +150,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/format.js` | Times in `TIMEZONE`, and Slack users' names |
 | `src/export.js` | Keeping each tracked thread's messages in D1 (`messages`) |
 | `src/notes.js`, `src/links.js` | A task's notes page and the addresses of its pages |
+| `src/admin.js`, `src/settings.js`, `src/commands/project.js` | The projects page (`/admin`) for the `admins` in the config, project settings kept in D1 over the config, and `/cade project init` to add a project |
 | `src/web.js`, `src/access.js` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in with `/cade login`, and who may read a channel |
 | `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
 | `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |

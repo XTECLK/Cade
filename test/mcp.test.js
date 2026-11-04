@@ -176,10 +176,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -328,8 +328,8 @@ test("get_tasks with mine lists the open tasks you are owner, reviewer or tester
   assert.match(open.text, /^3 tasks, most urgent first:/);
   // Urgent first, then High, then Low; done and other people's tasks left out.
   assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["High", "Test me too"], ["Low", "Mine, low"]]);
-  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
-  assert.match(open.text, /Test me too — .*\(you: owner, tester\)/);
+  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer; project: acme\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
+  assert.match(open.text, /Test me too — .*\(you: owner, tester; project: bare\)/);
   assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine"));
 
   assert.match((await tool(url, "get_tasks", { mine: true, role: "reviewer" })).text, /^1 task, most urgent first:\n1\. \[Urgent\] Review me/);
@@ -644,8 +644,8 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   // Done tasks and the private channel's (UME isn't in it) are left out.
   assert.match(all.text, /^3 tasks, showing the 3 most urgent:/);
   assert.deepEqual([...all.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Urgent one"], ["High", "High one"], ["Low", "Low one"]]);
-  assert.match(all.text, /Urgent one — .*In review, due 31\/12\/2026 \(owner: UBOB; reviewer: UANN; tester: UTOM\)\n   Task ID: CDEV:1000000001\.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\//);
-  assert.match(all.text, /High one — .*\(owner: —; reviewer: —; tester: —\)/);
+  assert.match(all.text, /Urgent one — .*In review, due 31\/12\/2026 \(owner: UBOB; reviewer: UANN; tester: UTOM; project: acme\)\n   Task ID: CDEV:1000000001\.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\//);
+  assert.match(all.text, /High one — .*\(owner: —; reviewer: —; tester: —; project: bare\)/);
   assert.ok(!all.text.includes("Secret one") && !all.text.includes("Done one"));
   // Each channel is asked about once, however many tasks it has.
   assert.equal(calls.filter((call) => call.method === "conversations.info" && call.args.channel === "CDEV").length, 1);
@@ -661,6 +661,15 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.match((await tool(url, "get_tasks", { status: "DONE" })).text, /^1 task, showing the 1 most urgent:\n1\. .*Done one/);
   assert.match((await tool(url, "get_tasks", { status: "TODO", limit: 1 })).text, /^2 tasks, showing the 1 most urgent:\n1\. \[High\] High one/);
   assert.match((await tool(url, "get_tasks", { status: "CLIENT_REVIEW" })).text, /^There are no tasks you can see in .*Client review\./);
+
+  // A project narrows the list, by name in any case; an unknown one is an error.
+  const bare = await tool(url, "get_tasks", { project: "BARE" });
+  assert.match(bare.text, /^1 task, showing the 1 most urgent:\n1\. \[High\] High one/);
+  assert.ok(!bare.text.includes("Urgent one"));
+  assert.match((await tool(url, "get_tasks", { project: "acme", mine: true })).text, /^You have no open tasks\./);
+  assert.match((await tool(url, "get_tasks", { project: "nope" })).text, /There is no project called "nope"\. get_projects lists them: acme, bare/);
+  // get_projects lists the projects whose channel you can read.
+  assert.match((await tool(url, "get_projects", {})).text, /^2 projects:\n- acme: <#CDEV> \(CDEV\)\n- bare: <#CBARE> \(CBARE\)$/);
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);

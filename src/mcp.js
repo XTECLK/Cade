@@ -1,4 +1,5 @@
 import { hashToken, isMember, newToken, readableName } from "./access.js";
+import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
 import { parseStatus } from "./commands/status.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
@@ -11,7 +12,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Ten tools:
+// task, with the model and subscription they already have. Eleven tools:
 //
 //   get_flows(name?, task_id?)         the flows Cade supports, such as writing
 //                                      a task's summary, and their steps
@@ -25,6 +26,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 //                                      tasks, most urgent first: the person's
 //                                      own, or every project's they can read
 //   get_user(id)                       a Slack user's name, for the IDs in it
+//   get_projects()                     the projects, with the channel of each
 //   get_users(limit?)                  the workspace's people and their IDs
 //   find_user_by_name(name)            a Slack user's ID, by name, for assigning
 //   send_task_message(task_id, text)   a message in the task's thread, as Cade,
@@ -168,7 +170,7 @@ const TOOLS = [
     description:
       "Lists Cade tasks, most urgent first, each with its priority, title, status, due date, people, its task ID and a link. Open tasks (not done) by default. Filter with the arguments, all optional and combinable: " +
       "mine (only tasks you are on, from any project; role does the same for one role), assignee (only tasks a person is on, by user ID from find_user_by_name), unassigned (only tasks with no owner, reviewer or tester), status (open, all or one status), " +
-      "and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
+      "project (only one project's tasks, by name from get_projects), and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -177,10 +179,17 @@ const TOOLS = [
         assignee: { type: "string", description: "Only tasks this person is on, as a Slack user ID such as U0123ABCD" },
         unassigned: { type: "boolean", description: "Only tasks nobody is owner, reviewer or tester of" },
         status: { type: "string", enum: ["open", "all", ...Object.keys(STATUSES)], description: "open (default: everything not done), all, or one status" },
+        project: { type: "string", description: "Only this project's tasks, by the name get_projects gives" },
         limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many tasks to return, most urgent first. Default ${DEFAULT_TASKS}` },
       },
     },
     run: getTasks,
+  },
+  {
+    name: "get_projects",
+    description: "Lists the projects Cade tracks tasks for, with each one's name and channel, for the channels you can read. Pass a name to get_tasks as project to see only that project's tasks.",
+    inputSchema: { type: "object", properties: {} },
+    run: getProjects,
   },
   {
     name: "get_user",
@@ -541,12 +550,29 @@ function sourceThreadOf(messages) {
   return found ? { ...linkedThread(found[1]), link: found[1].replace(/&amp;/g, "&") } : null;
 }
 
+// The projects whose channel `user` can read, one per line.
+async function getProjects(env, user) {
+  const lines = [];
+  for (const project of projects(env)) {
+    if ((await readableName(env, project.channel, user)) !== null) lines.push(`- ${project.name}: <#${project.channel}> (${project.channel})`);
+  }
+  return lines.length ? [`${lines.length} project${lines.length === 1 ? "" : "s"}:`, ...lines].join("\n") : "There are no projects whose channel you can read.";
+}
+
+// The channel of the project called `name` (any case), or a ToolError.
+function projectChannel(env, name) {
+  const found = projects(env).find((project) => project.name.toLowerCase() === String(name).trim().toLowerCase());
+  if (!found) throw new ToolError(`There is no project called "${name}". get_projects lists them: ${projects(env).map((project) => project.name).join(", ")}.`);
+  return found.channel;
+}
+
 // The tasks the arguments ask for: the person's own, or everyone's they can read.
 async function getTasks(env, user, args = {}) {
-  const { mine, role, assignee, unassigned, limit } = args;
+  const { mine, role, assignee, unassigned, limit, project } = args;
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
   if (assignee !== undefined && !/^[UW][A-Z0-9]{2,}$/.test(String(assignee))) throw new ToolError("assignee is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   if (unassigned && (mine || role || assignee)) throw new ToolError("unassigned can't be combined with mine, role or assignee.");
+  if (project !== undefined) args = { ...args, channel: projectChannel(env, project) };
   if (mine || role) {
     if (assignee !== undefined && assignee !== user) throw new ToolError("mine and assignee name different people. Use one of them.");
     return getMyTasks(env, user, args);
@@ -555,10 +581,11 @@ async function getTasks(env, user, args = {}) {
 }
 
 // The tasks `user` has a role in.
-async function getMyTasks(env, user, { role, status, limit } = {}) {
+async function getMyTasks(env, user, { role, status, limit, channel } = {}) {
   if (role !== undefined && !ROLES[role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
   const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : Object.keys(ROLES), statuses }))
+    .filter((entry) => !channel || entry.channel === channel)
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency);
   if (!found.length) return `You have no ${wanted === "open" ? "open " : ""}tasks${role ? ` as ${role}` : ""}${statuses.length === 1 ? ` in ${statusName(wanted)}` : ""}.`;
@@ -569,11 +596,12 @@ async function getMyTasks(env, user, { role, status, limit } = {}) {
 }
 
 // Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env, user, { limit, status, assignee, unassigned } = {}) {
+async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel } = {}) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task) => Object.keys(ROLES).flatMap((role) => task.people[role]);
   const found = (await tasksWithStatuses(env, statuses))
+    .filter((entry) => !channel || entry.channel === channel)
     .filter(({ task }) => (assignee === undefined || everyone(task).includes(assignee)) && (!unassigned || !everyone(task).length))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency);
@@ -612,7 +640,8 @@ async function taskLines(env, entries, about) {
     if (!task.link && base === undefined) base = (await callSlack(env, "auth.test", {}).catch(() => ({}))).url ?? "";
     const link = task.link || (base ? threadLink(base, channel, ts) : `${channel}/${ts}`);
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
-    lines.push(`${i + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
+    const project = projects(env).find((pair) => pair.channel === channel)?.name;
+    lines.push(`${i + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)}${project ? `; project: ${project}` : ""})\n   Task ID: ${channel}:${ts}\n   ${link}`);
   }
   return lines;
 }

@@ -19,6 +19,7 @@
       <li><a href="#walkthrough">Demo</a></li>
       <li><a href="#how">How it works</a></li>
       <li><a href="#features">Features</a></li>
+      <li><a href="#mcp">AI agents</a></li>
       <li><a href="#commands">Commands &amp; AI</a></li>
       <li><a href="#principles">Principles</a></li>
     </ul>
@@ -253,6 +254,82 @@
         <p>Every reply in a task's thread is kept in Cade's database, with a page for the thread and one for notes, long after Slack's 90-day limit.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="mcp" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">AI agents (MCP)</div>
+    <h2>Bring your own agent. Every tool says what it takes and what it gives back.</h2>
+    <p>Send <code>/cade mcp init</code> for an API key, and add Cade to Claude Code, Gemini CLI, Cursor or any client that takes a remote MCP server. The agent reads what you can read and changes tasks as you, after you approve. Each tool has an <code>inputSchema</code> for its arguments and an <code>outputSchema</code> for its result, which comes both as text and as structured JSON, so an agent can pass a result straight into the next call.</p>
+
+    <div class="grid">
+      <div class="feature"><div class="bar"></div><h3>Read tasks</h3>
+        <ul>
+          <li><code>get_projects</code> → <code>projects[]</code></li>
+          <li><code>get_tasks</code> (mine, role, assignee, unassigned, status, project, limit) → <code>total</code>, <code>tasks[]</code></li>
+          <li><code>get_task</code> (task_id | link) → fields, summary, notes, <code>original_thread</code></li>
+        </ul></div>
+      <div class="feature"><div class="bar"></div><h3>Read threads</h3>
+        <ul>
+          <li><code>get_thread_history</code> (thread_id | link), from Slack → <code>messages[]</code></li>
+          <li><code>get_task_history</code> (task_id | link), kept by Cade → <code>messages[]</code></li>
+        </ul></div>
+      <div class="feature"><div class="bar"></div><h3>People</h3>
+        <ul>
+          <li><code>get_user</code> (id) → <code>name</code></li>
+          <li><code>get_users</code> (limit) → <code>users[]</code></li>
+          <li><code>find_user_by_name</code> (name) → <code>users[]</code></li>
+        </ul></div>
+      <div class="feature"><div class="bar"></div><h3>Change things</h3>
+        <ul>
+          <li><code>update_task</code> (status, priority, due_date, owner, reviewer, tester, summary) → <code>changed</code>, <code>summary_saved</code></li>
+          <li><code>send_task_message</code> (text) → <code>sent</code>, <code>link</code></li>
+          <li>Both are told to show you the change and wait for a yes</li>
+        </ul></div>
+      <div class="feature"><div class="bar"></div><h3>Flows</h3>
+        <ul>
+          <li><code>get_flows</code> lists step-by-step jobs: <code>summarize_task</code>, <code>triage_tasks</code>, <code>explain_task</code>, <code>plan_my_work</code></li>
+          <li>They also show up as prompts in agents that offer them</li>
+        </ul></div>
+      <div class="feature"><div class="bar"></div><h3>Under your control</h3>
+        <ul>
+          <li>One key per person; <code>/cade mcp info</code> shows the setup, <code>/cade mcp revoke</code> ends it</li>
+          <li>An admin can turn MCP off with <code>mcp</code> in the config</li>
+        </ul></div>
+    </div>
+
+    <div class="schema">
+      <div>
+        <h3>Input: <code>get_tasks</code></h3>
+<pre><code>{
+  "project": "acme",
+  "status": "open",
+  "unassigned": true,
+  "limit": 20
+}</code></pre>
+      </div>
+      <div>
+        <h3>Output: <code>structuredContent</code></h3>
+<pre><code>{
+  "total": 1,
+  "tasks": [{
+    "task_id": "C0123ABCD:1700000000.000100",
+    "title": "Fix login",
+    "project": "acme",
+    "status": "IN_REVIEW",
+    "priority": "High",
+    "due_date": "31/12/2026",
+    "incident": false,
+    "link": "https://…",
+    "owner": ["U0123ABCD"],
+    "reviewer": [],
+    "tester": []
+  }]
+}</code></pre>
+      </div>
+    </div>
+    <p>The <code>task_id</code> goes straight into <code>get_task</code>, <code>get_task_history</code>, <code>update_task</code> and <code>send_task_message</code>; user IDs go into <code>get_user</code> and <code>update_task</code>. Clients that ignore structured output still get the same answer as text.</p>
   </div>
 </section>
 

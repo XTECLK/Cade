@@ -75,7 +75,7 @@ const rpc = (key, message, method = "POST", path = "/mcp") =>
 // A tool's result: its text, and whether it is an error.
 async function tool(url, name, args) {
   const { result } = await (await rpc(url, { id: 1, method: "tools/call", params: { name, arguments: args } })).json();
-  return { text: result.content[0].text, isError: Boolean(result.isError) };
+  return { text: result.content[0].text, isError: Boolean(result.isError), data: result.structuredContent };
 }
 
 test("/cade mcp init gives an API key for the caller, and revoke ends it", async (t) => {
@@ -176,6 +176,8 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
+  // Every tool describes what it returns, and an error carries no data.
+  assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
   assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
@@ -670,6 +672,15 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.match((await tool(url, "get_tasks", { project: "nope" })).text, /There is no project called "nope"\. get_projects lists them: acme, bare/);
   // get_projects lists the projects whose channel you can read.
   assert.match((await tool(url, "get_projects", {})).text, /^2 projects:\n- acme: <#CDEV> \(CDEV\)\n- bare: <#CBARE> \(CBARE\)$/);
+
+  // The same tasks come as data, grouped by project, to pass on to other tools.
+  assert.deepEqual(all.data.tasks.map((task) => [task.task_id, task.project, task.status, task.owner]), [
+    ["CDEV:1000000001.000100", "acme", "IN_REVIEW", ["UBOB"]],
+    ["CDEV:1000000000.000100", "acme", "TODO", ["UBOB"]],
+    ["CBARE:1000000002.000100", "bare", "TODO", []],
+  ]);
+  assert.equal(all.data.total, 3);
+  assert.deepEqual((await tool(url, "get_projects", {})).data.projects, [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }]);
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);

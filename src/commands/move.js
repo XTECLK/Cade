@@ -27,7 +27,7 @@ const MOVE_SHORTCUT = "move";
 const MOVE_VIEW = "move:form";
 
 // Added to a moved message, so it can be passed over without opening it.
-const MOVED_REACTION = "outbox_tray";
+export const MOVED_REACTION = "outbox_tray";
 
 // How much of a message a shortcut carries to be quoted: a form's
 // private_metadata holds at most 3,000 characters.
@@ -412,7 +412,7 @@ export async function offerStart(env, command, kind) {
 // Whether the root of the thread at `ts` in a dev channel can be moved, or
 // have something started from it: { root } if so, or { problem } to reply
 // with, or { moved } to tell the person privately where it went.
-async function checkRoot(env, channel, ts) {
+export async function checkRoot(env, channel, ts) {
   if (await loadTask(env, channel, ts)) return { problem: "This is already a task thread." };
   const thread = await readThread(env, channel, ts);
   if (!thread || thread.root.bot_id) return { problem: "I can only move people's messages." };

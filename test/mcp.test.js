@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
-import { decideRelease, getTask, insertRelease, putSummary, putTask, setReleaseMessage } from "../src/db.js";
+import { decideRelease, getNotes, getTask, insertRelease, putSummary, putTask, setReleaseMessage } from "../src/db.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 import { fakeD1 } from "./d1.js";
 import { check } from "./schema.js";
@@ -121,7 +121,7 @@ test("the MCP server offers the summarize_task prompt, for a task's issue only",
   mock(t);
   const url = addressIn(await slash("mcp init"));
   const { result: list } = await (await rpc(url, { id: 1, method: "prompts/list" })).json();
-  assert.deepEqual(list.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [["summarize_task", [["task_id", false]]], ["triage_tasks", [["task_id", false]]], ["explain_task", [["task_id", false]]], ["check_prs", [["task_id", false]]], ["report_progress", [["task_id", false]]], ["plan_my_work", []]]);
+  assert.deepEqual(list.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [["summarize_task", [["task_id", false]]], ["triage_tasks", [["task_id", false]]], ["explain_task", [["task_id", false]]], ["check_prs", [["task_id", false]]], ["report_progress", [["task_id", false]]], ["plan_my_work", []], ["create_task_from_thread", [["thread", false]]], ["create_task_from_scratch", []], ["browse_channels", []]]);
   assert.ok(list.prompts.every((prompt) => !("steps" in prompt)));
 
   const { result } = await (await rpc(url, { id: 2, method: "prompts/get", params: { name: "summarize_task", arguments: { task_id: "CDEV:1700000000.000100" } } })).json();
@@ -184,10 +184,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -735,7 +735,7 @@ test("every tool follows the same conventions", () => {
   const names = TOOL_DEFS.map((def) => def.name);
   assert.equal(new Set(names).size, names.length);
   for (const def of TOOL_DEFS) {
-    assert.match(def.name, /^(get|find|update|send)_[a-z_]+$/, def.name);
+    assert.match(def.name, /^(get|find|update|send|create)_[a-z_]+$/, def.name);
     assert.ok(def.title && def.description, `${def.name} has a title and a description`);
     assert.equal(def.inputSchema.type, "object");
     assert.equal(def.outputSchema.type, "object");
@@ -744,7 +744,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_task_message", "update_release"].includes(def.name);
+    const writes = ["update_task", "send_task_message", "update_release", "create_task"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -785,7 +785,7 @@ test("get_flows lists the flows, and get_flow gives the steps and tool chain of 
   assert.match(list.text, /^The flows Cade supports\./);
   assert.match(list.text, /- summarize_task \(task_id\?\): Write a task's summary: the issue, from the thread the task was made from\./);
   assert.match(list.text, /- plan_my_work: Look at my open tasks/);
-  assert.deepEqual(list.data.flows.map((flow) => flow.name), ["summarize_task", "triage_tasks", "explain_task", "check_prs", "report_progress", "plan_my_work"]);
+  assert.deepEqual(list.data.flows.map((flow) => flow.name), ["summarize_task", "triage_tasks", "explain_task", "check_prs", "report_progress", "plan_my_work", "create_task_from_thread", "create_task_from_scratch", "browse_channels"]);
   assert.deepEqual(list.data.flows[0].arguments.map((arg) => [arg.name, arg.required]), [["task_id", false]]);
 
   // One flow's steps are the prompt's text, whichever way an agent asks for it.
@@ -806,7 +806,7 @@ test("get_flows lists the flows, and get_flow gives the steps and tool chain of 
   assert.match((await tool(url, "get_flow", { name: "explain_task", task_id: TASK })).text, /Explain the Cade task CDEV:1700000000\.000100 to the person.*Save nothing\./s);
   assert.match((await tool(url, "get_flow", { name: "plan_my_work" })).text, /get_tasks with mine for their open tasks/);
 
-  assert.match((await tool(url, "get_flow", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, check_prs, report_progress, plan_my_work/);
+  assert.match((await tool(url, "get_flow", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, check_prs, report_progress, plan_my_work, create_task_from_thread, create_task_from_scratch, browse_channels/);
   assert.match((await tool(url, "get_flow", { name: "summarize_task", task_id: "12" })).text, /channel and the message time joined by a colon/);
   // The prompts don't carry the chain.
   const prompts = (await (await rpc(url, { id: 3, method: "prompts/list" })).json()).result.prompts;
@@ -1019,4 +1019,126 @@ test("update_release changes the PRs of a release waiting for approval, never de
   await decideRelease(env, id, "APPROVED", "UCLIENT");
   assert.match(await say({ note: "Changed my mind" }), /already approved/);
   assert.equal(other > id, true);
+});
+
+test("get_channels lists the channels Cade is in that you can read, project channels first", async (t) => {
+  mock(t, {
+    "users.conversations": { channels: [{ id: "CZED", name: "zed" }, { id: "CDEV", name: "dev" }, { id: "CPRIV", name: "secret", is_private: true }, { id: "CMINE", name: "mine", is_private: true }] },
+    "conversations.members": (args) => ({ members: args.channel === "CMINE" ? ["UME"] : [] }),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const result = await tool(url, "get_channels", {});
+  assert.equal(result.isError, false, result.text);
+  assert.equal(result.data.total, 3);
+  assert.deepEqual(result.data.channels.map((c) => [c.channel_id, c.private, c.project]), [["CDEV", false, "acme"], ["CMINE", true, ""], ["CZED", false, ""]]);
+  assert.match(result.text, /^3 channels Cade is in:\n1\. #dev \(CDEV\) — project acme/);
+  assert.equal((await tool(url, "get_channels", { limit: 1 })).data.channels.length, 1);
+  assert.match((await tool(url, "get_channels", { limit: 0 })).text, /limit is a whole number from 1 to 200/);
+});
+
+test("get_channel_threads lists people's recent root messages, not Cade's task cards or messages already moved", async (t) => {
+  const now = Math.floor(Date.now() / 1000);
+  const ts = (ago) => `${now - ago}.000100`;
+  const calls = mock(t, {
+    "conversations.info": { channel: { name: "support" } },
+    "conversations.history": {
+      messages: [
+        { ts: ts(100), user: "UANN", text: "Checkout fails on Safari", reply_count: 3, latest_reply: ts(50) },
+        { ts: ts(200), user: "UBOT", bot_id: "B1", text: "Task card" },
+        { ts: ts(300), user: "UBOB", text: "Already moved", reactions: [{ name: "outbox_tray", count: 1 }] },
+        { ts: ts(400), user: "UBOB", text: "Anyone free for lunch?" },
+        { ts: ts(500), user: "UBOB", subtype: "channel_join", text: "joined" },
+        { ts: ts(600), user: "UANN", text: "A reply", thread_ts: ts(100) },
+      ],
+    },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const result = await tool(url, "get_channel_threads", { channel_id: "CSUP" });
+  assert.equal(result.isError, false, result.text);
+  assert.deepEqual(result.data.threads.map((x) => [x.thread_id, x.user_id, x.reply_count]), [[`CSUP:${ts(100)}`, "UANN", 3], [`CSUP:${ts(400)}`, "UBOB", 0]]);
+  assert.equal(result.data.total, 2);
+  assert.equal(result.data.threads[0].last_reply.length, 16);
+  assert.equal(result.data.threads[1].last_reply, "");
+  assert.match(result.text, /^2 threads in #support not tracked by Cade, newest first:\n1\. \[/);
+  assert.deepEqual((await tool(url, "get_channel_threads", { channel_id: "CSUP", with_replies: true })).data.threads.map((x) => x.user_id), ["UANN"]);
+  assert.equal((await tool(url, "get_channel_threads", { channel_id: "CSUP", limit: 1 })).data.threads.length, 1);
+  assert.ok(calls.some((c) => c.method === "conversations.history" && Number(c.args.oldest) < now));
+  assert.match((await tool(url, "get_channel_threads", { channel_id: "nope" })).text, /channel_id is a channel's ID/);
+  assert.match((await tool(url, "get_channel_threads", { channel_id: "CSUP", days: 91 })).text, /days is a whole number from 1 to 90/);
+});
+
+test("create_task makes a task or incident from a thread or from scratch, moves the thread and saves the summary", async (t) => {
+  const ROOT = "1699999999.000100";
+  const calls = mock(t, {
+    ...SLACK_FOR_TASKS,
+    "conversations.info": { channel: { name: "dev" } },
+    "conversations.replies": { messages: [{ ts: ROOT, user: "UANN", text: "Checkout fails on Safari" }] },
+    "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" },
+    "reactions.add": {},
+    "chat.update": {},
+    "pins.add": {},
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const made = await tool(url, "create_task", { title: "Fix Safari checkout", project: "acme", priority: "High", due_date: "2030-01-31", summary: "Checkout fails on Safari.", thread_id: `CDEV:${ROOT}` });
+  assert.equal(made.isError, false, made.text);
+  assert.equal(made.data.task_id, "CDEV:100.1");
+  assert.equal(made.data.project, "acme");
+  assert.equal(made.data.incident, false);
+  assert.equal(made.data.summary_saved, true);
+  const task = await getTask(env, "CDEV", "100.1");
+  assert.deepEqual([task.title, task.priority, task.dueDate, task.status, task.createdBy], ["Fix Safari checkout", "High", "31/01/2030", "TODO", "UME"]);
+  assert.equal((await getNotes(env, "CDEV", "100.1")).summary, "Checkout fails on Safari.");
+  assert.ok(calls.some((c) => c.method === "chat.postMessage" && c.args.thread_ts === "100.1" && /Moved from/.test(c.args.text)));
+
+  // An incident is urgent and immediate, and takes neither.
+  assert.match((await tool(url, "create_task", { title: "Site down", incident: true, priority: "Low" })).text, /always Urgent and due immediately/);
+  const incident = await tool(url, "create_task", { title: "Site down", incident: true, project: "bare" });
+  assert.equal(incident.data.incident, true);
+  const urgent = await getTask(env, "CBARE", "100.1");
+  assert.deepEqual([urgent.priority, urgent.dueDate], ["Urgent", "Immediate"]);
+
+  assert.match((await tool(url, "create_task", { title: "  " })).text, /title is empty/);
+  assert.match((await tool(url, "create_task", { title: "x".repeat(151) })).text, /keep it to 150/);
+  assert.match((await tool(url, "create_task", { title: "x" })).text, /Say which project to make it in with project: acme, bare/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "nope" })).text, /no project called "nope"/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", priority: "Soon" })).text, /priority is one of/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: "CDEV:1.1", link: "https://a.slack.com/archives/CDEV/p1000000" })).text, /not both/);
+});
+
+test("create_task won't make a task from a thread that is a task, was moved, or is in a channel you can't read", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ title: "Login" }));
+  mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: [] },
+    "conversations.replies": (args) => ({ messages: [{ ts: args.ts, user: "UANN", text: "hi" }, { ts: "9.9", bot_id: "B1", text: "<@UME> moved this message to the task thread <https://x/y|Login>. Please carry on." }] }),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: `CDEV:${TS}` })).text, /already a task thread/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: "CDEV:1600000000.000100" })).text, /already moved/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: "CPRIV:1600000000.000100" })).text, /aren't in that channel/);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM tasks").first()).n, 1);
+});
+
+test("the task-creating flows ask for a thread, take its link or ID, and chain real tools", async (t) => {
+  mock(t);
+  const url = addressIn(await slash("mcp init"));
+  const LINK = "https://acme.slack.com/archives/CDEV/p1700000000000100";
+  assert.match((await tool(url, "get_flow", { name: "create_task_from_thread" })).text, /First, ask the person for the thread/);
+  const linked = await tool(url, "get_flow", { name: "create_task_from_thread", thread: LINK });
+  assert.match(linked.text, new RegExp(`from the Slack thread link "${LINK}"`));
+  assert.ok(!/First, ask the person for the thread/.test(linked.text));
+  assert.match(linked.text, /Title:[\s\S]*Kind:[\s\S]*Priority[\s\S]*Due date[\s\S]*Project:[\s\S]*Summary:/);
+  assert.match(linked.text, /Don't create anything yet/);
+  assert.deepEqual(linked.data.chain.filter((step) => step.approval).map((step) => step.tool), ["create_task", "update_task"]);
+  assert.match((await tool(url, "get_flow", { name: "create_task_from_thread", thread: "CDEV:1700000000.000100" })).text, /thread_id "CDEV:1700000000\.000100"/);
+  assert.match((await tool(url, "get_flow", { name: "create_task_from_thread", thread: "nope" })).text, /thread is a link to a message/);
+  const browse = await tool(url, "get_flow", { name: "browse_channels" });
+  assert.deepEqual(browse.data.chain.map((step) => step.tool).slice(0, 2), ["get_channels", "get_channel_threads"]);
+  assert.match(browse.text, /Call get_channels\./);
+  assert.match(browse.text, /Only when they approve it as shown, call create_task/);
+  assert.match((await tool(url, "get_flow", { name: "create_task_from_scratch" })).text, /Make a new Cade task or incident/);
+  const prompt = (await (await rpc(url, { id: 2, method: "prompts/get", params: { name: "create_task_from_thread", arguments: { thread: LINK } } })).json()).result;
+  assert.match(prompt.messages[0].content.text, /get_thread_history \(link/);
 });

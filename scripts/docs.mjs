@@ -1,9 +1,11 @@
 // Writes the website's MCP pages from the tool definitions in src/mcp-tools.js, so the site and
-// the server can't disagree: docs/mcp.html (every tool, its arguments and its result) and the
+// the server can't disagree: docs/mcp.html (how to connect an agent, which `/cade mcp status` links to, and every tool, its
+// arguments and its result) and the
 // list of tools in docs/index.html, between its mcp-tools markers. `npm run docs` writes them;
 // test/docs.test.js checks they are up to date.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { FLOWS } from "../src/flows.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 
 const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -54,6 +56,7 @@ export function toolList() {
 }
 
 export function mcpPage() {
+  const flowItems = FLOWS.map((flow) => `      <li><code>${escape(flow.name)}</code>: ${escape(flow.description)}.</li>`).join("\n");
   const sections = TOOL_DEFS.map(
     (tool) => `<section class="tool" id="${tool.name}">
   <div class="wrap">
@@ -100,9 +103,29 @@ export function mcpPage() {
   <div class="wrap">
     <div class="eyebrow">MCP reference</div>
     <h1>Every tool, what it takes and what it gives back.</h1>
-    <p class="lede">Generated from the server's own tool definitions, so it is always what an agent sees in <code>tools/list</code>. A result is text and, matching its schema, <code>structuredContent</code>, so an agent can pass one tool's IDs to the next. Get your API key with <code>/cade mcp init</code>.</p>
+    <p class="lede">How to connect your own AI agent to Cade, and every tool it gets, generated from the server's own tool definitions, so it is always what an agent sees in <code>tools/list</code>. A result is text and, matching its schema, <code>structuredContent</code>, so an agent can pass one tool's IDs to the next.</p>
   </div>
 </header>
+
+<section class="tool" id="connect">
+  <div class="wrap">
+    <h2>Connect your agent</h2>
+    <p><b>1.</b> In Slack send <code>/cade mcp init</code>. Cade shows the key to you only, once, with this Cade's MCP endpoint (<code>/cade mcp status</code> shows the endpoint again, and whether you have a key). <code>/cade mcp revoke</code> ends the key.</p>
+    <p><b>2.</b> Add Cade to your agent as a remote MCP server (Streamable HTTP), with the key in the header <code>x-apikey</code>. Replace the two placeholders with the endpoint and key from step 1:</p>
+    <h3>Claude Code</h3>
+    <pre class="term"><code>claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>
+    <h3>Gemini CLI</h3>
+    <pre class="term"><code>gemini mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>
+    <h3>Cursor, Codex and other clients</h3>
+    <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
+    <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
+    <h3>Flows</h3>
+    <p>Step-by-step jobs your agent follows with <code>get_flow</code>, which Claude Code also lists as slash commands:</p>
+    <ul>
+${flowItems}
+    </ul>
+  </div>
+</section>
 
 ${sections}
 

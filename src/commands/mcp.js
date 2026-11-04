@@ -1,6 +1,5 @@
 import { hasMcpToken, mcpTokenCreated } from "../db.js";
 import { endpointUrl, grantToken, mcpCatalog, mcpEnabled, revokeToken } from "../mcp.js";
-import { guideUrl } from "../mcp-guide.js";
 
 // `/cade mcp init` gives the person an API key of their own for Cade's MCP
 // endpoint (see mcp.js), as one only they are shown, and `/cade mcp
@@ -8,6 +7,9 @@ import { guideUrl } from "../mcp-guide.js";
 // threads they can read and write a task's summary as them. The key can't
 // be shown again, and `init` makes none while there is one: to change it,
 // `revoke` it first, then `init` for a new one.
+// How to connect an agent, and every tool it gets, is on Cade's website, the same for every workspace.
+export const MCP_GUIDE = "https://xteclk.github.io/Cade/mcp.html#connect";
+
 export default {
   name: "mcp",
   description: "Let your AI agent summarize threads into tasks: `init` gives you an API key for it, `revoke` ends it",
@@ -21,7 +23,7 @@ export default {
       if (await hasMcpToken(env, command.user)) {
         return "You have an API key already, and I can't show it again. To get a new one, send `/cade mcp revoke` to end it, then `/cade mcp init`.";
       }
-      return granted(env, endpointUrl(env), await grantToken(env, command.user));
+      return granted(endpointUrl(env), await grantToken(env, command.user));
     }
     if (action === "revoke") {
       return (await revokeToken(env, command.user))
@@ -48,7 +50,7 @@ async function status(env, user) {
     on ? `*Your API key:* ${key}` : "",
     on ? `*Endpoint:* \`${endpointUrl(env)}\` (Streamable HTTP), with your API key in the header \`x-apikey\`` : "",
     on ? `*Offers:* ${tools.length} tools and ${flows.length} flows` : "",
-    on ? `*Setup guide:* <${guideUrl(env)}|How to connect your AI agent>` : "",
+    on ? `*Setup guide:* <${MCP_GUIDE}|How to connect your AI agent>` : "",
     "Everything runs as you, so your agent reads only what you can read. Changes and messages it makes are posted in the task's thread under your name, after you approve them.",
   ].filter(Boolean).join("\n");
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
@@ -67,7 +69,7 @@ export function setupSteps(url, key) {
 }
 
 // What `/cade mcp init` answers, for the person's new API key.
-function granted(env, url, key) {
+function granted(url, key) {
   const text = [
     ":key: *Your Cade MCP connection.* Add it to your AI agent once, as a remote MCP server:",
     "*Endpoint*",
@@ -75,7 +77,7 @@ function granted(env, url, key) {
     "*API key*, sent with every request in the header `x-apikey`",
     `\`\`\`${key}\`\`\``,
     setupSteps(url, key),
-    `Step by step: <${guideUrl(env)}|how to connect your AI agent>.`,
+    `Step by step: <${MCP_GUIDE}|how to connect your AI agent>.`,
     "It lets your agent read the threads you can read, and change tasks and post in their threads as you, so keep the key to yourself. `/cade mcp revoke` ends it, and I can't show it again: `/cade mcp init` makes a new one.",
   ].join("\n");
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };

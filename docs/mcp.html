@@ -31,9 +31,34 @@
   <div class="wrap">
     <div class="eyebrow">MCP reference</div>
     <h1>Every tool, what it takes and what it gives back.</h1>
-    <p class="lede">Generated from the server's own tool definitions, so it is always what an agent sees in <code>tools/list</code>. A result is text and, matching its schema, <code>structuredContent</code>, so an agent can pass one tool's IDs to the next. Get your API key with <code>/cade mcp init</code>.</p>
+    <p class="lede">How to connect your own AI agent to Cade, and every tool it gets, generated from the server's own tool definitions, so it is always what an agent sees in <code>tools/list</code>. A result is text and, matching its schema, <code>structuredContent</code>, so an agent can pass one tool's IDs to the next.</p>
   </div>
 </header>
+
+<section class="tool" id="connect">
+  <div class="wrap">
+    <h2>Connect your agent</h2>
+    <p><b>1.</b> In Slack send <code>/cade mcp init</code>. Cade shows the key to you only, once, with this Cade's MCP endpoint (<code>/cade mcp status</code> shows the endpoint again, and whether you have a key). <code>/cade mcp revoke</code> ends the key.</p>
+    <p><b>2.</b> Add Cade to your agent as a remote MCP server (Streamable HTTP), with the key in the header <code>x-apikey</code>. Replace the two placeholders with the endpoint and key from step 1:</p>
+    <h3>Claude Code</h3>
+    <pre class="term"><code>claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>
+    <h3>Gemini CLI</h3>
+    <pre class="term"><code>gemini mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>
+    <h3>Cursor, Codex and other clients</h3>
+    <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
+    <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
+    <h3>Flows</h3>
+    <p>Step-by-step jobs your agent follows with <code>get_flow</code>, which Claude Code also lists as slash commands:</p>
+    <ul>
+      <li><code>summarize_task</code>: Write a task's summary: the issue, from the thread the task was made from. What was done and how it ended stay in the task's own thread.</li>
+      <li><code>triage_tasks</code>: Go through tasks one at a time: read the threads, propose the status, priority, due date and people, and apply them after you approve.</li>
+      <li><code>explain_task</code>: Tell me about a task as Issue, Action and Result, from the thread it was made from and its own thread. Saves nothing.</li>
+      <li><code>check_prs</code>: Check the status of a task's pull requests in the repository, and unlink those closed without merging, after you approve.</li>
+      <li><code>report_progress</code>: Write a progress update from this repository's commits and pull request, post it in the task's thread and link the pull request, after you approve.</li>
+      <li><code>plan_my_work</code>: Look at my open tasks and suggest what to do first. Saves nothing.</li>
+    </ul>
+  </div>
+</section>
 
 <section class="tool" id="get_flows">
   <div class="wrap">

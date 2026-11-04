@@ -5,7 +5,6 @@ import { recordMessage } from "./export.js";
 import { publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
 import { handleMcp } from "./mcp.js";
-import { handleMcpGuide } from "./mcp-guide.js";
 import { retryUnposted } from "./retry.js";
 import { withSettings } from "./settings.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -30,8 +29,6 @@ export default {
     // AI agents reach Cade's MCP endpoint with an API key of their own in a
     // header, not Slack's signature (see mcp.js).
     if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
-    // The page that tells people how to connect their agent, with nothing secret in it.
-    if (path === "/mcp/guide") return handleMcpGuide(request, env);
     // People reach a task's thread and notes pages with a session of their
     // own, which `/cade web login` starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);

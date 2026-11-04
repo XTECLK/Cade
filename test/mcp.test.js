@@ -438,10 +438,10 @@ test("/cade mcp status shows whether MCP is configured and whether you have a ke
   assert.match(before, /worker\.example\.net\/mcp/);
   assert.match(before, /Your API key:\*[^"]*none yet/);
   assert.match(before, /\d+ tools and \d+ flows/);
-  assert.match(before, /<https:\/\/worker\.example\.net\/mcp\/guide\|How to connect your AI agent>/);
+  assert.match(before, /<https:\/\/xteclk\.github\.io\/Cade\/mcp\.html#connect\|How to connect your AI agent>/);
 
   const reply = await slash("mcp init", "UME");
-  assert.match(reply.text, /Step by step: <https:\/\/worker\.example\.net\/mcp\/guide\|/);
+  assert.match(reply.text, /Step by step: <https:\/\/xteclk\.github\.io\/Cade\/mcp\.html#connect\|/);
   const key = addressIn(reply);
   const after = JSON.stringify(await slash("mcp status", "UME"));
   assert.match(after, /Your API key:\*[^"]*made \d{4}-\d{2}-\d{2}/);
@@ -457,23 +457,16 @@ test("/cade mcp status shows whether MCP is configured and whether you have a ke
   assert.ok(!off.includes("Setup guide"));
 });
 
-test("/mcp/guide tells how to connect an agent, with this Cade's endpoint and its tools, and holds no key", async (t) => {
-  mock(t, SLACK_FOR_TASKS);
-  const key = addressIn(await slash("mcp init", "UME"));
-  const get = (method = "GET") => worker.fetch(new Request(`${ORIGIN}/mcp/guide`, { method }), env, { waitUntil() {} });
-  const page = await get();
-  assert.equal(page.status, 200);
-  const html = await page.text();
-  assert.match(html, /<h1>Connect your AI agent to Cade<\/h1>/);
-  assert.ok(html.includes("claude mcp add --transport http cade https://worker.example.net/mcp --header &quot;x-apikey: YOUR_API_KEY&quot;"));
+test("the guide /cade mcp status links to is the website's MCP reference, with the setup steps and every tool", async () => {
+  const { readFileSync } = await import("node:fs");
+  const html = readFileSync(new URL("../docs/mcp.html", import.meta.url), "utf8");
+  assert.ok(html.includes('id="connect"'));
+  assert.ok(html.includes("claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header \"x-apikey: YOUR_API_KEY\""));
   assert.ok(html.includes("/cade mcp init") && html.includes("/cade mcp status"));
-  for (const name of ["get_tasks", "update_task", "update_release", "send_task_message"]) assert.ok(html.includes(`<code>${name}</code>`), name);
+  for (const def of TOOL_DEFS) assert.ok(html.includes(`id="${def.name}"`), def.name);
   assert.match(html, /<code>report_progress<\/code>/);
-  assert.ok(!html.includes(key));
-  assert.equal((await get("POST")).status, 405);
-  env.MCP = "off";
-  t.after(() => delete env.MCP);
-  assert.equal((await get()).status, 404);
+  // Nothing of any one workspace is in it.
+  assert.ok(!html.includes("worker.example.net"));
 });
 
 test("turning MCP off ends the endpoint, gives no keys and drops the prompt, but still revokes keys", async (t) => {

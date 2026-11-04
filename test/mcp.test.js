@@ -181,7 +181,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "update_task", "get_task_history", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -312,7 +312,7 @@ test("get_thread_history reads only from Slack, even for a task Cade keeps messa
   // Slack has dropped the thread: it's not found here, while get_task_history still has it.
   slack = new Error("thread_not_found");
   assert.match((await tool(url, "get_thread_history", { link })).text, /couldn't find that thread/);
-  assert.match((await tool(url, "get_task_history", { link })).text, /Kept reply/);
+  assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" })).text, /Kept reply/);
 });
 
 test("get_tasks with mine lists the open tasks you are owner, reviewer or tester of, most urgent first, and filters by role and status", async (t) => {
@@ -563,7 +563,7 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   const url = addressIn(await slash("mcp init", "UME"));
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
-  const result = await tool(url, "get_task_history", { link });
+  const result = await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" });
   assert.equal(result.isError, false, result.text);
   assert.equal(
     result.text,
@@ -576,17 +576,13 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   // It is read from the database: Slack is only asked whether you may read the channel.
   assert.ok(!calls.some((call) => call.method === "conversations.replies"));
 
-  // A reply's link stands for its thread.
-  assert.match((await tool(url, "get_task_history", { link: `${link.replace("p1700000000000100", "p1700000060000200")}?thread_ts=1700000000.000100&cid=CDEV` })).text, /2 kept messages/);
   // A private channel is for its members only: UME isn't in it, UBOB is.
-  const priv = "https://acme.slack.com/archives/CPRIV/p1700000000000100";
-  assert.match((await tool(url, "get_task_history", { link: priv })).text, /can't read that task's channel/);
+  const priv = "CPRIV:1700000000.000100";
+  assert.match((await tool(url, "get_task_history", { task_id: priv })).text, /can't read that task's channel/);
   const bob = addressIn(await slash("mcp init", "UBOB"));
-  assert.match((await tool(bob, "get_task_history", { link: priv })).text, /Task "Secret" in #secret.*hush/s);
-  // A task with nothing kept, a thread that isn't a task, and a bad link.
-  assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CBARE/p1700000000000100" })).text, /No messages are kept for "Quiet"/);
-  assert.match((await tool(url, "get_task_history", { link: "https://acme.slack.com/archives/CDEV/p1600000000000100" })).text, /isn't to a task Cade tracks/);
-  assert.match((await tool(url, "get_task_history", { link: "https://example.com" })).text, /isn't a link to a Slack message/);
+  assert.match((await tool(bob, "get_task_history", { task_id: priv })).text, /Task "Secret" in #secret.*hush/s);
+  // A task with nothing kept.
+  assert.match((await tool(url, "get_task_history", { task_id: "CBARE:1700000000.000100" })).text, /No messages are kept for "Quiet"/);
 
   // By task ID, the form get_tasks gives: the same messages, and the same rules.
   const byId = await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" });
@@ -595,9 +591,9 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   assert.match((await tool(url, "get_task_history", { task_id: " CDEV:1700000000.000100 " })).text, /2 kept messages/);
   assert.match((await tool(url, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
   assert.match((await tool(bob, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /hush/);
-  assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1600000000.000100" })).text, /isn't to a task Cade tracks/);
+  assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
   assert.match((await tool(url, "get_task_history", { task_id: "12" })).text, /channel and the message time joined by a colon/);
-  assert.match((await tool(url, "get_task_history", {})).text, /Give a task_id, or a link/);
+  assert.match((await tool(url, "get_task_history", {})).text, /Give a task_id/);
 });
 
 test("get_task names the thread a task was made from, which get_thread_history reads", async (t) => {

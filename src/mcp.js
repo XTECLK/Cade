@@ -22,7 +22,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 //                                      notes, not its threads
 //   get_thread_history(thread_id | link)
 //                                      a whole thread, read from Slack
-//   get_task_history(link)             the messages Cade kept of a task's
+//   get_task_history(task_id)          the messages Cade kept of a task's
 //                                      thread, from its own database
 //   get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)
 //                                      tasks, most urgent first: the person's
@@ -320,9 +320,10 @@ function messageLines(messages) {
 
 // The messages Cade kept of a task's thread. Nothing is asked of Slack.
 async function getTaskHistory(env, user, args) {
-  const { channel, ts } = taskRef(args);
+  if (args.task_id === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
+  const { channel, ts } = taskRef({ task_id: args.task_id });
   const title = await taskTitleOf(env, channel, ts);
-  if (title === null) throw new ToolError("That link isn't to a task Cade tracks. Use the link to the task's own message, or a message in its thread.");
+  if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
   // The same rule as for Slack itself: a private channel's only for its members, and never a direct message.
   const where = await readableName(env, channel, user);
   if (where === null) throw new ToolError("You can't read that task's channel, so I can't read it for you.");

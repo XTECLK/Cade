@@ -184,7 +184,7 @@ their agent, and `/cade mcp revoke` ends it; only a hash is kept, in
 supports (`src/flows.js`: `summarize_task`, `triage_tasks`, `explain_task`, `plan_my_work`), and `get_flow(name, task_id?)`, which gives the steps of one as text and as the chain of tools to call (with where each argument comes from), so a client that doesn't show MCP prompts can follow them
 too; `get_task(task_id, fields?)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
-`get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
+`get_task_history(task_id)`, which reads the messages Cade kept of a tracked
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; 

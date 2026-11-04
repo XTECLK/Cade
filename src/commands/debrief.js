@@ -36,7 +36,7 @@ export default {
     const { env } = context;
     const group = pickGroup(env, command.text, command.channel, "/cade debrief");
     if (typeof group === "string") return group;
-    const problem = await docProblem(env, group);
+    const problem = docProblem(env, group);
     if (problem) return problem;
     context.waitUntil(
       sync(env, group).then(

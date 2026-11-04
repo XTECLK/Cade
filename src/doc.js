@@ -37,10 +37,10 @@ export function workDocId(group) {
   return docId(group?.workDoc);
 }
 
-// The ID of the project's work doc, made first if it has none and Google is set up: a new doc
-// called "<name> executive summaries" (viewable by link, editable by the account that owns the web
-// app), kept in the database as the project's `workDoc` and set on `project` too. Returns "" when
-// there is no doc and Google isn't set up; throws if the doc can't be made.
+// Makes a project's work doc when the project is added (`/cade project init`), if it has none and
+// Google is set up: a new doc called "<name> executive summaries" (viewable by link, editable by the
+// account that owns the web app), kept in the database as the project's `workDoc`. Nothing else
+// makes one. Returns "" when there is no doc and Google isn't set up; throws if it can't be made.
 export async function ensureWorkDoc(env, project, user = null) {
   const existing = workDocId(project);
   if (existing || !googleEnabled(env)) return existing;

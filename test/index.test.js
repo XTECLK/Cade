@@ -4747,24 +4747,16 @@ test("/cade brief says so when the Google Doc can't be written, and can try agai
   assert.match(sent.at(-1).text, /^Added the executive summary for /);
 });
 
-test("/cade brief needs the group to have a Google Doc, and makes one when it has none", async (t) => {
-  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, doc: (body) => (body.action === "doc.create" ? { ok: true, id: DOC_ID } : { ok: true, url: DOC_TAB, elements: [] }) });
+test("/cade brief needs the group to have a Google Doc, and does not make one", async (t) => {
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   const { now: noApp } = await runTasksCommand("brief", "CDEV");
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
-  // A project with no doc gets one made, named after it, and kept in the database.
-  const { now } = await runTasksCommand("brief", "CDEV", noDoc);
-  assert.equal(now, "");
-  assert.deepEqual(calls.find((call) => call.method === "doc" && call.args.action === "doc.create").args.title, "acme executive summaries");
-  assert.equal(JSON.parse((await DB.prepare("SELECT value FROM project_settings WHERE channel = 'CDEV' AND key = 'workDoc'").first()).value), DOC_ID);
-});
-
-test("/cade brief says so when the group's Google Doc can't be made", async (t) => {
-  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, doc: { ok: false, error: "quota" } });
-  const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
-  assert.match(JSON.parse(now).text, /I couldn't make a Google Doc for acme just now \(Google web app refused doc\.create: quota\)/);
+  assert.match(JSON.parse(now).text, /^acme has no Google Doc linked\. It is made when a project is added with `\/cade project init`/);
   assert.equal(later, undefined);
+  // Only /cade project init makes one.
+  assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
 test("/cade brief outside a group asks which, when there are several", async (t) => {

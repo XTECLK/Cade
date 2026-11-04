@@ -3,7 +3,6 @@
 // arguments and its result). `npm run docs` writes it; test/docs.test.js checks it is up to date.
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { FLOWS } from "../src/flows.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 
 const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -39,7 +38,6 @@ function table(schema, empty) {
 }
 
 export function mcpPage() {
-  const flowItems = FLOWS.map((flow) => `      <li><code>${escape(flow.name)}</code>: ${escape(flow.description)}.</li>`).join("\n");
   const sections = TOOL_DEFS.map(
     (tool) => `<section class="tool" id="${tool.name}">
   <div class="wrap">
@@ -103,11 +101,6 @@ export function mcpPage() {
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
-    <h3>Flows</h3>
-    <p>Step-by-step jobs your agent follows with <code>get_flow</code>, which Claude Code also lists as slash commands:</p>
-    <ul>
-${flowItems}
-    </ul>
   </div>
 </section>
 

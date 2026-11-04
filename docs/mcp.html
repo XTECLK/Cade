@@ -48,75 +48,6 @@
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
-    <h3>Flows</h3>
-    <p>Step-by-step jobs your agent follows with <code>get_flow</code>, which Claude Code also lists as slash commands:</p>
-    <ul>
-      <li><code>summarize_task</code>: Write a task's summary: the issue, from the thread the task was made from. What was done and how it ended stay in the task's own thread.</li>
-      <li><code>triage_tasks</code>: Go through tasks one at a time: read the threads, propose the status, priority, due date and people, and apply them after you approve.</li>
-      <li><code>explain_task</code>: Tell me about a task as Issue, Action and Result, from the thread it was made from and its own thread. Saves nothing.</li>
-      <li><code>check_prs</code>: Check the status of a task's pull requests in the repository, and unlink those closed without merging, after you approve.</li>
-      <li><code>report_progress</code>: Write a progress update from this repository's commits and pull request, post it in the task's thread and link the pull request, after you approve.</li>
-      <li><code>plan_my_work</code>: Look at my open tasks and suggest what to do first. Saves nothing.</li>
-      <li><code>create_task_from_thread</code>: Read a Slack thread, suggest a title, kind, priority, due date and summary, take your input, and create the task or incident after you approve it.</li>
-      <li><code>create_task_from_scratch</code>: Make a new task or incident from what you tell me, with a suggested title, priority and due date, after you approve it.</li>
-      <li><code>browse_channels</code>: List the channels Cade is in, browse a channel's recent conversations it doesn't track yet, look into one and make a task or incident from it after you approve.</li>
-    </ul>
-  </div>
-</section>
-
-<section class="tool" id="get_flows">
-  <div class="wrap">
-    <h2><code>get_flows</code></h2>
-    <p>Lists the flows Cade supports, the step-by-step ways to do a job with its tools, such as writing a task's summary, triaging tasks, explaining a task, planning your work, creating a task from a thread or browsing channels for threads to track. Call it when asked to do one of these jobs and you aren't sure how Cade wants it done, then get_flow with the name of one for its steps.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <p class="none">None.</p>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>flows</code></td><td>object[]</td><td>yes</td><td></td></tr>
-<tr><td><code>flows[].name</code></td><td>string</td><td>yes</td><td>The flow's name, for get_flow</td></tr>
-<tr><td><code>flows[].title</code></td><td>string</td><td>yes</td><td>A short title</td></tr>
-<tr><td><code>flows[].description</code></td><td>string</td><td>yes</td><td>What it does</td></tr>
-<tr><td><code>flows[].arguments</code></td><td>object[]</td><td>yes</td><td>What get_flow takes besides the name</td></tr>
-<tr><td><code>flows[].arguments[].name</code></td><td>string</td><td></td><td></td></tr>
-<tr><td><code>flows[].arguments[].required</code></td><td>boolean</td><td></td><td></td></tr>
-<tr><td><code>flows[].arguments[].description</code></td><td>string</td><td></td><td></td></tr>
-</tbody>
-</table></div>
-  </div>
-</section>
-
-<section class="tool" id="get_flow">
-  <div class="wrap">
-    <h2><code>get_flow</code></h2>
-    <p>Gives the steps of one flow, as text to follow and as the chain of Cade tools to call in order, each with where its arguments come from (the result of an earlier tool, such as get_tasks.tasks[].task_id). Steps that change something are marked as needing the person's approval first. Takes the flow's name from get_flows and, for a flow about a task, the task's ID, or, for one that makes a task from a thread, the thread; without it the steps start by asking.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>name</code></td><td>string: summarize_task | triage_tasks | explain_task | check_prs | report_progress | plan_my_work | create_task_from_thread | create_task_from_scratch | browse_channels</td><td>yes</td><td>The flow, as get_flows names it</td></tr>
-<tr><td><code>task_id</code></td><td>string</td><td></td><td>For a flow about a task: its ID, such as C0123ABCD:1700000000.000100. Leave out to be told to ask which</td></tr>
-<tr><td><code>thread</code></td><td>string</td><td></td><td>For a flow that makes a task from a thread: a link to a message in it, or its thread ID such as C0123ABCD:1700000000.000100. Leave out to be told to ask for one</td></tr>
-</tbody>
-</table></div>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>name</code></td><td>string</td><td>yes</td><td>The flow's name</td></tr>
-<tr><td><code>title</code></td><td>string</td><td>yes</td><td>A short title</td></tr>
-<tr><td><code>steps</code></td><td>string</td><td>yes</td><td>The steps to follow, as text</td></tr>
-<tr><td><code>chain</code></td><td>object[]</td><td>yes</td><td>The tools to call, in order</td></tr>
-<tr><td><code>chain[].tool</code></td><td>string</td><td>yes</td><td>The tool's name</td></tr>
-<tr><td><code>chain[].purpose</code></td><td>string</td><td>yes</td><td>Why it is called</td></tr>
-<tr><td><code>chain[].arguments</code></td><td>object</td><td>yes</td><td>Each argument and where its value comes from</td></tr>
-<tr><td><code>chain[].optional</code></td><td>boolean</td><td>yes</td><td>Whether it is called only when the step before leaves a need for it</td></tr>
-<tr><td><code>chain[].approval</code></td><td>boolean</td><td>yes</td><td>Whether the person must approve what it will do first</td></tr>
-</tbody>
-</table></div>
   </div>
 </section>
 
@@ -537,6 +468,82 @@
 <tr><td><code>users[].user_id</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
 <tr><td><code>users[].name</code></td><td>string</td><td></td><td>Real name</td></tr>
 <tr><td><code>users[].username</code></td><td>string</td><td></td><td>Slack username</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="get_team_availability">
+  <div class="wrap">
+    <h2><code>get_team_availability</code></h2>
+    <p>Shows who in the team has room for work, least loaded first. For each person: their open tasks as owner, reviewer and tester, how many of those are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Use it to pick whom to assign a task to, together with find_user_by_name and update_task. For one person use get_availability. Open tasks count in the projects whose channels you can read. A status like vacation, sick or out of office means the person is away even if they have few tasks; presence 'away' often just means Slack is closed, so treat it as weak. Narrow it with users (Slack user IDs) or project (a name from get_projects). It covers the first 50 people of the workspace unless users or limit (at most 200) say otherwise; presence costs one Slack call per person, so it takes at most 50 people.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>users</code></td><td>string[]</td><td></td><td>Only these people, as Slack user IDs such as U0123ABCD</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives</td></tr>
+<tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
+<tr><td><code>limit</code></td><td>integer</td><td></td><td>How many people to return, least loaded first. Default 50 · min 1, max 200</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>total</code></td><td>integer</td><td>yes</td><td>How many people were looked at</td></tr>
+<tr><td><code>people</code></td><td>object[]</td><td>yes</td><td>Least loaded first, people with an away status last</td></tr>
+<tr><td><code>people[].user_id</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
+<tr><td><code>people[].name</code></td><td>string</td><td></td><td>Real name</td></tr>
+<tr><td><code>people[].open_tasks</code></td><td>integer</td><td></td><td>Open tasks they are owner, reviewer or tester of</td></tr>
+<tr><td><code>people[].owner</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>people[].reviewer</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>people[].tester</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>people[].overdue</code></td><td>integer</td><td></td><td>Open tasks past their due date</td></tr>
+<tr><td><code>people[].urgent_or_high</code></td><td>integer</td><td></td><td>Open Urgent or High priority tasks</td></tr>
+<tr><td><code>people[].status</code></td><td>string</td><td></td><td>Their Slack status text, or empty</td></tr>
+<tr><td><code>people[].status_until</code></td><td>string</td><td></td><td>When the status ends, YYYY-MM-DD in UTC, or empty</td></tr>
+<tr><td><code>people[].time_zone</code></td><td>string</td><td></td><td>Their time zone, such as Asia/Colombo</td></tr>
+<tr><td><code>people[].presence</code></td><td>string: active | away | unknown</td><td></td><td>Only when asked for in fields</td></tr>
+<tr><td><code>people[].away</code></td><td>boolean</td><td></td><td>Whether the status text suggests vacation, sick leave or being out of office</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="get_availability">
+  <div class="wrap">
+    <h2><code>get_availability</code></h2>
+    <p>Shows how much room one person has for work: their open tasks as owner, reviewer and tester, how many are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>user_id</code></td><td>string</td><td>yes</td><td>The person, as a Slack user ID such as U0123ABCD</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives</td></tr>
+<tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>person</code></td><td>object</td><td>yes</td><td></td></tr>
+<tr><td><code>person.user_id</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
+<tr><td><code>person.name</code></td><td>string</td><td></td><td>Real name</td></tr>
+<tr><td><code>person.open_tasks</code></td><td>integer</td><td></td><td>Open tasks they are owner, reviewer or tester of</td></tr>
+<tr><td><code>person.owner</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>person.reviewer</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>person.tester</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>person.overdue</code></td><td>integer</td><td></td><td>Open tasks past their due date</td></tr>
+<tr><td><code>person.urgent_or_high</code></td><td>integer</td><td></td><td>Open Urgent or High priority tasks</td></tr>
+<tr><td><code>person.status</code></td><td>string</td><td></td><td>Their Slack status text, or empty</td></tr>
+<tr><td><code>person.status_until</code></td><td>string</td><td></td><td>When the status ends, YYYY-MM-DD in UTC, or empty</td></tr>
+<tr><td><code>person.time_zone</code></td><td>string</td><td></td><td>Their time zone, such as Asia/Colombo</td></tr>
+<tr><td><code>person.presence</code></td><td>string: active | away | unknown</td><td></td><td>Only when asked for in fields</td></tr>
+<tr><td><code>person.away</code></td><td>boolean</td><td></td><td>Whether the status text suggests vacation, sick leave or being out of office</td></tr>
 </tbody>
 </table></div>
   </div>

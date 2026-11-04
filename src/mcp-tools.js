@@ -1,4 +1,3 @@
-import { FLOWS } from "./flows.js";
 import { PRIORITIES, ROLES, STATUSES } from "./tasks.js";
 
 // What each of Cade's MCP tools takes and gives, for src/mcp.js, which runs them: a tool's name,
@@ -11,6 +10,8 @@ export const MAX_TASKS = 100;
 export const DEFAULT_TASKS = 20;
 export const MAX_USERS = 200;
 export const DEFAULT_USERS = 50;
+export const AVAILABILITY_FIELDS = ["name", "open_tasks", "owner", "reviewer", "tester", "overdue", "urgent_or_high", "status", "status_until", "time_zone", "away", "presence"];
+export const MAX_PRESENCE = 50;
 export const MAX_MESSAGE = 3000;
 export const MAX_TITLE = 150;
 export const MAX_CHANNELS = 200;
@@ -106,6 +107,22 @@ export const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) =>
 export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "releases"];
 // What get_users and find_user_by_name can give for each person, besides user_id.
 export const USER_FIELDS = ["name", "username"];
+const AVAILABILITY_PERSON = {
+      user_id: USER_ID,
+      name: str("Real name"),
+      open_tasks: { type: "integer", description: "Open tasks they are owner, reviewer or tester of" },
+      owner: { type: "integer" },
+      reviewer: { type: "integer" },
+      tester: { type: "integer" },
+      overdue: { type: "integer", description: "Open tasks past their due date" },
+      urgent_or_high: { type: "integer", description: "Open Urgent or High priority tasks" },
+      status: str("Their Slack status text, or empty"),
+      status_until: str("When the status ends, YYYY-MM-DD in UTC, or empty"),
+      time_zone: str("Their time zone, such as Asia/Colombo"),
+      presence: { type: "string", enum: ["active", "away", "unknown"], description: "Only when asked for in fields" },
+      away: { type: "boolean", description: "Whether the status text suggests vacation, sick leave or being out of office" },
+};
+const AVAILABILITY_FIELDS_ARG = { type: "array", items: { type: "string", enum: AVAILABILITY_FIELDS }, description: "The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)" };
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
 
 // What a client may assume of a tool (MCP's annotations): a reader changes nothing; the writers
@@ -114,67 +131,6 @@ const READS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true
 const READS_SLACK = { ...READS, openWorldHint: true };
 
 export const TOOL_DEFS = [
-  {
-    name: "get_flows",
-    title: "List flows",
-    annotations: READS,
-    description:
-      "Lists the flows Cade supports, the step-by-step ways to do a job with its tools, such as writing a task's summary, triaging tasks, explaining a task, planning your work, creating a task from a thread or browsing channels for threads to track. " +
-      "Call it when asked to do one of these jobs and you aren't sure how Cade wants it done, then get_flow with the name of one for its steps.",
-    inputSchema: { type: "object", properties: {} },
-    outputSchema: outputOf({
-      flows: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            name: str("The flow's name, for get_flow"),
-            title: str("A short title"),
-            description: str("What it does"),
-            arguments: { type: "array", items: { type: "object", properties: { name: { type: "string" }, required: { type: "boolean" }, description: { type: "string" } } }, description: "What get_flow takes besides the name" },
-          },
-          required: ["name", "title", "description", "arguments"],
-        },
-      },
-    }),
-  },
-  {
-    name: "get_flow",
-    title: "Get a flow's steps",
-    annotations: READS,
-    description:
-      "Gives the steps of one flow, as text to follow and as the chain of Cade tools to call in order, each with where its arguments come from (the result of an earlier tool, such as get_tasks.tasks[].task_id). " +
-      "Steps that change something are marked as needing the person's approval first. Takes the flow's name from get_flows and, for a flow about a task, the task's ID, or, for one that makes a task from a thread, the thread; without it the steps start by asking.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string", enum: FLOWS.map((flow) => flow.name), description: "The flow, as get_flows names it" },
-        task_id: { type: "string", description: "For a flow about a task: its ID, such as C0123ABCD:1700000000.000100. Leave out to be told to ask which" },
-        thread: { type: "string", description: "For a flow that makes a task from a thread: a link to a message in it, or its thread ID such as C0123ABCD:1700000000.000100. Leave out to be told to ask for one" },
-      },
-      required: ["name"],
-    },
-    outputSchema: outputOf({
-      name: str("The flow's name"),
-      title: str("A short title"),
-      steps: str("The steps to follow, as text"),
-      chain: {
-        type: "array",
-        description: "The tools to call, in order",
-        items: {
-          type: "object",
-          properties: {
-            tool: str("The tool's name"),
-            purpose: str("Why it is called"),
-            arguments: { type: "object", additionalProperties: { type: "string" }, description: "Each argument and where its value comes from" },
-            optional: { type: "boolean", description: "Whether it is called only when the step before leaves a need for it" },
-            approval: { type: "boolean", description: "Whether the person must approve what it will do first" },
-          },
-          required: ["tool", "purpose", "arguments", "optional", "approval"],
-        },
-      },
-    }),
-  },
   {
     name: "get_task",
     title: "Get a task",
@@ -484,6 +440,54 @@ export const TOOL_DEFS = [
       properties: { limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return. Default ${DEFAULT_USERS}` }, fields: USER_FIELDS_ARG },
     },
     outputSchema: outputOf({ total: { type: "integer", description: "How many people there are" }, users: { type: "array", items: PERSON } }),
+  },
+  {
+    name: "get_team_availability",
+    title: "Who in the team is available",
+    annotations: READS_SLACK,
+    description:
+      "Shows who in the team has room for work, least loaded first. For each person: their open tasks as owner, reviewer and tester, how many of those are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. " +
+      "Use it to pick whom to assign a task to, together with find_user_by_name and update_task. For one person use get_availability. Open tasks count in the projects whose channels you can read. A status like vacation, sick or out of office means the person is away even if they have few tasks; presence 'away' often just means Slack is closed, so treat it as weak. " +
+      `Narrow it with users (Slack user IDs) or project (a name from get_projects). It covers the first ${DEFAULT_USERS} people of the workspace unless users or limit (at most ${MAX_USERS}) say otherwise; presence costs one Slack call per person, so it takes at most ${MAX_PRESENCE} people.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        users: { type: "array", items: { type: "string" }, description: "Only these people, as Slack user IDs such as U0123ABCD" },
+        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives" },
+        fields: AVAILABILITY_FIELDS_ARG,
+        limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return, least loaded first. Default ${DEFAULT_USERS}` },
+      },
+    },
+    outputSchema: outputOf({
+      total: { type: "integer", description: "How many people were looked at" },
+      people: {
+        type: "array",
+        description: "Least loaded first, people with an away status last",
+        items: {
+          type: "object",
+          properties: AVAILABILITY_PERSON,
+          required: ["user_id"],
+        },
+      },
+    }),
+  },
+  {
+    name: "get_availability",
+    title: "Is a person available",
+    annotations: READS_SLACK,
+    description:
+      "Shows how much room one person has for work: their open tasks as owner, reviewer and tester, how many are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. " +
+      "Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        user_id: { type: "string", description: "The person, as a Slack user ID such as U0123ABCD" },
+        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives" },
+        fields: AVAILABILITY_FIELDS_ARG,
+      },
+      required: ["user_id"],
+    },
+    outputSchema: outputOf({ person: { type: "object", properties: AVAILABILITY_PERSON, required: ["user_id"] } }),
   },
   {
     name: "find_user_by_name",

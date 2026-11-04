@@ -3,7 +3,6 @@ import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../
 import { CLOSE_ALL, callSlack, escapeSlack, plainText } from "../slack.js";
 import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
-import { summaryPrompt } from "../flows.js";
 import { mcpEnabled } from "../mcp.js";
 import { addPages } from "../export.js";
 import {
@@ -289,7 +288,7 @@ async function createAndGuide({ env, waitUntil }, task, origin, user) {
 const NOT_CONNECTED = "Agent not connected to Cade yet? Send `/cade mcp init`.";
 
 // What to paste into the agent, for the task with this ID.
-const prompt = summaryPrompt;
+const prompt = (taskId) => `Summarize the Cade task ${taskId} and save the summary once I approve it.`;
 
 // The second form: the prompt, and where to go if the agent isn't connected.
 function agentView(text) {

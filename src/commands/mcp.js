@@ -38,7 +38,7 @@ export default {
 // has a key (never the key itself), where the endpoint is, and a link to the page that guides the setup.
 // `info` is its old name and still works.
 async function status(env, user) {
-  const { tools, flows } = mcpCatalog();
+  const { tools } = mcpCatalog();
   const on = mcpEnabled(env);
   const made = await mcpTokenCreated(env, user);
   const key = made
@@ -49,7 +49,7 @@ async function status(env, user) {
     `*Configured:* ${on ? ":white_check_mark: yes, MCP is on for this Cade" : ":x: no, an admin turned it off (`mcp` in cade.config.json), so keys don't work and `/cade mcp init` gives none"}`,
     on ? `*Your API key:* ${key}` : "",
     on ? `*Endpoint:* \`${endpointUrl(env)}\` (Streamable HTTP), with your API key in the header \`x-apikey\`` : "",
-    on ? `*Offers:* ${tools.length} tools and ${flows.length} flows` : "",
+    on ? `*Offers:* ${tools.length} tools` : "",
     on ? `*Setup guide:* <${MCP_GUIDE}|How to connect your AI agent>` : "",
     "Everything runs as you, so your agent reads only what you can read. Changes and messages it makes are posted in the task's thread under your name, after you approve them.",
   ].filter(Boolean).join("\n");

@@ -131,16 +131,16 @@
 <tr><td><code>prs</code></td><td>object[]</td><td></td><td>The pull requests linked to the task, each with where it is and the release it was sent with</td></tr>
 <tr><td><code>prs[].url</code></td><td>string</td><td>yes</td><td>The pull request's address</td></tr>
 <tr><td><code>prs[].label</code></td><td>string</td><td>yes</td><td>repo/number</td></tr>
-<tr><td><code>prs[].state</code></td><td>string: pending | pending_approval | approved</td><td>yes</td><td>pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved</td></tr>
+<tr><td><code>prs[].state</code></td><td>string: PENDING | PENDING_APPROVAL | APPROVED</td><td>yes</td><td>PENDING: not sent to the client yet; PENDING_APPROVAL: sent, waiting for the approver; APPROVED. A Done task's are all APPROVED</td></tr>
 <tr><td><code>prs[].release</code></td><td>object or null</td><td>yes</td><td>The release it was sent with, or null while pending</td></tr>
 <tr><td><code>prs[].release.id</code></td><td>integer</td><td></td><td></td></tr>
 <tr><td><code>prs[].release.note</code></td><td>string</td><td></td><td></td></tr>
-<tr><td><code>prs[].release.status</code></td><td>string: pending_approval | approved</td><td></td><td></td></tr>
+<tr><td><code>prs[].release.status</code></td><td>string: PENDING_APPROVAL | APPROVED</td><td></td><td></td></tr>
 <tr><td><code>releases</code></td><td>object[]</td><td></td><td>The partial releases sent to the client for approval, oldest first (those not approved are not kept): which PRs, what they complete, who sent them and who approved</td></tr>
 <tr><td><code>releases[].id</code></td><td>integer</td><td>yes</td><td></td></tr>
 <tr><td><code>releases[].prs</code></td><td>string[]</td><td>yes</td><td>The pull requests' addresses</td></tr>
 <tr><td><code>releases[].note</code></td><td>string</td><td>yes</td><td>What the release completes</td></tr>
-<tr><td><code>releases[].status</code></td><td>string: pending_approval | approved | not_approved</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].status</code></td><td>string: PENDING_APPROVAL | APPROVED | NOT_APPROVED</td><td>yes</td><td></td></tr>
 <tr><td><code>releases[].sent_by</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
 <tr><td><code>releases[].sent_at</code></td><td>string</td><td>yes</td><td>When it was sent, as YYYY-MM-DD HH:MM in UTC</td></tr>
 <tr><td><code>releases[].decided_by</code></td><td>string</td><td>yes</td><td>A Slack user ID, or empty while waiting</td></tr>
@@ -259,11 +259,11 @@
 <tr><td><code>tasks[].prs</code></td><td>object[]</td><td></td><td>The pull requests linked to the task, each with its state and the release it was sent with</td></tr>
 <tr><td><code>tasks[].prs[].url</code></td><td>string</td><td>yes</td><td>The pull request's address</td></tr>
 <tr><td><code>tasks[].prs[].label</code></td><td>string</td><td>yes</td><td>repo/number</td></tr>
-<tr><td><code>tasks[].prs[].state</code></td><td>string: pending | pending_approval | approved</td><td>yes</td><td>pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved</td></tr>
+<tr><td><code>tasks[].prs[].state</code></td><td>string: PENDING | PENDING_APPROVAL | APPROVED</td><td>yes</td><td>PENDING: not sent to the client yet; PENDING_APPROVAL: sent, waiting for the approver; APPROVED. A Done task's are all APPROVED</td></tr>
 <tr><td><code>tasks[].prs[].release</code></td><td>object or null</td><td>yes</td><td>The release it was sent with, or null while pending</td></tr>
 <tr><td><code>tasks[].prs[].release.id</code></td><td>integer</td><td></td><td></td></tr>
 <tr><td><code>tasks[].prs[].release.note</code></td><td>string</td><td></td><td></td></tr>
-<tr><td><code>tasks[].prs[].release.status</code></td><td>string: pending_approval | approved</td><td></td><td></td></tr>
+<tr><td><code>tasks[].prs[].release.status</code></td><td>string: PENDING_APPROVAL | APPROVED</td><td></td><td></td></tr>
 </tbody>
 </table></div>
   </div>
@@ -272,13 +272,13 @@
 <section class="tool" id="get_releases">
   <div class="wrap">
     <h2><code>get_releases</code></h2>
-    <p>Lists the partial releases of tasks: pull requests sent to the client (or whoever approves) before the whole task is done, each with the task, its PRs, what it completes, who sent it and who approved or turned it down. Waiting for approval by default; status picks approved, not_approved (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.</p>
+    <p>Lists the partial releases of tasks: pull requests sent to the client (or whoever approves) before the whole task is done, each with the task, its PRs, what it completes, who sent it and who approved or turned it down. Waiting for approval (PENDING_APPROVAL) by default; status picks APPROVED, NOT_APPROVED (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>status</code></td><td>string: pending_approval | approved | not_approved | all</td><td></td><td>Default pending_approval</td></tr>
+<tr><td><code>status</code></td><td>string: PENDING_APPROVAL | APPROVED | NOT_APPROVED | all</td><td></td><td>Default PENDING_APPROVAL</td></tr>
 <tr><td><code>task_id</code></td><td>string</td><td></td><td>Only this task's releases</td></tr>
 <tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many releases to return, oldest first. Default 20 · min 1, max 100</td></tr>
@@ -295,7 +295,7 @@
 <tr><td><code>releases[].prs[].url</code></td><td>string</td><td>yes</td><td></td></tr>
 <tr><td><code>releases[].prs[].label</code></td><td>string</td><td>yes</td><td></td></tr>
 <tr><td><code>releases[].note</code></td><td>string</td><td>yes</td><td>What the release completes</td></tr>
-<tr><td><code>releases[].status</code></td><td>string: pending_approval | approved | not_approved</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].status</code></td><td>string: PENDING_APPROVAL | APPROVED | NOT_APPROVED</td><td>yes</td><td></td></tr>
 <tr><td><code>releases[].sent_by</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
 <tr><td><code>releases[].sent_at</code></td><td>string</td><td>yes</td><td>When it was sent, as YYYY-MM-DD HH:MM in UTC</td></tr>
 <tr><td><code>releases[].decided_by</code></td><td>string</td><td>yes</td><td>A Slack user ID, or empty while waiting</td></tr>

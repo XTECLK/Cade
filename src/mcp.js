@@ -367,7 +367,7 @@ const releaseData = (release) => ({
   id: release.id,
   prs: release.prs,
   note: release.note,
-  status: release.status.toLowerCase(),
+  status: release.status,
   sent_by: release.sentBy ?? "",
   sent_at: release.sentAt ? release.sentAt.slice(0, 16).replace("T", " ") : "",
   decided_by: release.decidedBy ?? "",
@@ -387,8 +387,8 @@ function prData(task, releases = task.releases ?? []) {
     return {
       url,
       label: pr ? `${pr.repo}/${pr.number}` : url,
-      state: task.status === "DONE" || approved ? "approved" : release ? "pending_approval" : "pending",
-      release: release ? { id: release.id, note: release.note, status: approved ? "approved" : "pending_approval" } : null,
+      state: task.status === "DONE" || approved ? "APPROVED" : release ? "PENDING_APPROVAL" : "PENDING",
+      release: release ? { id: release.id, note: release.note, status: release.status } : null,
     };
   });
   return { prs, releases: releases.map(releaseData) };
@@ -438,8 +438,8 @@ async function getTaskView(env, user, args) {
   if (want("notes")) lines.push("", "Notes written by people:", notes.body || "(none)");
   if (want("prs", "releases")) {
     const { prs, releases } = prData(task);
-    lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.replace("_", " ")}): ${pr.url}`) : ["(none linked)"]));
-    for (const release of releases) lines.push(`Release ${release.id} (${release.status.replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
+    lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.toLowerCase().replace("_", " ")}): ${pr.url}`) : ["(none linked)"]));
+    for (const release of releases) lines.push(`Release ${release.id} (${release.status.toLowerCase().replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
   }
   if (want("original_thread", "original_thread_state")) {
     lines.push(
@@ -476,9 +476,9 @@ function sourceThreadOf(messages) {
 
 // The releases (PRs sent to the client for approval) of the tasks `user` can read, oldest first.
 async function getReleases(env, user, { status, task_id: taskId, project, limit } = {}) {
-  const wanted = status ?? "pending_approval";
-  const statuses = { pending_approval: ["PENDING_APPROVAL"], approved: ["APPROVED"], not_approved: ["NOT_APPROVED"], all: ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] }[wanted];
-  if (!statuses) throw new ToolError("status is pending_approval, approved, not_approved or all.");
+  const wanted = status ?? "PENDING_APPROVAL";
+  const statuses = wanted === "all" ? ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] : ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"].includes(wanted) ? [wanted] : null;
+  if (!statuses) throw new ToolError("status is PENDING_APPROVAL, APPROVED, NOT_APPROVED or all.");
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
   const only = taskId === undefined ? null : taskRef({ task_id: taskId });
   const channel = project === undefined ? null : projectChannel(env, project);
@@ -500,9 +500,9 @@ async function getReleases(env, user, { status, task_id: taskId, project, limit 
       project,
     };
   });
-  const label = wanted.replace("_", " ");
+  const label = wanted.toLowerCase().replace("_", " ");
   if (!releases.length) return { text: `There are no releases ${wanted === "all" ? "" : `${label} `}to show.`.replace("  ", " "), data: { total: 0, releases: [] } };
-  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.task_title} (${r.task_id}) — ${r.status.replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
+  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.task_title} (${r.task_id}) — ${r.status.toLowerCase().replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
   const more = visible.length > shown.length ? `\n…and ${visible.length - shown.length} more; raise limit (up to ${MAX_TASKS}).` : "";
   return { text: [`${visible.length} release${visible.length === 1 ? "" : "s"}, oldest first:`, ...lines].join("\n") + more, data: { total: visible.length, releases } };
 }

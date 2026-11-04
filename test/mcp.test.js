@@ -729,6 +729,31 @@ test("every tool follows the same conventions", () => {
     const writes = ["update_task", "send_task_message"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
+    // A list tool says how many there are in all, as get_tasks does.
+    if (def.inputSchema.properties.limit) assert.ok("total" in def.outputSchema.properties, `${def.name} gives a total`);
+  }
+  // A property called status or state lists its values as task statuses are spelled (UPPER_SNAKE; "open" and "all" pick groups).
+  const walk = (schema, name, where) => {
+    if (!schema || typeof schema !== "object") return;
+    const values = schema.enum ?? schema.items?.enum;
+    if (["status", "state"].includes(name) && values) assert.ok(values.every((value) => /^[A-Z_]+$/.test(value) || ["open", "all"].includes(value)), `${where}.${name}: ${values}`);
+    for (const [key, child] of Object.entries(schema.properties ?? {})) walk(child, key, `${where}.${name}`);
+    if (schema.items) walk(schema.items, name, where);
+  };
+  for (const def of TOOL_DEFS) {
+    walk(def.inputSchema, "input", def.name);
+    walk(def.outputSchema, "output", def.name);
+  }
+});
+
+test("every flow's tool chain names real tools and their real arguments", async () => {
+  const { FLOWS } = await import("../src/flows.js");
+  for (const flow of FLOWS) {
+    for (const step of flow.chain) {
+      const def = TOOL_DEFS.find((candidate) => candidate.name === step.tool);
+      assert.ok(def, `${flow.name}: ${step.tool} is a tool`);
+      for (const name of Object.keys(step.arguments)) assert.ok(name in def.inputSchema.properties, `${flow.name}: ${step.tool} takes ${name}`);
+    }
   }
 });
 
@@ -863,18 +888,18 @@ test("get_task and get_tasks give a task's pull requests with where each is and 
   const url = addressIn(await slash("mcp init", "UME"));
 
   const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs", "releases"] });
-  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.id ?? null]), [["web/1", "pending_approval", sent], ["web/2", "approved", approved], ["api/3", "pending", null]]);
-  assert.deepEqual(view.data.releases.map((release) => [release.id, release.status, release.sent_by, release.decided_by]), [[sent, "pending_approval", "UBOB", ""], [approved, "approved", "UBOB", "UCLIENT"]]);
+  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.id ?? null]), [["web/1", "PENDING_APPROVAL", sent], ["web/2", "APPROVED", approved], ["api/3", "PENDING", null]]);
+  assert.deepEqual(view.data.releases.map((release) => [release.id, release.status, release.sent_by, release.decided_by]), [[sent, "PENDING_APPROVAL", "UBOB", ""], [approved, "APPROVED", "UBOB", "UCLIENT"]]);
   assert.match(view.text, /- web\/1 \(pending approval\): https:\/\/github\.com\/acme\/web\/pull\/1/);
   assert.match(view.text, /Release \d+ \(approved\), sent by UBOB, decided by UCLIENT: Sign-up/);
 
   // get_tasks gives them when asked for, with the same states.
   const listed = await tool(url, "get_tasks", { fields: ["title", "prs"] });
-  assert.deepEqual(listed.data.tasks[0].prs.map((pr) => [pr.label, pr.state]), [["web/1", "pending_approval"], ["web/2", "approved"], ["api/3", "pending"]]);
+  assert.deepEqual(listed.data.tasks[0].prs.map((pr) => [pr.label, pr.state]), [["web/1", "PENDING_APPROVAL"], ["web/2", "APPROVED"], ["api/3", "PENDING"]]);
   assert.ok(!("prs" in (await tool(url, "get_tasks", {})).data.tasks[0]));
   // A Done task's are all approved.
   await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR3], status: "DONE" }));
-  assert.deepEqual((await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs"] })).data.prs.map((pr) => pr.state), ["approved", "approved"]);
+  assert.deepEqual((await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs"] })).data.prs.map((pr) => pr.state), ["APPROVED", "APPROVED"]);
 });
 
 test("get_releases lists releases waiting for approval, or approved or turned down, only for channels you can read", async (t) => {
@@ -893,14 +918,14 @@ test("get_releases lists releases waiting for approval, or approved or turned do
   const waiting = await tool(url, "get_releases", {});
   assert.equal(waiting.isError, false, waiting.text);
   assert.equal(waiting.data.total, 1);
-  assert.deepEqual(waiting.data.releases.map((r) => [r.id, r.task_id, r.task_title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "pending_approval", "Login done", ["web/1"]]]);
+  assert.deepEqual(waiting.data.releases.map((r) => [r.id, r.task_id, r.task_title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "PENDING_APPROVAL", "Login done", ["web/1"]]]);
   assert.match(waiting.text, /^1 release, oldest first:\n1\. acme: Login \(CDEV:1000000000\.000100\) — pending approval, sent by UBOB/);
-  assert.deepEqual((await tool(url, "get_releases", { status: "not_approved" })).data.releases.map((r) => [r.id, r.decided_by]), [[b, "UCLIENT"]]);
+  assert.deepEqual((await tool(url, "get_releases", { status: "NOT_APPROVED" })).data.releases.map((r) => [r.id, r.decided_by]), [[b, "UCLIENT"]]);
   assert.equal((await tool(url, "get_releases", { status: "all" })).data.total, 2);
   assert.equal((await tool(url, "get_releases", { task_id: "CDEV:1000000000.000100", status: "all" })).data.total, 2);
   assert.equal((await tool(url, "get_releases", { project: "bare", status: "all" })).data.total, 0);
-  assert.match((await tool(url, "get_releases", { status: "approved" })).text, /^There are no releases approved to show\./);
-  assert.match((await tool(url, "get_releases", { status: "soon" })).text, /status is pending_approval/);
+  assert.match((await tool(url, "get_releases", { status: "APPROVED" })).text, /^There are no releases approved to show\./);
+  assert.match((await tool(url, "get_releases", { status: "soon" })).text, /status is PENDING_APPROVAL/);
   // A member of the private channel sees its release too.
   const bob = addressIn(await slash("mcp init", "UBOB"));
   const members = mock(t, { "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }), "conversations.members": { members: ["UBOB"] } });

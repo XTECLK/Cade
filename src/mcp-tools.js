@@ -66,7 +66,7 @@ const RELEASE_ITEM = {
     id: { type: "integer" },
     prs: strings("The pull requests' addresses"),
     note: str("What the release completes"),
-    status: { type: "string", enum: ["pending_approval", "approved", "not_approved"] },
+    status: { type: "string", enum: ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] },
     sent_by: str("A Slack user ID"),
     sent_at: str("When it was sent, as YYYY-MM-DD HH:MM in UTC"),
     decided_by: str("A Slack user ID, or empty while waiting"),
@@ -79,8 +79,8 @@ const PR_ITEM = {
   properties: {
     url: str("The pull request's address"),
     label: str("repo/number"),
-    state: { type: "string", enum: ["pending", "pending_approval", "approved"], description: "pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved" },
-    release: { type: ["object", "null"], description: "The release it was sent with, or null while pending", properties: { id: { type: "integer" }, note: { type: "string" }, status: { type: "string", enum: ["pending_approval", "approved"] } } },
+    state: { type: "string", enum: ["PENDING", "PENDING_APPROVAL", "APPROVED"], description: "PENDING: not sent to the client yet; PENDING_APPROVAL: sent, waiting for the approver; APPROVED. A Done task's are all APPROVED" },
+    release: { type: ["object", "null"], description: "The release it was sent with, or null while pending", properties: { id: { type: "integer" }, note: { type: "string" }, status: { type: "string", enum: ["PENDING_APPROVAL", "APPROVED"] } } },
   },
   required: ["url", "label", "state", "release"],
 };
@@ -281,11 +281,11 @@ export const TOOL_DEFS = [
     annotations: READS,
     description:
       "Lists the partial releases of tasks: pull requests sent to the client (or whoever approves) before the whole task is done, each with the task, its PRs, what it completes, who sent it and who approved or turned it down. " +
-      "Waiting for approval by default; status picks approved, not_approved (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.",
+      "Waiting for approval (PENDING_APPROVAL) by default; status picks APPROVED, NOT_APPROVED (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.",
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", enum: ["pending_approval", "approved", "not_approved", "all"], description: "Default pending_approval" },
+        status: { type: "string", enum: ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED", "all"], description: "Default PENDING_APPROVAL" },
         task_id: { type: "string", description: "Only this task's releases" },
         project: { type: "string", description: "Only this project's tasks, by the name get_projects gives" },
         limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many releases to return, oldest first. Default ${DEFAULT_TASKS}` },

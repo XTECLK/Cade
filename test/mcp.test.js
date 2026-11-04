@@ -327,12 +327,12 @@ test("get_tasks with mine lists the open tasks you are owner, reviewer or tester
   assert.equal(open.isError, false, open.text);
   assert.match(open.text, /^3 tasks, most urgent first:/);
   // Urgent first, then High, then Low; done and other people's tasks left out.
-  assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["High", "Test me too"], ["Low", "Mine, low"]]);
-  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer; project: acme\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
-  assert.match(open.text, /Test me too — .*\(you: owner, tester; project: bare\)/);
+  assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["Low", "Mine, low"], ["High", "Test me too"]]);
+  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
+  assert.match(open.text, /Test me too — .*\(you: owner, tester\)/);
   assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine"));
 
-  assert.match((await tool(url, "get_tasks", { mine: true, role: "reviewer" })).text, /^1 task, most urgent first:\n1\. \[Urgent\] Review me/);
+  assert.match((await tool(url, "get_tasks", { mine: true, role: "reviewer" })).text, /^1 task, most urgent first:\n\*\w+\*\n1\. \[Urgent\] Review me/);
   assert.match((await tool(url, "get_tasks", { mine: true, status: "all" })).text, /^4 tasks/);
   assert.match((await tool(url, "get_tasks", { mine: true, status: "DONE" })).text, /Done one/);
   assert.match((await tool(url, "get_tasks", { mine: true, role: "tester", status: "TODO" })).text, /^You have no tasks as tester in .*To do\./);
@@ -643,9 +643,9 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.equal(all.isError, false, all.text);
   // Done tasks and the private channel's (UME isn't in it) are left out.
   assert.match(all.text, /^3 tasks, showing the 3 most urgent:/);
-  assert.deepEqual([...all.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Urgent one"], ["High", "High one"], ["Low", "Low one"]]);
-  assert.match(all.text, /Urgent one — .*In review, due 31\/12\/2026 \(owner: UBOB; reviewer: UANN; tester: UTOM; project: acme\)\n   Task ID: CDEV:1000000001\.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\//);
-  assert.match(all.text, /High one — .*\(owner: —; reviewer: —; tester: —; project: bare\)/);
+  assert.deepEqual([...all.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Urgent one"], ["Low", "Low one"], ["High", "High one"]]);
+  assert.match(all.text, /Urgent one — .*In review, due 31\/12\/2026 \(owner: UBOB; reviewer: UANN; tester: UTOM\)\n   Task ID: CDEV:1000000001\.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\//);
+  assert.match(all.text, /High one — .*\(owner: —; reviewer: —; tester: —\)/);
   assert.ok(!all.text.includes("Secret one") && !all.text.includes("Done one"));
   // Each channel is asked about once, however many tasks it has.
   assert.equal(calls.filter((call) => call.method === "conversations.info" && call.args.channel === "CDEV").length, 1);
@@ -658,13 +658,13 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   // A member of the private channel sees its tasks too; a status narrows the list.
   const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.match((await tool(bob, "get_tasks", {})).text, /^4 tasks/);
-  assert.match((await tool(url, "get_tasks", { status: "DONE" })).text, /^1 task, showing the 1 most urgent:\n1\. .*Done one/);
-  assert.match((await tool(url, "get_tasks", { status: "TODO", limit: 1 })).text, /^2 tasks, showing the 1 most urgent:\n1\. \[High\] High one/);
+  assert.match((await tool(url, "get_tasks", { status: "DONE" })).text, /^1 task, showing the 1 most urgent:\n\*\w+\*\n1\. .*Done one/);
+  assert.match((await tool(url, "get_tasks", { status: "TODO", limit: 1 })).text, /^2 tasks, showing the 1 most urgent:\n\*\w+\*\n1\. \[High\] High one/);
   assert.match((await tool(url, "get_tasks", { status: "CLIENT_REVIEW" })).text, /^There are no tasks you can see in .*Client review\./);
 
   // A project narrows the list, by name in any case; an unknown one is an error.
   const bare = await tool(url, "get_tasks", { project: "BARE" });
-  assert.match(bare.text, /^1 task, showing the 1 most urgent:\n1\. \[High\] High one/);
+  assert.match(bare.text, /^1 task, showing the 1 most urgent:\n\*\w+\*\n1\. \[High\] High one/);
   assert.ok(!bare.text.includes("Urgent one"));
   assert.match((await tool(url, "get_tasks", { project: "acme", mine: true })).text, /^You have no open tasks\./);
   assert.match((await tool(url, "get_tasks", { project: "nope" })).text, /There is no project called "nope"\. get_projects lists them: acme, bare/);

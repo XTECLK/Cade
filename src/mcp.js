@@ -630,18 +630,30 @@ function statusFilter(status) {
   return { wanted, statuses: wanted === "open" ? OPEN : wanted === "all" ? Object.keys(STATUSES) : [wanted] };
 }
 
-// A numbered entry for each task: its priority, title, status and due date, `about(entry)`, its ID and its link.
+// The entries as sections, one per project (in PROJECTS order, then any other channel), each a
+// "*Project*" line over its tasks: a numbered entry each (numbers run on across sections) with
+// its priority, title, status and due date, `about(entry)`, its ID and its link.
 async function taskLines(env, entries, about) {
   // A task made before its link was kept gets one built from the workspace's address.
   let base;
+  const named = projects(env);
+  const order = (channel) => {
+    const at = named.findIndex((pair) => pair.channel === channel);
+    return at < 0 ? named.length : at;
+  };
+  const sorted = entries.map((entry, i) => ({ entry, i })).sort((x, y) => order(x.entry.channel) - order(y.entry.channel) || x.i - y.i);
   const lines = [];
-  for (const [i, entry] of entries.entries()) {
+  let section;
+  for (const [n, { entry }] of sorted.entries()) {
     const { channel, ts, task } = entry;
+    if (section !== channel) {
+      section = channel;
+      lines.push(`*${named.find((pair) => pair.channel === channel)?.name ?? channel}*`);
+    }
     if (!task.link && base === undefined) base = (await callSlack(env, "auth.test", {}).catch(() => ({}))).url ?? "";
     const link = task.link || (base ? threadLink(base, channel, ts) : `${channel}/${ts}`);
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
-    const project = projects(env).find((pair) => pair.channel === channel)?.name;
-    lines.push(`${i + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)}${project ? `; project: ${project}` : ""})\n   Task ID: ${channel}:${ts}\n   ${link}`);
+    lines.push(`${n + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
   }
   return lines;
 }

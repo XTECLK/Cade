@@ -26,7 +26,7 @@ export default {
     // header, not Slack's signature (see mcp.js).
     if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
     // People reach a task's thread and notes pages with a session of their
-    // own, which `/cade login` starts (see web.js).
+    // own, which `/cade web login` starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
     // Settings changed in the project settings form win over the config (see settings.js).
     env = await withSettings(env);

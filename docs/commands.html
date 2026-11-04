@@ -258,9 +258,9 @@
       </article>
 
       <article class="entry">
-        <h3><code>/cade web logout</code></h3>
+        <h3><code>/cade web login</code> <code>/cade web logout</code></h3>
         <div class="tags"><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
-        <p>Signs you out of Cade's web pages in every browser, and cancels any sign-in link you hadn't used. <code>/cade login</code> (or <code>/cade web login</code>) signs you in again.</p>
+        <p><code>login</code> gives a private link that signs you in to Cade's web pages (a task's thread and notes): it works once, for ten minutes, and keeps you signed in on that browser for thirty days. <code>logout</code> signs you out in every browser and cancels any sign-in link you hadn't used.</p>
       </article>
 
       <article class="entry">
@@ -408,7 +408,7 @@
       <article class="entry">
         <h3><code>/cade resync &lt;link&gt;</code> <code>/cade resync summary</code></h3>
         <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Dev channel</span><span class="where">Only you see it</span></div>
-        <p>With a task's link (several work too), redraws its card from what Cade has stored, quietly. It also gives the task its notes page and its history page, if it has none: the card links them as <i>Extra notes here</i> and <i>Full history here</i>. New tasks get theirs as they are created. The thread is read from Slack again and any message Cade hasn't kept is stored (Slack's free plan hides messages after 90 days, so run it while they are still there); from then on every reply is kept as it is sent. Both pages open for people who can read the channel and have signed in with <code>/cade login</code>.</p>
+        <p>With a task's link (several work too), redraws its card from what Cade has stored, quietly. It also gives the task its notes page and its history page, if it has none: the card links them as <i>Extra notes here</i> and <i>Full history here</i>. New tasks get theirs as they are created. The thread is read from Slack again and any message Cade hasn't kept is stored (Slack's free plan hides messages after 90 days, so run it while they are still there); from then on every reply is kept as it is sent. Both pages open for people who can read the channel and have signed in with <code>/cade web login</code>.</p>
         <p><code>/cade resync summary</code> in a dev channel rewrites its summary canvas in full, as for one someone edited.</p>
       </article>
 

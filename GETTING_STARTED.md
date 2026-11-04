@@ -338,7 +338,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
 - Slack's free plan hides messages older than 90 days, including old tasks'
   threads. Cade keeps every message of a tracked task's thread in its
   database as it is sent, so the task's history page still has them, and
-  so do the tasks themselves. Send `/cade login` for a link that signs you
+  so do the tasks themselves. Send `/cade web login` for a link that signs you
   in to those pages.
 - D1's free plan allows 100,000 row writes a day and 500 MB per database;
   each change to a task is a single row write.
@@ -358,7 +358,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
   one.
 - **Google Doc**: each group's work doc holds its executive summaries. See
   [google/README.md](google/README.md). Task threads and notes are in the
-  database, on pages of the Worker (`/cade login` to open them).
+  database, on pages of the Worker (`/cade web login` to open them).
 
 ## Using Cade
 

@@ -783,7 +783,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
     assert.deepEqual(reply.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade home` · `/cade login` · `/cade web logout` · `/cade mcp init` · `/cade mcp info` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade home` · `/cade web login` · `/cade web logout` · `/cade mcp init` · `/cade mcp info` · `/cade mcp revoke` · `/cade tasks` · `/cade standup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
@@ -1017,9 +1017,9 @@ test("a reply is stored at once, only from a tracked task's thread, and not twic
   assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
-// Signs in the way a person does (as the slash command's user): `/cade login`, then the link it gives. Returns the cookie.
+// Signs in the way a person does (as the slash command's user): `/cade web login`, then the link it gives. Returns the cookie.
 async function signIn() {
-  const { now } = await runTasksCommand("login", "CDEV");
+  const { now } = await runTasksCommand("web login", "CDEV");
   const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(JSON.parse(now).text)[1];
   const response = await worker.fetch(new Request(link), env, { waitUntil() {} });
   assert.equal(response.status, 200);
@@ -1027,10 +1027,10 @@ async function signIn() {
 }
 const get = (path, cookie, init = {}) => worker.fetch(new Request(`${SITE}${path}`, { ...init, headers: { ...(cookie && { cookie }), ...init.headers } }), env, { waitUntil() {} });
 
-test("/cade login gives a link that signs you in once, for the thread and notes pages", async (t) => {
+test("/cade web login gives a link that signs you in once, for the thread and notes pages", async (t) => {
   mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "users.info": ({ user }) => ({ user: NAMES[user] }) });
   await seeded;
-  const { now } = await runTasksCommand("login", "CDEV");
+  const { now } = await runTasksCommand("web login", "CDEV");
   const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(JSON.parse(now).text)[1];
   const first = await get(new URL(link).pathname);
   assert.equal(first.status, 200);
@@ -1049,7 +1049,7 @@ test("the thread page shows the stored messages with names and the notes page ke
   // Not signed in: told how.
   const anonymous = await get(`/t/CDEV/${RESYNC_TS}`);
   assert.equal(anonymous.status, 401);
-  assert.match(await anonymous.text(), /\/cade login/);
+  assert.match(await anonymous.text(), /\/cade web login/);
 
   const thread = await get(`/t/CDEV/${RESYNC_TS}`, cookie);
   assert.equal(thread.status, 200);

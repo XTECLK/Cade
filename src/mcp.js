@@ -444,7 +444,7 @@ async function getProjects(env, user) {
   }
   const lines = seen.map((project) => `- ${project.name}: <#${project.channel}> (${project.channel})`);
   const text = lines.length ? [`${lines.length} project${lines.length === 1 ? "" : "s"}:`, ...lines].join("\n") : "There are no projects whose channel you can read.";
-  return { text, data: { projects: seen } };
+  return { text, data: { total: seen.length, projects: seen } };
 }
 
 // The channel of the project called `name` (any case), or a ToolError.

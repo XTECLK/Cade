@@ -255,6 +255,7 @@ export const TOOL_DEFS = [
     description: "Lists the projects Cade tracks tasks for, with each one's name and channel, for the channels you can read. Pass a name to get_tasks as project to see only that project's tasks.",
     inputSchema: { type: "object", properties: {} },
     outputSchema: outputOf({
+      total: { type: "integer", description: "How many projects you can see" },
       projects: { type: "array", items: { type: "object", properties: { name: { type: "string" }, channel: { type: "string" } }, required: ["name", "channel"] } },
     }),
   },

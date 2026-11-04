@@ -705,7 +705,9 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.match(picked.text, /Summary: The login fails\./);
   assert.ok(!("summary" in all.data.tasks[0]));
   assert.match((await tool(url, "get_tasks", { fields: ["nope"] })).text, /fields is a list of: title, project/);
-  assert.deepEqual((await tool(url, "get_projects", {})).data.projects, [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }]);
+  const listed = (await tool(url, "get_projects", {})).data;
+  assert.equal(listed.total, 2);
+  assert.deepEqual(listed.projects, [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }]);
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);

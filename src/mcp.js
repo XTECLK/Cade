@@ -27,7 +27,7 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 //   get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)
 //                                      tasks, most urgent first: the person's
 //                                      own, or every project's they can read
-//   get_user(id)                       a Slack user's name, for the IDs in it
+//   get_user(user_id)                      a Slack user's name, for the IDs in it
 //   get_projects()                     the projects, with the channel of each
 //   get_users(limit?)                  the workspace's people and their IDs
 //   find_user_by_name(name)            a Slack user's ID, by name, for assigning
@@ -107,7 +107,7 @@ const PROMPTS = FLOWS.map(({ steps, chain, ...prompt }) => prompt);
 // A flow's arguments from a call, or an error message for a task_id that isn't one.
 function flowArguments(args) {
   const taskId = String(args?.task_id ?? "").trim();
-  if (taskId && !/^[CGD][A-Z0-9]+:\d+\.\d+$/.test(taskId)) return { error: "task_id is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_my_tasks gives them." };
+  if (taskId && !/^[CGD][A-Z0-9]+:\d+\.\d+$/.test(taskId)) return { error: "task_id is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them." };
   return { taskId };
 }
 
@@ -320,8 +320,7 @@ function messageLines(messages) {
 
 // The messages Cade kept of a task's thread. Nothing is asked of Slack.
 async function getTaskHistory(env, user, args) {
-  if (args.task_id === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
-  const { channel, ts } = taskRef({ task_id: args.task_id });
+  const { channel, ts } = taskRef(args);
   const title = await taskTitleOf(env, channel, ts);
   if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
   // The same rule as for Slack itself: a private channel's only for its members, and never a direct message.
@@ -366,8 +365,7 @@ function taskData(env, channel, ts, task, link) {
 // One task: its details, summary and notes, without its threads, or only the `fields` asked
 // for. Nothing is asked of Slack.
 async function getTaskView(env, user, args) {
-  if (args.task_id === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
-  const { channel, ts } = taskRef({ task_id: args.task_id });
+  const { channel, ts } = taskRef(args);
   const { fields } = args;
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_VIEW_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_VIEW_FIELDS.join(", ")}.`);
   const task = await loadTask(env, channel, ts);
@@ -419,15 +417,12 @@ async function getTaskView(env, user, args) {
   return { text: lines.join("\n"), data };
 }
 
-// The channel and ts of the task a call names, by `task_id` or a link, or a ToolError.
-function taskRef({ task_id: taskId, link }) {
-  if (taskId !== undefined) {
-    const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(taskId).trim());
-    if (!match) throw new ToolError("A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_my_tasks gives them.");
-    return { channel: match[1], ts: match[2] };
-  }
-  if (link === undefined) throw new ToolError("Give a task_id, or a link to the task's message.");
-  return threadOf(link);
+// The channel and ts of the task a call names by its `task_id`, or a ToolError.
+function taskRef({ task_id: taskId }) {
+  if (taskId === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
+  const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(taskId).trim());
+  if (!match) throw new ToolError("A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them.");
+  return { channel: match[1], ts: match[2] };
 }
 
 // The first message of a task's thread, when it was made from another
@@ -572,7 +567,7 @@ async function taskLines(env, entries, about, fields) {
   return { lines, items };
 }
 
-async function resolveUserName(env, user, { id }) {
+async function resolveUserName(env, user, { user_id: id }) {
   const match = /\b[UW][A-Z0-9]{2,}\b/.exec(String(id ?? ""));
   if (!match) throw new ToolError("That isn't a Slack user ID. They look like U0123ABCD.");
   try {

@@ -75,9 +75,16 @@ export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_th
 export const USER_FIELDS = ["name", "username"];
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
 
+// What a client may assume of a tool (MCP's annotations): a reader changes nothing; the writers
+// post in Slack or change a task, which the descriptions say to do only once the person approves.
+const READS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const READS_SLACK = { ...READS, openWorldHint: true };
+
 export const TOOL_DEFS = [
   {
     name: "get_flows",
+    title: "List flows",
+    annotations: READS,
     description:
       "Lists the flows Cade supports, the step-by-step ways to do a job with its tools, such as writing a task's summary, triaging tasks, explaining a task or planning your work. " +
       "Call it when asked to do one of these jobs and you aren't sure how Cade wants it done, then get_flow with the name of one for its steps.",
@@ -100,6 +107,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_flow",
+    title: "Get a flow's steps",
+    annotations: READS,
     description:
       "Gives the steps of one flow, as text to follow and as the chain of Cade tools to call in order, each with where its arguments come from (the result of an earlier tool, such as get_tasks.tasks[].task_id). " +
       "Steps that change something are marked as needing the person's approval first. Takes the flow's name from get_flows and, for a flow about a task, the task's ID; without it the steps start by asking which task.",
@@ -134,6 +143,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_task",
+    title: "Get a task",
+    annotations: READS,
     description:
       "Reads one task from Cade's own database: its title, status, priority, due date, people, links, the summary of the issue and the notes people wrote. It doesn't include any thread, but names the original one: " +
       "get_task_history reads the messages Cade kept of the task's own thread (what was done about it), and the task's original thread (the one it was made from, where the problem was first raised) is named in this result: read it with get_thread_history. " +
@@ -163,6 +174,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_thread_history",
+    title: "Read a Slack thread",
+    annotations: READS_SLACK,
     description:
       "Reads a whole Slack thread straight from Slack, oldest message first: when each was sent, who sent it (a Slack user ID, to look up with get_user) and what it says. " +
       "Cade doesn't store these threads, so Slack's free plan hides what is older than 90 days; for a task Cade tracks, get_task_history has the messages it kept. " +
@@ -184,6 +197,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_task_history",
+    title: "Read a task's thread",
+    annotations: READS,
     description:
       "Reads the messages Cade has kept of a task's own thread, from its own database, oldest first, in the same form as get_thread_history: what was done about the task, the solution applied and the actions taken. " +
       "Where the problem was first raised is in the thread the task was made from, which get_task names and get_thread_history reads. A task's summary is only of that issue, so you don't need this thread to write it. " +
@@ -205,6 +220,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_tasks",
+    title: "List tasks",
+    annotations: READS,
     description:
       "Lists Cade tasks, most urgent first, each with its priority, title, status, due date, people, its task ID and a link. Open tasks (not done) by default. Filter with the arguments, all optional and combinable: " +
       "mine (only tasks you are on, from any project; role does the same for one role), assignee (only tasks a person is on, by user ID from find_user_by_name), unassigned (only tasks with no owner, reviewer or tester), status (open, all or one status), " +
@@ -233,6 +250,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_projects",
+    title: "List projects",
+    annotations: READS,
     description: "Lists the projects Cade tracks tasks for, with each one's name and channel, for the channels you can read. Pass a name to get_tasks as project to see only that project's tasks.",
     inputSchema: { type: "object", properties: {} },
     outputSchema: outputOf({
@@ -241,17 +260,21 @@ export const TOOL_DEFS = [
   },
   {
     name: "get_user",
+    title: "Get a user",
+    annotations: READS_SLACK,
     description:
       "Gives the name of a Slack user from their ID, such as U0123ABCD, or a mention such as <@U0123ABCD>. Use it for the IDs in threads, tasks and people lists, and show names, not IDs.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: "A Slack user ID, or a <@…> mention" } },
-      required: ["id"],
+      properties: { user_id: { type: "string", description: "A Slack user ID, or a <@…> mention" } },
+      required: ["user_id"],
     },
     outputSchema: outputOf({ user_id: USER_ID, name: str("Real name"), handle: str("Display name, or empty") }),
   },
   {
     name: "get_users",
+    title: "List users",
+    annotations: READS_SLACK,
     description:
       "Lists the people of the Slack workspace, with their user IDs (bots and deactivated accounts left out): name, username and ID, such as Ann Lee (ann.lee): U0123ABCD. " +
       `Takes a limit, ${DEFAULT_USERS} by default and at most ${MAX_USERS}. In a large workspace use find_user_by_name to find one person instead.`,
@@ -263,6 +286,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "find_user_by_name",
+    title: "Find a user by name",
+    annotations: READS_SLACK,
     description:
       "Finds people in the Slack workspace by name and gives each one's user ID, such as U0123ABCD, which update_task takes to assign someone and get_tasks takes as assignee. Matches part of a real name, display name or username. " +
       "If there is more than one match, ask the person which; never guess.",
@@ -275,37 +300,38 @@ export const TOOL_DEFS = [
   },
   {
     name: "send_task_message",
+    title: "Post in a task's thread",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description:
       "Posts a message in a task's own thread in Slack, as Cade, with a line under it saying \"Sent by @you\" so the team knows who it is from. " +
       "Call this only with text the person has seen and approved: show them the message and ask first, and never send one unasked. " +
       "Write it as the person would, in plain text. A <@U0123ABCD> mention notifies that person (find IDs with find_user_by_name); @channel, @here and @everyone are not sent as mentions. " +
-      `At most ${MAX_MESSAGE} characters. Takes the task's ID, as get_tasks gives it, or the link of its message.`,
+      `At most ${MAX_MESSAGE} characters. Takes the task's ID, as get_tasks gives it.`,
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100" },
-        link: { type: "string", description: "Instead of task_id: a link to the task's message, or any message in its thread" },
         text: { type: "string", description: "The message, as plain text" },
       },
-      required: ["text"],
-      anyOf: [{ required: ["task_id"] }, { required: ["link"] }],
+      required: ["task_id", "text"],
     },
     outputSchema: outputOf({ task_id: TASK_ID, sent: { type: "boolean" }, link: str("A link to the task's thread, or empty") }),
   },
   {
     name: "update_task",
+    title: "Update a task",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     description:
       "Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. " +
       "Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. " +
       `Status is one of ${Object.keys(STATUSES).join(", ")}. Priority is one of ${Object.keys(PRIORITIES).join(", ")}. due_date is DD/MM/YYYY or YYYY-MM-DD, or "none" to remove it. ` +
       "owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. An incident's priority and due date never change. " +
       `The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, "- " for bullets, and people's names rather than @mentions. At most ${MAX_SUMMARY} characters, and it replaces any earlier summary. ` +
-      "Takes the task's ID, as get_tasks gives it, or the link of its message.",
+      "Takes the task's ID, as get_tasks gives it.",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100" },
-        link: { type: "string", description: "Instead of task_id: a link to the task's message, or any message in its thread" },
         status: { type: "string", enum: Object.keys(STATUSES) },
         priority: { type: "string", enum: Object.keys(PRIORITIES) },
         due_date: { type: "string", description: 'DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date' },
@@ -321,7 +347,7 @@ export const TOOL_DEFS = [
           ]),
         ),
       },
-      anyOf: [{ required: ["task_id"] }, { required: ["link"] }],
+      required: ["task_id"],
     },
     outputSchema: outputOf({
       task_id: TASK_ID,
@@ -331,3 +357,13 @@ export const TOOL_DEFS = [
     }),
   },
 ];
+
+// Results are exact: an object lists every field it may have, and no others.
+function strict(schema) {
+  if (Array.isArray(schema)) return schema.map(strict);
+  if (!schema || typeof schema !== "object") return schema;
+  const copy = Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, key === "properties" ? Object.fromEntries(Object.entries(value).map(([name, property]) => [name, strict(property)])) : strict(value)]));
+  if (copy.properties && copy.additionalProperties === undefined) copy.additionalProperties = false;
+  return copy;
+}
+for (const tool of TOOL_DEFS) tool.outputSchema = strict(tool.outputSchema);

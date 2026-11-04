@@ -24,7 +24,7 @@ const PICK_TASK = { tool: "get_tasks", purpose: "Only when no task_id was given:
 const READ_TASK = { tool: "get_task", purpose: "Read the task, and find the thread it was made from", arguments: { task_id: "the chosen task, from get_tasks.tasks[].task_id" }, optional: false, approval: false };
 const READ_ORIGINAL = { tool: "get_thread_history", purpose: "Read the thread the task was made from, where the problem was first raised", arguments: { thread_id: "get_task.original_thread.thread_id" }, optional: false, approval: false };
 const READ_OWN = { tool: "get_task_history", purpose: "Read the task's own thread: what was done about it", arguments: { task_id: "the same task_id" }, optional: false, approval: false };
-const NAMES = { tool: "get_user", purpose: "Show names, not IDs", arguments: { id: "messages[].user_id of a thread, or an owner, reviewer or tester of the task" }, optional: false, approval: false };
+const NAMES = { tool: "get_user", purpose: "Show names, not IDs", arguments: { user_id: "messages[].user_id of a thread, or an owner, reviewer or tester of the task" }, optional: false, approval: false };
 
 const TASK_ID = { name: "task_id", description: "The task's ID, from get_tasks, such as C0123ABCD:1700000000.000100. Without it you are asked which task", required: false };
 

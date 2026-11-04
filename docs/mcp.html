@@ -272,7 +272,7 @@
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>id</code></td><td>string</td><td>yes</td><td>A Slack user ID, or a &lt;@…&gt; mention</td></tr>
+<tr><td><code>user_id</code></td><td>string</td><td>yes</td><td>A Slack user ID, or a &lt;@…&gt; mention</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -344,14 +344,13 @@
 <section class="tool" id="send_task_message">
   <div class="wrap">
     <h2><code>send_task_message</code></h2>
-    <p>Posts a message in a task's own thread in Slack, as Cade, with a line under it saying &quot;Sent by @you&quot; so the team knows who it is from. Call this only with text the person has seen and approved: show them the message and ask first, and never send one unasked. Write it as the person would, in plain text. A &lt;@U0123ABCD&gt; mention notifies that person (find IDs with find_user_by_name); @channel, @here and @everyone are not sent as mentions. At most 3000 characters. Takes the task's ID, as get_tasks gives it, or the link of its message.</p>
-    <p>Give one of <code>task_id</code> or <code>link</code>.</p>
+    <p>Posts a message in a task's own thread in Slack, as Cade, with a line under it saying &quot;Sent by @you&quot; so the team knows who it is from. Call this only with text the person has seen and approved: show them the message and ask first, and never send one unasked. Write it as the person would, in plain text. A &lt;@U0123ABCD&gt; mention notifies that person (find IDs with find_user_by_name); @channel, @here and @everyone are not sent as mentions. At most 3000 characters. Takes the task's ID, as get_tasks gives it.</p>
+    
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>task_id</code></td><td>string</td><td></td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>link</code></td><td>string</td><td></td><td>Instead of task_id: a link to the task's message, or any message in its thread</td></tr>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
 <tr><td><code>text</code></td><td>string</td><td>yes</td><td>The message, as plain text</td></tr>
 </tbody>
 </table></div>
@@ -370,14 +369,13 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. Status is one of TODO, IN_PROGRESS, IN_REVIEW, IN_TESTING, CLIENT_REVIEW, DONE. Priority is one of Urgent, High, Medium, Low. due_date is DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove it. owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. An incident's priority and due date never change. The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, &quot;- &quot; for bullets, and people's names rather than @mentions. At most 8000 characters, and it replaces any earlier summary. Takes the task's ID, as get_tasks gives it, or the link of its message.</p>
-    <p>Give one of <code>task_id</code> or <code>link</code>.</p>
+    <p>Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. Status is one of TODO, IN_PROGRESS, IN_REVIEW, IN_TESTING, CLIENT_REVIEW, DONE. Priority is one of Urgent, High, Medium, Low. due_date is DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove it. owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. An incident's priority and due date never change. The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, &quot;- &quot; for bullets, and people's names rather than @mentions. At most 8000 characters, and it replaces any earlier summary. Takes the task's ID, as get_tasks gives it.</p>
+    
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>task_id</code></td><td>string</td><td></td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>link</code></td><td>string</td><td></td><td>Instead of task_id: a link to the task's message, or any message in its thread</td></tr>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
 <tr><td><code>status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td></td></tr>
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td></td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date</td></tr>

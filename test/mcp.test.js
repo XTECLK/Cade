@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
 import { getTask, putSummary, putTask } from "../src/db.js";
+import { TOOL_DEFS } from "../src/mcp-tools.js";
 import { fakeD1 } from "./d1.js";
+import { check } from "./schema.js";
 
 const SIGNING_SECRET = "test-signing-secret";
 const GOOGLE_URL = "https://script.google.com/macros/s/test/exec";
@@ -72,9 +74,13 @@ const rpc = (key, message, method = "POST", path = "/mcp") =>
     { waitUntil() {} },
   );
 
-// A tool's result: its text, and whether it is an error.
+// A tool's result: its text, and whether it is an error. Its data must match the tool's
+// outputSchema, so every call in these tests checks that, and an error carries none.
 async function tool(url, name, args) {
   const { result } = await (await rpc(url, { id: 1, method: "tools/call", params: { name, arguments: args } })).json();
+  const { outputSchema } = TOOL_DEFS.find((def) => def.name === name);
+  if (result.isError) assert.equal(result.structuredContent, undefined, `${name} gave data with an error`);
+  else assert.deepEqual(check(outputSchema, result.structuredContent), [], `${name}'s data doesn't match its outputSchema`);
   return { text: result.content[0].text, isError: Boolean(result.isError), data: result.structuredContent };
 }
 
@@ -243,10 +249,10 @@ test("get_thread_history joins a public channel Cade isn't in", async (t) => {
 test("get_user gives a user's name from an ID or a mention", async (t) => {
   mock(t, { "users.info": (args) => (args.user === "UBOB" ? { user: { real_name: "Bob Jones", profile: { display_name: "bobby" } } } : new Error("user_not_found")) });
   const url = addressIn(await slash("mcp init"));
-  assert.equal((await tool(url, "get_user", { id: "UBOB" })).text, "Bob Jones (bobby)");
-  assert.equal((await tool(url, "get_user", { id: "<@UBOB>" })).text, "Bob Jones (bobby)");
-  assert.match((await tool(url, "get_user", { id: "bob" })).text, /isn't a Slack user ID/);
-  assert.match((await tool(url, "get_user", { id: "UGONE" })).text, /couldn't look up UGONE/);
+  assert.equal((await tool(url, "get_user", { user_id: "UBOB" })).text, "Bob Jones (bobby)");
+  assert.equal((await tool(url, "get_user", { user_id: "<@UBOB>" })).text, "Bob Jones (bobby)");
+  assert.match((await tool(url, "get_user", { user_id: "bob" })).text, /isn't a Slack user ID/);
+  assert.match((await tool(url, "get_user", { user_id: "UGONE" })).text, /couldn't look up UGONE/);
 });
 
 const stored = (overrides = {}) => ({
@@ -266,8 +272,8 @@ test("update_task saves the summary, which it keeps the summary in the database,
   const calls = mock(t, { "conversations.info": { channel: { name: "dev" } } });
   const url = addressIn(await slash("mcp init", "UME"));
 
-  const link = "https://acme.slack.com/archives/CDEV/p1000000000000100";
-  const result = await tool(url, "update_task", { link, summary: "  Fix login on Safari.\n- Ann owns it  " });
+  const taskId = "CDEV:1000000000.000100";
+  const result = await tool(url, "update_task", { task_id: taskId, summary: "  Fix login on Safari.\n- Ann owns it  " });
   assert.equal(result.isError, false, result.text);
   assert.match(result.text, /top of the task's notes page: https:\/\/worker\.example\.net\/n\/CDEV\/1000000000\.000100/);
   const row = await DB.prepare("SELECT summary, summary_by FROM task_notes").first();
@@ -276,7 +282,7 @@ test("update_task saves the summary, which it keeps the summary in the database,
   assert.deepEqual(calls.map((call) => call.method).filter((method) => method.startsWith("chat.") || method.startsWith("google:")), []);
 
   // A later summary replaces it.
-  await tool(url, "update_task", { link, summary: "Second" });
+  await tool(url, "update_task", { task_id: taskId, summary: "Second" });
   assert.equal((await DB.prepare("SELECT summary FROM task_notes").first()).summary, "Second");
 });
 
@@ -285,14 +291,14 @@ test("update_task with a summary links the notes page of an older task on its ca
   const calls = mock(t, { "chat.update": {}, "conversations.info": { channel: { name: "dev" } } });
   const url = addressIn(await slash("mcp init"));
 
-  const made = await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "Summary" });
+  const made = await tool(url, "update_task", { task_id: "CDEV:1000000000.000100", summary: "Summary" });
   assert.equal(made.isError, false, made.text);
   assert.deepEqual((await getTask(env, "CDEV", "1000000000.000100")).notes, { url: `${ORIGIN}/n/CDEV/1000000000.000100` });
   assert.ok(calls.some((call) => call.method === "chat.update"), "its card links the page");
 
-  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p9000000000000100", summary: "S" })).text, /isn't a task Cade tracks/);
-  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: " " })).text, /empty/);
-  assert.match((await tool(url, "update_task", { link: "https://acme.slack.com/archives/CDEV/p1000000000000100", summary: "x".repeat(8001) })).text, /8001 characters/);
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:9000000000.000100", summary: "S" })).text, /isn't a task Cade tracks/);
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1000000000.000100", summary: " " })).text, /empty/);
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1000000000.000100", summary: "x".repeat(8001) })).text, /8001 characters/);
 });
 
 test("get_thread_history reads only from Slack, even for a task Cade keeps messages of", async (t) => {
@@ -703,6 +709,25 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);
+});
+
+test("every tool follows the same conventions", () => {
+  const names = TOOL_DEFS.map((def) => def.name);
+  assert.equal(new Set(names).size, names.length);
+  for (const def of TOOL_DEFS) {
+    assert.match(def.name, /^(get|find|update|send)_[a-z_]+$/, def.name);
+    assert.ok(def.title && def.description, `${def.name} has a title and a description`);
+    assert.equal(def.inputSchema.type, "object");
+    assert.equal(def.outputSchema.type, "object");
+    assert.equal(def.outputSchema.additionalProperties, false, `${def.name}'s result is exact`);
+    // A task is named by its task_id alone; a link is only for get_thread_history.
+    if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
+    for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
+    // Readers say so, and the two writers don't.
+    const writes = ["update_task", "send_task_message"].includes(def.name);
+    assert.equal(def.annotations.readOnlyHint, !writes, def.name);
+    assert.equal(def.annotations.destructiveHint, false, def.name);
+  }
 });
 
 test("get_flows lists the flows, and get_flow gives the steps and tool chain of one, the same as the prompts", async (t) => {

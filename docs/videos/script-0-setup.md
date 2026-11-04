@@ -37,5 +37,5 @@ Screen key: **S** Sarah (client) · **Y** You (lead) · **R** Rex (dev) ·
 ## Edit and export
 - Cut by act. Add a thin caption bar at the bottom; no logos needed.
 - Optional 2 s title card at the start of each clip with the act name.
-- Export with the ffmpeg command in [README.md](README.md). Aim for under 5 MB.
+- Export with the ffmpeg command in [videos/README.md](README.md). Aim for under 5 MB.
 - Save a still of the same name as `.jpg` (for example `act-3-build-review-ship.jpg`).

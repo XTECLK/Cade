@@ -108,6 +108,7 @@ async function workspaceName() {
   const token = process.env.SLACK_BOT_TOKEN || (await askHidden("Slack bot token (hidden), or Enter to skip: "));
   livePrompt?.resume();
   if (!token) return undefined;
+  process.env.SLACK_BOT_TOKEN ??= token; // the group step won't ask for it again
   try {
     const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
     if (!result.ok) throw new Error(result.error);
@@ -119,9 +120,23 @@ async function workspaceName() {
   }
 }
 
+// Opens a page in the person's browser (best effort; the address is always printed too).
+function openUrl(url) {
+  const [command, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
+  try {
+    spawn(command, [...args, url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  } catch {}
+}
+
+const STEPS = 5;
+let stepNumber = 0;
+const outcomes = [];
 async function step(title, work) {
-  console.log(`\n=== ${title} ===`);
-  await work();
+  stepNumber++;
+  console.log(`\n[${stepNumber}/${STEPS}] ${title}`);
+  console.log("─".repeat(Math.min(60, title.length + 8)));
+  const note = await work();
+  outcomes.push(`${note?.startsWith("skipped") ? "–" : "✓"} ${title}${note ? ` (${note})` : ""}`);
 }
 
 async function main() {
@@ -131,6 +146,12 @@ async function main() {
   const yes = async (question, fallback = true) => {
     const answer = (await ask(`${question} (${fallback ? "Y/n" : "y/N"}): `)).toLowerCase();
     return answer ? answer.startsWith("y") : fallback;
+  };
+  // Shows an address and opens it once the person presses Enter.
+  const openPage = async (url, message) => {
+    console.log(`${message}\n  ${url}`);
+    await ask("Press Enter to open it… ");
+    openUrl(url);
   };
   const fail = (message) => {
     prompt.close();
@@ -174,19 +195,21 @@ async function main() {
   await step("Slack app", async () => {
     if (await exists(SLACK_APP)) {
       console.log("The Slack app is already created (.cade/slack-app.json).");
-      return;
+      return "skipped, already created";
     }
-    console.log(`Slack needs an app configuration token: open https://api.slack.com/apps, scroll to
-"Your App Configuration Tokens", and Generate Token for your workspace.
-You'll be asked for it, then to install the app and give its bot token; both hidden.\n`);
-    await ask("Press Enter when you're ready… ");
+    await openPage(
+      "https://api.slack.com/apps",
+      `Slack needs an app configuration token: scroll to "Your App Configuration Tokens" and Generate Token for your workspace.
+You'll be asked for it, then to install the app and give its bot token; both hidden.`,
+    );
+    await ask("Press Enter once it's generated…");
     if ((await runLive("node", ["scripts/slack-app.mjs", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
   });
 
   await step("Google Doc for executive summaries", async () => {
     if (await exists(GOOGLE_APP)) {
       console.log("The Google web app is already created (.cade/google-app.json).");
-      return;
+      return "skipped, already created";
     }
     console.log(`
 Every project keeps its executive summaries in a Google Doc, which Cade makes for it when it's added.
@@ -202,8 +225,10 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
     } else {
       console.log("Sign in as the account to use when the browser opens for the login.");
     }
-    console.log(`\nA person has to do two things in a browser, as that account: log in to Google when clasp asks,
-and turn on the Apps Script API at https://script.google.com/home/usersettings.`);
+    await openPage(
+      "https://script.google.com/home/usersettings",
+      `\nAs that account, turn on the Apps Script API (clasp then asks you to log in to Google).`,
+    );
     await ask("Press Enter when the API is on… ");
     if ((await runLive("npx", ["clasp", "login"])) !== 0) fail("The Google login failed.");
     if ((await runLive("node", ["scripts/google-app.mjs", "create"])) !== 0) fail("Creating the Google web app failed.");
@@ -213,13 +238,14 @@ and turn on the Apps Script API at https://script.google.com/home/usersettings.`
   await step("First group", async () => {
     if (!(await yes("Set up a group (its Slack channel, and its Doc) now?"))) {
       console.log("Later, with npm run group.");
-      return;
+      return "skipped, later with npm run group";
     }
-    prompt.close();
+    // runLive pauses our prompt while group.mjs uses the terminal, then resumes it.
     if ((await runLive("node", ["scripts/group.mjs"])) !== 0) process.exit(1);
   });
 
   prompt.close();
+  console.log(`\n${outcomes.join("\n")}`);
   console.log("\nSetup finished. In Slack, invite Cade to the channel with /invite @Cade, then try /cade help.");
 }
 

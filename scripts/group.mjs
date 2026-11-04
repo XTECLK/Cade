@@ -203,6 +203,54 @@ export async function memberIds(slack, input) {
   return ids;
 }
 
+// The workspace's people (not bots or deactivated accounts), by name, each
+// { id, name, email }: what the admin choice lists.
+export async function workspaceMembers(slack) {
+  const members = [];
+  let cursor;
+  do {
+    const result = await slack("users.list", { limit: "200", ...(cursor && { cursor }) });
+    for (const member of result.members ?? []) {
+      if (member.deleted || member.is_bot || member.id === "USLACKBOT") continue;
+      members.push({ id: member.id, name: member.real_name || member.profile?.real_name || member.name, email: member.profile?.email ?? "" });
+    }
+    cursor = result.response_metadata?.next_cursor;
+  } while (cursor);
+  return members.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Asks who the admins are (those who can run `/cade project init` and
+// `/cade project settings`), from a numbered list of the workspace's people
+// with their emails. Answers: numbers, emails or member IDs, or Enter for none.
+export async function askAdmins(slack, ask) {
+  let members;
+  try {
+    members = await workspaceMembers(slack);
+  } catch (error) {
+    console.log(`\nCouldn't list the workspace's people (${error.message}); admins can be set in cade.config.json.`);
+    return [];
+  }
+  console.log("\nAdmins can run /cade project init and /cade project settings in Slack:");
+  members.forEach((member, i) => console.log(`  ${String(i + 1).padStart(3)}. ${member.name}${member.email ? ` <${member.email}>` : ""}`));
+  while (true) {
+    const answer = await ask("Who should be admins? Numbers, emails or member IDs, separated by commas [none]: ");
+    const ids = [];
+    const other = [];
+    for (const who of answer.split(/[\s,]+/).filter(Boolean)) {
+      if (/^\d+$/.test(who)) {
+        const member = members[Number(who) - 1];
+        if (member) ids.push(member.id);
+        else other.push(who);
+      } else other.push(who);
+    }
+    try {
+      return [...new Set([...ids, ...(await memberIds(slack, other.join(",")))])];
+    } catch (error) {
+      console.log(`  ${error.message}`);
+    }
+  }
+}
+
 // What to do for one of the group's channels, asked: an existing channel,
 // by its ID, which Cade joins if it's public, or waits to be invited to if
 // it's private (it can't see a private one before); or a new one, by name,
@@ -304,6 +352,12 @@ async function guided() {
       }
     }
 
+    // Admins are asked once, while there are none.
+    if (!config.admins?.length) {
+      const admins = await askAdmins(slack, ask);
+      if (admins.length) settings.admins = admins;
+    }
+
     // Each channel: { field, action: "create" | "join" | "use" | "keep" |
     // "remove", id?, name?, isPrivate? }.
     const plans = [];
@@ -349,6 +403,7 @@ async function guided() {
       console.log(`  work Google Doc: ${value === "new" ? `make "${NEW_TITLES[field](name)}"` : value === "none" ? "unlink it" : `link ${value}`}`);
     }
     if (settings.timezone) console.log(`  set the time zone to ${settings.timezone}`);
+    if (settings.admins) console.log(`  make ${settings.admins.length === 1 ? "1 person an admin" : `${settings.admins.length} people admins`}`);
     console.log("  save the group in cade.config.json and upload it");
     if (/^n/i.test(await ask("Go ahead? (Y/n): "))) {
       console.log("Nothing changed.");

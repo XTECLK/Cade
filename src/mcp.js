@@ -3,13 +3,14 @@ import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
 import { parseStatus } from "./commands/status.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
-import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
+import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
 import { FLOWS } from "./flows.js";
 import { DEFAULT_TASKS, DEFAULT_USERS, EXTRA_FIELDS, MAX_MESSAGE, MAX_SUMMARY, MAX_TASKS, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
-import { callSlack, escapeSlack, linkedMessage, linkedThread, mrkdwn } from "./slack.js";
-import { PRIORITIES, ROLES, STATUSES, loadTask, parsePullRequest, statusName, taskMessage, unsentPrs } from "./tasks.js";
+import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn } from "./slack.js";
+import { releaseRequest } from "./commands/release.js";
+import { PRIORITIES, ROLES, STATUSES, loadTask, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.js";
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
@@ -97,7 +98,7 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_flows: getFlows, get_flow: getFlow, get_releases: getReleases, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
+const RUNNERS = { get_flows: getFlows, get_flow: getFlow, get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
 
 // The flows (see flows.js) as MCP prompts, which an agent offers its user, such
@@ -763,6 +764,65 @@ function userIds(role, list) {
   return [...new Set(ids)];
 }
 
+// The pull request addresses in a list of links, without duplicates, or a ToolError.
+function prLinksOf(list, name) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) throw new ToolError(`${name} is a list of pull request links.`);
+  return [...new Set(list.map((link) => {
+    const pr = parsePullRequest(String(link).trim().replace(/^<|>$/g, ""));
+    if (!pr) throw new ToolError(`"${link}" doesn't look like a pull request link (GitHub, GitLab or Bitbucket).`);
+    return pr.url;
+  }))];
+}
+
+// Changes the PRs, or what it completes, of a release waiting for approval, and tells its thread. It
+// is never decided here: that is the approver's click (see release.js).
+async function updateRelease(env, user, { release_id: id, prs, note } = {}) {
+  if (!Number.isInteger(id) || id < 1) throw new ToolError("release_id is the number get_releases gives each release.");
+  const found = await releaseById(env, id);
+  if (!found) throw new ToolError("There is no such release, or its task is gone. get_releases lists them.");
+  const { channel, ts, release } = found;
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't change its release for you.");
+  if (release.status !== "PENDING_APPROVAL") throw new ToolError(`That release is already ${release.status === "APPROVED" ? "approved" : "decided"}; only one waiting for approval can be changed.`);
+  if (!release.messageTs || !release.approver) throw new ToolError("That release was sent before it could be changed from here. Change it in the task's thread in Slack.");
+
+  const task = await loadTask(env, channel, ts);
+  const add = prLinksOf(prs?.add, "prs.add");
+  const remove = prLinksOf(prs?.remove, "prs.remove");
+  if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");
+  const elsewhere = new Set(task.releases.filter((other) => other.id !== id).flatMap((other) => other.prs));
+  const unlinked = add.filter((url) => !task.prs.includes(url));
+  if (unlinked.length) throw new ToolError(`${unlinked.join(", ")} ${unlinked.length === 1 ? "isn't" : "aren't"} linked to the task yet. Link ${unlinked.length === 1 ? "it" : "them"} first with update_task (prs.add).`);
+  const taken = add.filter((url) => elsewhere.has(url));
+  if (taken.length) throw new ToolError(`${taken.join(", ")} ${taken.length === 1 ? "is" : "are"} in another release already.`);
+  const missing = remove.filter((url) => !release.prs.includes(url));
+  if (missing.length) throw new ToolError(`${missing.join(", ")} ${missing.length === 1 ? "isn't" : "aren't"} in this release.`);
+  let text = release.note;
+  if (note !== undefined) {
+    text = String(note).trim();
+    if (!text) throw new ToolError("The note is empty.");
+    if (text.length > 300) throw new ToolError(`The note is ${text.length} characters; keep it to 300 or fewer.`);
+  }
+  const next = [...release.prs.filter((url) => !remove.includes(url)), ...add.filter((url) => !release.prs.includes(url))];
+  if (!next.length) throw new ToolError("A release needs at least one pull request. To take it back, tell the person to settle it in the task's thread.");
+
+  const taskId = `${channel}:${ts}`;
+  const unchanged = next.length === release.prs.length && next.every((url) => release.prs.includes(url)) && text === release.note;
+  const updated = { ...release, prs: next, note: text };
+  if (!unchanged) {
+    if (!(await changeRelease(env, id, next, text))) throw new ToolError("That release was decided just now, so it can't be changed.");
+    task.releases = task.releases.map((other) => (other.id === id ? updated : other));
+    await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
+    // The request the approver sees, with its buttons; and a reply, since mentions in an edit notify no one.
+    await callSlack(env, "chat.update", { channel, ts: release.messageTs, ...releaseRequest({ channel, ts, id, approver: release.approver, sentBy: release.sentBy, prs: next, note: text }) });
+    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release (through their AI agent). It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}`;
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: reply, blocks: [{ type: "section", text: mrkdwn(reply) }] });
+    console.log("Release changed", { channel, ts, id, by: user, prs: next.length });
+  }
+  const data = { release_id: id, task_id: taskId, changed: !unchanged, release: releaseData(updated) };
+  return { text: unchanged ? "The release already has those PRs and that note." : `Done. The release now has ${next.length} PR${next.length === 1 ? "" : "s"}; the approver's request and the thread are updated.`, data };
+}
+
 // Changes a task's fields for the person, and tells its thread.
 async function updateTask(env, user, args) {
   const { channel, ts } = taskRef(args);
@@ -789,16 +849,7 @@ async function updateTask(env, user, args) {
     changes.people = { ...changes.people, [role]: { add, remove } };
   }
   if (args.prs !== undefined) {
-    const links = (name) => {
-      const list = args.prs[name];
-      if (list === undefined) return [];
-      if (!Array.isArray(list)) throw new ToolError(`prs.${name} is a list of pull request links.`);
-      return [...new Set(list.map((link) => {
-        const pr = parsePullRequest(String(link).trim().replace(/^<|>$/g, ""));
-        if (!pr) throw new ToolError(`"${link}" doesn't look like a pull request link (GitHub, GitLab or Bitbucket).`);
-        return pr.url;
-      }))];
-    };
+    const links = (name) => prLinksOf(args.prs[name], `prs.${name}`);
     const add = links("add");
     const remove = links("remove");
     if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");

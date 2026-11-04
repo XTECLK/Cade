@@ -310,6 +310,34 @@ export const TOOL_DEFS = [
     }),
   },
   {
+    name: "update_release",
+    title: "Change a release",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description:
+      "Changes a release still waiting for approval: add pull requests to it, remove some (they go back to pending), or change what it completes. It never approves or turns a release down: that is the approver's click in the task's thread in Slack. " +
+      "Added PRs must be linked to the task already (update_task prs.add) and not in another release; a release keeps at least one PR. Cade updates the request the approver sees, the task's card, and tells the thread, mentioning the approver. " +
+      "Call this only with changes the person has seen and approved: show them the release as it is now (get_releases) and what you propose, and ask first. A release that was approved or turned down, or sent before it could be changed from here, can't be changed. Takes the release's number from get_releases.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        release_id: { type: "integer", minimum: 1, description: "The release's number, as get_releases gives it" },
+        prs: {
+          type: "object",
+          description: "Pull requests to add to and remove from the release, as links",
+          properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } },
+        },
+        note: { type: "string", maxLength: 300, description: "What the release completes, replacing the earlier note" },
+      },
+      required: ["release_id"],
+    },
+    outputSchema: outputOf({
+      release_id: { type: "integer" },
+      task_id: TASK_ID,
+      changed: { type: "boolean", description: "Whether the release changed" },
+      release: RELEASE_ITEM,
+    }),
+  },
+  {
     name: "get_projects",
     title: "List projects",
     annotations: READS,

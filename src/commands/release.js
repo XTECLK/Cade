@@ -1,4 +1,4 @@
-import { decideRelease, insertRelease } from "../db.js";
+import { decideRelease, insertRelease, setReleaseMessage } from "../db.js";
 import { callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText } from "../slack.js";
 import {
   NOT_A_TASK,
@@ -190,14 +190,25 @@ async function send(env, origin, chosen, note, approver, user) {
   await callSlack(env, "chat.update", { channel: origin.channel, ts: origin.ts, ...taskMessage(task) });
   console.log("Release sent", { ts: origin.ts, id, prs: prs.length });
 
+  await dismiss(origin.responseUrl);
+  const posted = await callSlack(env, "chat.postMessage", {
+    channel: origin.channel,
+    thread_ts: origin.ts,
+    ...releaseRequest({ channel: origin.channel, ts: origin.ts, id, approver, sentBy: user, prs, note }),
+  });
+  // Where it is, so it can be changed with the release's PRs.
+  if (posted?.ts) await setReleaseMessage(env, id, posted.ts, approver);
+}
+
+// The request to the approver, in the task's thread: what was sent, and the buttons. The buttons carry
+// the task's thread, which holds the release, and who may click them.
+export function releaseRequest({ channel, ts, id, approver, sentBy, prs, note }) {
   const list = prs.map(prLink).join(", ");
   const completes = `*Completes:* ${escapeSlack(note)}`;
-  const sent = `<@${user}> sent these PRs for approval: ${list}\n${completes}`;
+  const sent = `<@${sentBy}> sent these PRs for approval: ${list}\n${completes}`;
   const request = `<@${approver}>, could you take a look and approve them, or let us know what needs to change?`;
-  // The buttons carry the task's thread, which holds the release, and who
-  // may click them.
-  const value = JSON.stringify({ channel: origin.channel, ts: origin.ts, id, approver });
-  const ask = {
+  const value = JSON.stringify({ channel, ts, id, approver });
+  return {
     text: `${sent}\n${request}`,
     blocks: [
       // The decision replaces the request and the buttons, so `sent` is a
@@ -213,9 +224,6 @@ async function send(env, origin, chosen, note, approver, user) {
       },
     ],
   };
-
-  await dismiss(origin.responseUrl);
-  await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.ts, ...ask });
 }
 
 // Applies the approver's decision on a release, then replaces the request

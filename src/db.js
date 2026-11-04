@@ -47,6 +47,8 @@ async function releasesOf(env, taskId) {
     sentAt: row.sent_at,
     decidedBy: row.decided_by,
     decidedAt: row.decided_at,
+    approver: row.approver,
+    messageTs: row.message_ts,
   }));
 }
 
@@ -787,6 +789,8 @@ export async function releasesWithStatus(env, statuses) {
 
 function releaseFromRow(row) {
   return {
+    approver: row.approver,
+    messageTs: row.message_ts,
     id: row.id,
     prs: JSON.parse(row.prs),
     note: row.note,
@@ -796,4 +800,30 @@ function releaseFromRow(row) {
     decidedBy: row.decided_by,
     decidedAt: row.decided_at,
   };
+}
+
+// Remembers where a release's request was posted and who approves it.
+export async function setReleaseMessage(env, id, messageTs, approver) {
+  await env.DB.prepare("UPDATE releases SET message_ts = ?, approver = ? WHERE id = ?").bind(messageTs, approver, id).run();
+}
+
+// The release with `id` and the task it belongs to, as { channel, ts, title, release }, or null (also
+// when the task was deleted or archived).
+export async function releaseById(env, id) {
+  const row = await env.DB.prepare(
+    `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts, t.title AS task_title FROM releases r JOIN tasks t ON t.id = r.task_id
+     WHERE r.id = ? AND t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL`,
+  )
+    .bind(id)
+    .first();
+  return row ? { channel: row.task_channel, ts: row.task_ts, title: row.task_title, release: releaseFromRow(row) } : null;
+}
+
+// Changes the PRs and note of a release still waiting for approval; false if it is not any more
+// (it was decided meanwhile).
+export async function changeRelease(env, id, prs, note) {
+  const row = await env.DB.prepare("UPDATE releases SET prs = ?, note = ? WHERE id = ? AND status = 'PENDING_APPROVAL' RETURNING id")
+    .bind(JSON.stringify(prs), note, id)
+    .first();
+  return Boolean(row);
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
-import { getTask, insertRelease, decideRelease, putSummary, putTask } from "../src/db.js";
+import { decideRelease, getTask, insertRelease, putSummary, putTask, setReleaseMessage } from "../src/db.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 import { fakeD1 } from "./d1.js";
 import { check } from "./schema.js";
@@ -184,7 +184,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
   assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
@@ -726,7 +726,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_task_message"].includes(def.name);
+    const writes = ["update_task", "send_task_message", "update_release"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -955,4 +955,50 @@ test("update_task links and unlinks pull requests, and won't unlink one sent to 
   assert.match((await tool(url, "update_task", { task_id: id, prs: { add: [PR2], remove: [PR2] } })).text, /same pull request is in add and remove/);
   assert.match((await tool(url, "update_task", { task_id: id, prs: { add: "x" } })).text, /prs\.add is a list/);
   assert.ok(calls.some((call) => call.method === "chat.update"));
+});
+
+test("update_release changes the PRs of a release waiting for approval, never decides it", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2, PR3] }));
+  const id = await insertRelease(env, "CDEV", TS, { prs: [PR1, PR2], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  await setReleaseMessage(env, id, "1700000100.000200", "UCLIENT");
+  const other = await insertRelease(env, "CDEV", TS, { prs: [PR3], note: "Search", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  const old = await insertRelease(env, "CDEV", TS, { prs: [], note: "Old", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "chat.update": {}, "chat.postMessage": {}, "auth.test": { url: "https://acme.slack.com/" } });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  // Remove one PR and change the note: the request the approver sees, the card and the thread are updated.
+  const done = await tool(url, "update_release", { release_id: id, prs: { remove: [PR2] }, note: "  Login, finished  " });
+  assert.equal(done.isError, false, done.text);
+  assert.equal(done.data.changed, true);
+  assert.deepEqual(done.data.release.prs, [PR1]);
+  assert.equal(done.data.release.note, "Login, finished");
+  assert.equal(done.data.release.status, "PENDING_APPROVAL");
+  const request = calls.find((call) => call.method === "chat.update" && call.args.ts === "1700000100.000200");
+  assert.ok(request, "the request message is edited");
+  assert.match(request.args.text, /sent these PRs for approval: .*web\/1.*\n\*Completes:\* Login, finished/s);
+  assert.deepEqual(JSON.parse(request.args.blocks).at(-1).elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
+  assert.match(JSON.parse(JSON.parse(request.args.blocks).at(-1).elements[0].value).approver, /UCLIENT/);
+  assert.ok(calls.some((call) => call.method === "chat.update" && call.args.ts === TS), "the task card is redrawn");
+  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release \(through their AI agent\)\. It now has .*web\/1/);
+  // PR2 is pending again; adding it back works, and a no-op says so.
+  assert.equal((await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } })).data.release.prs.length, 2);
+  const same = await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } });
+  assert.equal(same.data.changed, false);
+
+  // What can't be done is said plainly.
+  const say = async (args) => (await tool(url, "update_release", { release_id: id, ...args })).text;
+  assert.match(await say({ prs: { add: [PR3] } }), /in another release already/);
+  assert.match(await say({ prs: { add: ["https://github.com/acme/web/pull/9"] } }), /isn't linked to the task yet/);
+  assert.match(await say({ prs: { remove: [PR3] } }), /isn't in this release/);
+  assert.match(await say({ prs: { remove: [PR1, PR2] } }), /needs at least one pull request/);
+  assert.match(await say({ prs: { add: [PR1], remove: [PR1] } }), /same pull request is in add and remove/);
+  assert.match(await say({ note: " " }), /note is empty/);
+  assert.match((await tool(url, "update_release", { release_id: old, note: "x" })).text, /sent before it could be changed from here/);
+  assert.match((await tool(url, "update_release", { release_id: 999 })).text, /no such release/);
+  assert.match((await tool(url, "update_release", { release_id: "x" })).text, /release_id is the number/);
+  // Once decided, it stays as decided.
+  await decideRelease(env, id, "APPROVED", "UCLIENT");
+  assert.match(await say({ note: "Changed my mind" }), /already approved/);
+  assert.equal(other > id, true);
 });

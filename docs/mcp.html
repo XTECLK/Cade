@@ -308,6 +308,43 @@
   </div>
 </section>
 
+<section class="tool" id="update_release">
+  <div class="wrap">
+    <h2><code>update_release</code></h2>
+    <p>Changes a release still waiting for approval: add pull requests to it, remove some (they go back to pending), or change what it completes. It never approves or turns a release down: that is the approver's click in the task's thread in Slack. Added PRs must be linked to the task already (update_task prs.add) and not in another release; a release keeps at least one PR. Cade updates the request the approver sees, the task's card, and tells the thread, mentioning the approver. Call this only with changes the person has seen and approved: show them the release as it is now (get_releases) and what you propose, and ask first. A release that was approved or turned down, or sent before it could be changed from here, can't be changed. Takes the release's number from get_releases.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>release_id</code></td><td>integer</td><td>yes</td><td>The release's number, as get_releases gives it · min 1</td></tr>
+<tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests to add to and remove from the release, as links</td></tr>
+<tr><td><code>prs.add</code></td><td>string[]</td><td></td><td></td></tr>
+<tr><td><code>prs.remove</code></td><td>string[]</td><td></td><td></td></tr>
+<tr><td><code>note</code></td><td>string</td><td></td><td>What the release completes, replacing the earlier note</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>release_id</code></td><td>integer</td><td>yes</td><td></td></tr>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>changed</code></td><td>boolean</td><td>yes</td><td>Whether the release changed</td></tr>
+<tr><td><code>release</code></td><td>object</td><td>yes</td><td></td></tr>
+<tr><td><code>release.id</code></td><td>integer</td><td>yes</td><td></td></tr>
+<tr><td><code>release.prs</code></td><td>string[]</td><td>yes</td><td>The pull requests' addresses</td></tr>
+<tr><td><code>release.note</code></td><td>string</td><td>yes</td><td>What the release completes</td></tr>
+<tr><td><code>release.status</code></td><td>string: PENDING_APPROVAL | APPROVED | NOT_APPROVED</td><td>yes</td><td></td></tr>
+<tr><td><code>release.sent_by</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
+<tr><td><code>release.sent_at</code></td><td>string</td><td>yes</td><td>When it was sent, as YYYY-MM-DD HH:MM in UTC</td></tr>
+<tr><td><code>release.decided_by</code></td><td>string</td><td>yes</td><td>A Slack user ID, or empty while waiting</td></tr>
+<tr><td><code>release.decided_at</code></td><td>string</td><td>yes</td><td>When it was decided, or empty</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
 <section class="tool" id="get_projects">
   <div class="wrap">
     <h2><code>get_projects</code></h2>

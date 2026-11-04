@@ -79,7 +79,8 @@ export function readConfig(json) {
   }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
-  const list = projects({ PROJECTS: config.projects ?? config.channels });
+  // None is allowed once the projects are in the database (`/cade project import`).
+  const list = projects({ PROJECTS: config.projects ?? config.channels ?? [] });
   const ids = list.map((project) => project.channel);
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);

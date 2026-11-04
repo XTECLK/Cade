@@ -182,7 +182,7 @@ test("picking another project in the form shows its settings, and a project adde
   assert.deepEqual(view.blocks[0].accessory.options.map((option) => option.text.text), ["acme", "payments"]);
   assert.equal(view.blocks[0].accessory.initial_option.value, "CNEW");
   assert.match(select(view, "activeTasksPinning").element.options[0].text.text, /^Use the default \(/);
-  assert.match(view.blocks[1].elements[0].text, /added with `\/cade project init`/);
+  assert.match(view.blocks[1].elements[0].text, /kept in Cade's database/);
   // A non-admin's pick does nothing.
   const before = calls.length;
   await interact({ ...pick, user: { id: "UMEMBER" } });
@@ -206,4 +206,29 @@ test("/cade web logout ends every browser session of the person, and no one else
   assert.match(await reply("web logout"), /weren't signed in/);
   assert.match(await reply("web login"), /<https:\/\/worker\.example\.net\/login\/[\w-]+\|Sign in/);
   assert.match(await reply("web"), /\/cade web logout/);
+});
+
+test("/cade project import copies the config's projects into the database, with their settings, and can be run again", async (t) => {
+  mock(t);
+  const { withSettings, configEnv } = await import("../src/settings.js");
+  const configured = { ...env, PROJECTS: [{ name: "acme", channel: "CDEV", summaryCanvas: true, aiModel: "@cf/x/y", workDoc: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }, { name: "beta", channel: "CBETA", newMessageTaskDetection: false }] };
+  const run = async (text, e = configured, user = "UADMIN") => {
+    const body = new URLSearchParams({ command: "/cade", text: `project ${text}`, user_id: user, channel_id: "CDEV", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
+    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), e, { waitUntil() {} })).json()).text;
+  };
+  assert.match(await run("import", configured, "UMEMBER"), /Only an admin/);
+  const first = await run("import");
+  assert.match(first, /Copied 2 projects .*\*acme\*, \*beta\*/);
+  // The database now has them, with what the config set: the config can be left without projects.
+  const bare = { ...env, PROJECTS: undefined, CHANNEL_PAIRS: undefined };
+  const merged = projects(await withSettings(bare));
+  assert.deepEqual(merged.map((p) => [p.name, p.channel]), [["acme", "CDEV"], ["beta", "CBETA"]]);
+  assert.equal(merged[0].summaryCanvas, true);
+  assert.equal(merged[0].aiModel, "@cf/x/y");
+  assert.match(merged[0].workDoc, /1AcmeDoc/);
+  assert.equal(merged[1].newMessageTaskDetection, false);
+  assert.deepEqual(projects(configEnv(await withSettings(configured))).map((p) => p.name), ["acme", "beta"]);
+  // Again, nothing is copied twice; with no config projects, there is nothing to import.
+  assert.match(await run("import"), /Nothing new to copy\.\nAlready in the database: \*acme\*, \*beta\*/);
+  assert.match(await run("import", bare), /no projects to import/);
 });

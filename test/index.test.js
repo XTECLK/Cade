@@ -648,7 +648,7 @@ test("thread commands work in the test tasks channel", async (t) => {
   assert.deepEqual((await savedTask("CTESTDEV")).people.owner, ["UBOB"]);
 });
 
-test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
+test("no projects in the config is fine: Cade just tracks nothing there", async (t) => {
   const calls = mockSlack(t);
   const pending = [];
   const body = threadEvent("<@UBOT> assign owner <@UBOB>");
@@ -662,7 +662,7 @@ test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
     { waitUntil: (promise) => pending.push(promise) },
   );
   await Promise.all(pending);
-  assert.equal(calls[0].args.text, "Sorry, something went wrong with `assign`. Could you try again?");
+  assert.equal(calls[0].args.text, "Hmm, I'm not tracking a task in this thread.");
 });
 
 test("a bare @Cade, @Cade help and unknown commands point to /cade help", async (t) => {
@@ -788,7 +788,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
       "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
-      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings`",
+      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings` · `/cade project import`",
       "Send `/cade help` any time to see this again.",
     ]);
     for (const usage of ["/cade task", "/cade incident", "@Cade task", "@Cade priority high", "@Cade due 31/12/2026"]) {
@@ -2537,7 +2537,6 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
   const good = [{ name: "acme", channel: "C0000000002" }];
   for (const [config, problem] of [
     ["{", /not valid JSON/],
-    [{ timezone: "UTC" }, /must list \{ name, channel \}/],
     [{ projects: [{ channel: "C0000000002" }] }, /must list \{ name, channel \}/],
     [{ projects: [{ name: "acme" }] }, /must list \{ name, channel \}/],
     [{ projects: [{ name: "acme", channel: "#acme-dev" }] }, /doesn't look like a Slack channel ID/],

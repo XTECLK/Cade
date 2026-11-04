@@ -45,7 +45,7 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `projects` | **Required** | One entry per project, each with the settings in the next table. The project is a Slack channel where the team tracks its tasks and incidents, optionally with its own Google Doc for executive summaries. | `npm run group` (step 8), or write them by hand. |
+| `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: send `/cade project init` in a channel to add it (an `admins` person), `/cade project settings` to change its switches, and `/cade project import` to copy these into the database, after which you can delete `projects` from the file. | `npm run group` (step 8), or write them by hand, or leave it out and use `/cade project init`. |
 | `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `admins` | Optional (none) | The Slack user IDs of the people who can run `/cade project init` and `/cade project settings` and so change each project's switches in a Slack form, without editing the file. Everyone else is told only an admin can. | Add `"admins": ["U0123ABCD"]` (a person's profile → ⋯ → Copy member ID), then `npm run config`. |
 | `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (`/cade mcp init`). `false` turns the MCP endpoint off: it answers 404, `/cade mcp init` gives no keys and the new-task prompt for an agent isn't shown. Keys already made stop working, and `/cade mcp revoke` still deletes them. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
@@ -65,7 +65,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | `activeTasksPinning` | Optional (`false`) | Whether open tasks are pinned in the channel (and unpinned when done, archived or moved). `true` to pin them (needs the `pins:write` permission); with `false`, pins are left alone, and tasks already pinned stay pinned. |
 | `summaryCanvas` | Optional (`false`) | Whether the channel has a summary canvas of its tasks, kept up to date. `true` to keep one; with `false`, none is written and `/cade resync summary` says it is off, and a canvas already made stays as it is. |
 
-Start from `cade.config.sample.json`, which lists every option; copy it to `cade.config.json`, keep what you need and delete the rest. `npm run config` checks the file
+Start from `cade.config.sample.json`, which lists the options at the top of the file (the options for each project are in the table above); copy it to `cade.config.json`, keep what you need and delete the rest. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
 
 To add or change a group without editing the file, `npm run group` takes

@@ -10,8 +10,10 @@ const ROLES = ["channel"];
 // [vars] in wrangler.toml give it.
 export function projects(env) {
   const raw = env.PROJECTS ?? env.CHANNEL_PAIRS;
+  // None in the config is fine: projects can be kept in the database (see settings.js).
+  if (raw === undefined) return [];
   const list = typeof raw === "string" ? parseProjects(raw) : raw;
-  if (!Array.isArray(list) || !list.length || list.some((project) => !project?.name || !(project.channel ?? project.tasks))) {
+  if (!Array.isArray(list) || list.some((project) => !project?.name || !(project.channel ?? project.tasks))) {
     throw new Error("PROJECTS must list { name, channel } for each project");
   }
   return list.map(({ tasks, ...project }) => ({ ...project, channel: project.channel ?? tasks }));

@@ -1,6 +1,6 @@
 import { aiModel } from "./ai.js";
 import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.js";
-import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
+import { addProject, addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
 
 // The project settings that can be changed in the form `/cade project settings` opens (see commands/project.js), each on or off.
 // A project's name, channel and aiModel stay in cade.config.json. A setting changed on the page
@@ -14,6 +14,11 @@ export const SETTINGS = [
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
 
+// What else a project keeps in the database besides those: its AI model and work doc, which
+// aren't changed in the form but come with the project when it's imported from the config.
+const IMPORTED = ["aiModel", "workDoc"];
+const STORED = [...SETTINGS.map((setting) => setting.key), ...IMPORTED];
+
 // The env with the projects added with `/cade project init` and the settings changed on the admin
 // page merged into its projects, so the code that reads them (projects, groupSetting, …) needs no
 // change. `PROJECTS_BASE` keeps what the config said. If they can't be read, the config alone is used.
@@ -21,7 +26,7 @@ export async function withSettings(env) {
   try {
     const [rows, added] = await Promise.all([projectSettings(env), addedProjects(env)]);
     if (!rows.length && !added.length) return env;
-    const keys = SETTINGS.map((setting) => setting.key);
+    const keys = STORED;
     const configured = projects(env);
     const known = new Set(configured.map((project) => project.channel));
     const merged = [...configured, ...added.filter((project) => !known.has(project.channel)).map((project) => ({ ...project, added: true }))].map((project) => ({
@@ -77,7 +82,7 @@ export function settingOn(env, channel, key) {
 }
 
 // The env as the config alone has it, without the added projects and the settings changed here.
-export const configEnv = (env) => (env.PROJECTS_BASE ? { ...env, PROJECTS: env.PROJECTS_BASE, CHANNEL_PAIRS: undefined } : env);
+export const configEnv = (env) => ("PROJECTS_BASE" in env ? { ...env, PROJECTS: env.PROJECTS_BASE, CHANNEL_PAIRS: undefined } : env);
 
 // The choice made for each setting of the project with `channel` now: "config", "on" or "off".
 export async function choicesOf(env, channel) {
@@ -101,4 +106,28 @@ export async function applySettings(env, channel, choices, user) {
     console.log("Project setting changed", { project: project.name, key, to: choice, by: user });
   }
   return changed;
+}
+
+// Copies the projects in cade.config.json into the database: each one's name and channel, and the
+// settings, AI model and work doc it sets. One already in the database is left as it is. Returns
+// { moved, kept }: the names of those copied, and of those already there. Once they're in, the
+// config's `projects` can go (`npm run config` then sets none), and the database has them.
+export async function importProjects(env, user) {
+  const present = new Set((await addedProjects(env)).map((project) => project.channel));
+  const stored = new Set((await projectSettings(env)).map((row) => `${row.channel}|${row.key}`));
+  const moved = [];
+  const kept = [];
+  for (const project of projects(configEnv(env))) {
+    if (present.has(project.channel)) {
+      kept.push(project.name);
+      continue;
+    }
+    await addProject(env, project.channel, project.name, user);
+    for (const key of STORED) {
+      if (project[key] !== undefined && !stored.has(`${project.channel}|${key}`)) await setProjectSetting(env, project.channel, key, project[key], user);
+    }
+    moved.push(project.name);
+    console.log("Project imported", { name: project.name, channel: project.channel, by: user });
+  }
+  return { moved, kept };
 }

@@ -1,6 +1,6 @@
 import { projects } from "../channels.js";
 import { addProject } from "../db.js";
-import { SETTINGS, applySettings, choicesOf, configEnv, isAdmin, settingOn } from "../settings.js";
+import { SETTINGS, applySettings, choicesOf, configEnv, importProjects, isAdmin, settingOn } from "../settings.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 
 const SETTINGS_VIEW = "project:settings";
@@ -16,7 +16,7 @@ const PICK_ACTION = "project:pick";
 export default {
   name: "project",
   description: "Make this channel a project, so its tasks are tracked here: `init` adds it, `settings` opens the projects' settings. Admins only",
-  slashUsage: ["/cade project init", "/cade project settings"],
+  slashUsage: ["/cade project init", "/cade project settings", "/cade project import"],
   admin: true,
   section: "work",
   async slash(command, { env }) {
@@ -32,7 +32,16 @@ export default {
       await callSlack(env, "views.open", { trigger_id: command.triggerId, view: await settingsView(env, command.channel) });
       return undefined;
     }
-    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, `/cade project settings` for the projects' settings, or `/cade project` to see if this channel is one.";
+    if (action.toLowerCase() === "import") {
+      const { moved, kept } = await importProjects(env, command.user);
+      if (!moved.length && !kept.length) return "cade.config.json has no projects to import. Send `/cade project init` in a channel to add one.";
+      return [
+        moved.length ? `:white_check_mark: Copied ${moved.length} project${moved.length === 1 ? "" : "s"} from cade.config.json into Cade's database: ${moved.map((name) => `*${name}*`).join(", ")}, with their switches, AI model and work doc.` : "Nothing new to copy.",
+        kept.length ? `Already in the database: ${kept.map((name) => `*${name}*`).join(", ")}.` : "",
+        "You can now take `projects` out of cade.config.json and run `npm run config`; their settings are changed with `/cade project settings`.",
+      ].filter(Boolean).join("\n");
+    }
+    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, `/cade project settings` for the projects' settings, `/cade project import` to copy the config's projects into the database, or `/cade project` to see if this channel is one.";
 
     if (existing) {
       return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. \`/cade project settings\` opens its settings.`;
@@ -87,7 +96,7 @@ async function settingsView(env, channel) {
         text: mrkdwn("*Project*"),
         accessory: { type: "static_select", action_id: PICK_ACTION, initial_option: picks.find((pick) => pick.value === project.channel), options: picks },
       },
-      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "added with `/cade project init`" : "its name, channel and AI model are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
+      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name, channel and AI model" : "its name, channel and AI model are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
       ...SETTINGS.map(({ key, label, about }) => {
         const options = Object.entries(CHOICES).map(([value, text]) => option(value === "config" ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})` : text, value));
         return {

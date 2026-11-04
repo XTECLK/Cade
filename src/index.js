@@ -22,14 +22,16 @@ export default {
     // request came by unless PUBLIC_URL says otherwise (see links.js).
     env = env.PUBLIC_URL ? env : { ...env, PUBLIC_URL: new URL(request.url).origin };
     const path = new URL(request.url).pathname;
+    // The projects kept in the database, and the settings changed in the project settings form,
+    // are merged into the config's for everything below, the MCP endpoint and web pages too
+    // (see settings.js).
+    env = await withSettings(env);
     // AI agents reach Cade's MCP endpoint with an API key of their own in a
     // header, not Slack's signature (see mcp.js).
     if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
     // People reach a task's thread and notes pages with a session of their
     // own, which `/cade web login` starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
-    // Settings changed in the project settings form win over the config (see settings.js).
-    env = await withSettings(env);
     const route = ROUTES[path];
     if (!route) return new Response("Not found", { status: 404 });
     if (request.method !== "POST") {

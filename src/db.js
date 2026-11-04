@@ -743,7 +743,7 @@ export async function clearProjectSetting(env, channel, key) {
 
 // The projects added with `/cade project init`, as { channel, name }.
 export async function addedProjects(env) {
-  const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY created_at, channel").all();
+  const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY rowid").all();
   return results;
 }
 

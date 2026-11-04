@@ -2,18 +2,5 @@
   "timezone": "Asia/Colombo",
   "mcp": true,
   "admins": ["U0000000001"],
-  "googleUrl": "https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec",
-  "projects": [
-    {
-      "name": "acme",
-      "channel": "C0000000001",
-      "workDoc": "https://docs.google.com/document/d/1QrStUvWxYz0123456789abcdefAbCdEfGhIjKlMnOp/edit",
-      "taskStatusChangeDetection": true,
-      "newMessageTaskDetection": true,
-      "aiSuggestions": true,
-      "aiModel": "@cf/zai-org/glm-4.7-flash",
-      "activeTasksPinning": false,
-      "summaryCanvas": false
-    }
-  ]
+  "googleUrl": "https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec"
 }

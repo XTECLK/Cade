@@ -267,8 +267,9 @@
       <!-- mcp-tools:start -->
       <div class="feature"><div class="bar"></div><h3>Tools, from the server's own definitions</h3>
         <ul class="tools">
-          <li><a href="mcp.html#get_flows"><code>get_flows</code></a> (name, task_id) → <code>flows</code>, <code>name</code>, <code>steps</code></li>
-          <li><a href="mcp.html#get_task"><code>get_task</code></a> (task_id, link, fields) → <code>task_id</code>, <code>title</code>, <code>project</code>, <code>channel</code>, …</li>
+          <li><a href="mcp.html#get_flows"><code>get_flows</code></a> → <code>flows</code></li>
+          <li><a href="mcp.html#get_flow"><code>get_flow</code></a> (name, task_id) → <code>name</code>, <code>title</code>, <code>steps</code>, <code>chain</code></li>
+          <li><a href="mcp.html#get_task"><code>get_task</code></a> (task_id, fields) → <code>task_id</code>, <code>title</code>, <code>project</code>, <code>channel</code>, …</li>
           <li><a href="mcp.html#get_thread_history"><code>get_thread_history</code></a> (thread_id, link) → <code>thread_id</code>, <code>channel_name</code>, <code>messages</code></li>
           <li><a href="mcp.html#get_task_history"><code>get_task_history</code></a> (task_id, link) → <code>task_id</code>, <code>title</code>, <code>messages</code>, <code>original_thread</code></li>
           <li><a href="mcp.html#get_tasks"><code>get_tasks</code></a> (mine, role, assignee, unassigned, status, project, fields, limit) → <code>total</code>, <code>tasks</code></li>

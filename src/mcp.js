@@ -13,11 +13,12 @@ import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Eleven tools:
+// task, with the model and subscription they already have. Twelve tools:
 //
-//   get_flows(name?, task_id?)         the flows Cade supports, such as writing
-//                                      a task's summary, and their steps
-//   get_task(task_id | link)           one task: its details, summary and
+//   get_flows()                        the flows Cade supports, such as writing
+//                                      a task's summary
+//   get_flow(name, task_id?)           one flow's steps, and the tools it chains
+//   get_task(task_id, fields?)         one task: its details, summary and
 //                                      notes, not its threads
 //   get_thread_history(thread_id | link)
 //                                      a whole thread, read from Slack
@@ -87,7 +88,7 @@ const INSTRUCTIONS = [
   "Find tasks: get_tasks lists tasks, open ones by default: mine or role for the ones you are on, assignee or unassigned for others, status and limit to narrow it. It gives each task's ID and link.",
   "Read a task with get_task (details, summary and notes; no threads), and its threads separately: get_task names the thread the task was made from (where the problem or request was first raised), which get_thread_history reads from Slack, and get_task_history gives the messages Cade kept of the task's own thread, even those Slack no longer returns, which is what was done about it: the solution applied, the actions taken and how it ended. Pass either the task_id.",
   "Read any other thread with get_thread_history and a message link; it asks Slack, which hides messages older than 90 days on the free plan. Look up the people in a thread (the user IDs on its messages and in <@…> mentions) with get_user. get_users lists the workspace's people with their IDs, and find_user_by_name finds one by name.",
-  "Cade has flows, step-by-step ways to do a job with its tools, such as writing a task's summary (summarize_task), triaging tasks (triage_tasks), explaining a task (explain_task) and planning the person's work (plan_my_work). When asked to do one, call get_flows with its name to get the steps, and follow them; get_flows with no name lists them.",
+  "Cade has flows, step-by-step ways to do a job with its tools, such as writing a task's summary (summarize_task), triaging tasks (triage_tasks), explaining a task (explain_task) and planning the person's work (plan_my_work). When asked to do one, call get_flow with its name to get the steps and the tools to chain, and follow them; get_flows lists them.",
   "If the person asks to summarize or prepare a task's summary without saying which task, call get_tasks with mine, list their tasks and ask which one; don't guess.",
   "To summarize a task, write its issue only: read the thread it was made from (get_task gives its ID) with get_thread_history, look up the people, then draft the summary, show it to the person and ask whether to save it or change it, and only when they approve it save it with update_task and the same task_id. Leave out the actions and the result, which the task's own thread already has. It replaces the summary written before. The summarize_task prompt does all of this.",
   "To triage a task, change its status, priority, due date or people with update_task (find a person's user ID with find_user_by_name): propose the changes with the reason, show them to the person and ask, and only when they approve call update_task. Cade posts the change in the task's thread, so never change a task unasked.",
@@ -96,12 +97,12 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_flows: getFlows, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
+const RUNNERS = { get_flows: getFlows, get_flow: getFlow, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
 
 // The flows (see flows.js) as MCP prompts, which an agent offers its user, such
 // as Claude Code as the slash command /mcp__cade__summarize_task.
-const PROMPTS = FLOWS.map(({ steps, ...prompt }) => prompt);
+const PROMPTS = FLOWS.map(({ steps, chain, ...prompt }) => prompt);
 
 // A flow's arguments from a call, or an error message for a task_id that isn't one.
 function flowArguments(args) {
@@ -118,22 +119,26 @@ function getPrompt(id, params) {
   return success(id, { description: flow.description, messages: [{ role: "user", content: { type: "text", text: flow.steps(taskId) } }] });
 }
 
-// The same flows for a client that doesn't show prompts: a list, or one flow's steps.
-async function getFlows(env, user, { name, task_id: taskId } = {}) {
-  if (name === undefined) {
-    const text = [
-      "The flows Cade supports. Call get_flows again with a name (and a task_id, where it takes one) for the steps to follow:",
-      ...FLOWS.map((flow) => `- ${flow.name}${flow.arguments.length ? ` (${flow.arguments.map((arg) => `${arg.name}${arg.required ? "" : "?"}`).join(", ")})` : ""}: ${flow.description}.`),
-    ].join("\n");
-    const flows = FLOWS.map((flow) => ({ name: flow.name, description: flow.description, arguments: flow.arguments.map((arg) => arg.name) }));
-    return { text, data: { flows, name: "", steps: "" } };
-  }
+// The same flows for a client that doesn't show prompts: a list.
+async function getFlows() {
+  const flows = FLOWS.map(({ name, title, description, arguments: args }) => ({ name, title, description, arguments: args.map(({ name, required, description }) => ({ name, required: Boolean(required), description })) }));
+  const text = [
+    "The flows Cade supports. Call get_flow with a name (and a task_id, where it takes one) for the steps to follow:",
+    ...FLOWS.map((flow) => `- ${flow.name}${flow.arguments.length ? ` (${flow.arguments.map((arg) => `${arg.name}${arg.required ? "" : "?"}`).join(", ")})` : ""}: ${flow.description}.`),
+  ].join("\n");
+  return { text, data: { flows } };
+}
+
+// One flow's steps, as text and as the chain of tools they use.
+async function getFlow(env, user, { name, task_id: taskId } = {}) {
   const flow = FLOWS.find((candidate) => candidate.name === name);
   if (!flow) throw new ToolError(`There is no flow called "${name}". They are: ${FLOWS.map((candidate) => candidate.name).join(", ")}.`);
   const { taskId: valid, error } = flowArguments({ task_id: taskId });
   if (error) throw new ToolError(error);
   const steps = flow.steps(valid);
-  return { text: `Flow ${flow.name}. Follow these steps:\n\n${steps}`, data: { flows: [], name: flow.name, steps } };
+  const chain = flow.chain.map(({ tool, purpose, arguments: args, optional, approval }) => ({ tool, purpose, arguments: args, optional, approval }));
+  const tools = chain.map((step, i) => `${i + 1}. ${step.tool}${step.approval ? " (after the person approves)" : ""}${step.optional ? " (if needed)" : ""}: ${step.purpose}`);
+  return { text: `Flow ${flow.name}. Follow these steps:\n\n${steps}\n\nThe tools, in order:\n${tools.join("\n")}`, data: { name: flow.name, title: flow.title, steps, chain } };
 }
 
 // Thrown by a tool for what the agent should be told, as a result it can
@@ -360,7 +365,8 @@ function taskData(env, channel, ts, task, link) {
 // One task: its details, summary and notes, without its threads, or only the `fields` asked
 // for. Nothing is asked of Slack.
 async function getTaskView(env, user, args) {
-  const { channel, ts } = taskRef(args);
+  if (args.task_id === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
+  const { channel, ts } = taskRef({ task_id: args.task_id });
   const { fields } = args;
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_VIEW_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_VIEW_FIELDS.join(", ")}.`);
   const task = await loadTask(env, channel, ts);

@@ -163,7 +163,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal(init.result.serverInfo.name, "cade");
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_flows", "get_tasks", "get_task", "update_task", "send_task_message", "get_user", "get_users", "find_user_by_name", "get_task_history", "get_thread_history"]) {
+  for (const name of ["get_flows", "get_flow", "get_tasks", "get_task", "update_task", "send_task_message", "get_user", "get_users", "find_user_by_name", "get_task_history", "get_thread_history"]) {
     assert.ok(init.result.instructions.includes(name), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -178,10 +178,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_tasks", "get_task", "update_task", "get_task_history", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "update_task", "get_task_history", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -709,7 +709,7 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);
 });
 
-test("get_flows lists the flows and gives the steps of one, the same as the prompts", async (t) => {
+test("get_flows lists the flows, and get_flow gives the steps and tool chain of one, the same as the prompts", async (t) => {
   mock(t);
   const url = addressIn(await slash("mcp init"));
   const TASK = "CDEV:1700000000.000100";
@@ -718,22 +718,33 @@ test("get_flows lists the flows and gives the steps of one, the same as the prom
   assert.equal(list.isError, false, list.text);
   assert.match(list.text, /^The flows Cade supports\./);
   assert.match(list.text, /- summarize_task \(task_id\?\): Write a task's summary: the issue, from the thread the task was made from\./);
-  assert.match(list.text, /- explain_task \(task_id\?\): .*Issue, Action and Result/);
   assert.match(list.text, /- plan_my_work: Look at my open tasks/);
+  assert.deepEqual(list.data.flows.map((flow) => flow.name), ["summarize_task", "triage_tasks", "explain_task", "plan_my_work"]);
+  assert.deepEqual(list.data.flows[0].arguments.map((arg) => [arg.name, arg.required]), [["task_id", false]]);
 
   // One flow's steps are the prompt's text, whichever way an agent asks for it.
-  const steps = await tool(url, "get_flows", { name: "summarize_task", task_id: TASK });
+  const steps = await tool(url, "get_flow", { name: "summarize_task", task_id: TASK });
+  assert.equal(steps.isError, false, steps.text);
   assert.match(steps.text, /^Flow summarize_task\. Follow these steps:\n\nWrite the issue summary of the Cade task CDEV:1700000000\.000100\./);
   const { result } = await (await rpc(url, { id: 2, method: "prompts/get", params: { name: "summarize_task", arguments: { task_id: TASK } } })).json();
-  assert.ok(steps.text.endsWith(result.messages[0].content.text));
+  assert.ok(steps.data.steps.endsWith(result.messages[0].content.text) || result.messages[0].content.text === steps.data.steps);
+  // The tools to chain, in order, with where each argument comes from.
+  assert.deepEqual(steps.data.chain.map((step) => step.tool), ["get_tasks", "get_task", "get_thread_history", "get_user", "update_task"]);
+  assert.equal(steps.data.chain[2].arguments.thread_id, "get_task.original_thread.thread_id");
+  assert.deepEqual(steps.data.chain.map((step) => step.approval), [false, false, false, false, true]);
+  assert.match(steps.text, /The tools, in order:\n1\. get_tasks \(if needed\): [^\n]*\n[\s\S]*\n5\. update_task \(after the person approves\)/);
+  assert.ok(!JSON.stringify(list.data).includes("chain"));
   // Without a task, the flow starts by asking which.
-  assert.match((await tool(url, "get_flows", { name: "explain_task" })).text, /First, ask which task\. Call get_tasks with mine/);
+  assert.match((await tool(url, "get_flow", { name: "explain_task" })).text, /First, ask which task\. Call get_tasks with mine/);
   // A flow that saves nothing says so, and the one that needs no task needs none.
-  assert.match((await tool(url, "get_flows", { name: "explain_task", task_id: TASK })).text, /Explain the Cade task CDEV:1700000000\.000100 to the person.*Save nothing\./s);
-  assert.match((await tool(url, "get_flows", { name: "plan_my_work" })).text, /get_tasks with mine for their open tasks/);
+  assert.match((await tool(url, "get_flow", { name: "explain_task", task_id: TASK })).text, /Explain the Cade task CDEV:1700000000\.000100 to the person.*Save nothing\./s);
+  assert.match((await tool(url, "get_flow", { name: "plan_my_work" })).text, /get_tasks with mine for their open tasks/);
 
-  assert.match((await tool(url, "get_flows", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, plan_my_work/);
-  assert.match((await tool(url, "get_flows", { name: "summarize_task", task_id: "12" })).text, /channel and the message time joined by a colon/);
+  assert.match((await tool(url, "get_flow", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, plan_my_work/);
+  assert.match((await tool(url, "get_flow", { name: "summarize_task", task_id: "12" })).text, /channel and the message time joined by a colon/);
+  // The prompts don't carry the chain.
+  const prompts = (await (await rpc(url, { id: 3, method: "prompts/list" })).json()).result.prompts;
+  assert.ok(prompts.every((prompt) => !("chain" in prompt) && !("steps" in prompt)));
 });
 
 // The track form, submitted from a message: `move` is where it came from.

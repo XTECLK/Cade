@@ -180,10 +180,9 @@ Cade is also an [MCP](https://modelcontextprotocol.io) server at
 header, never in the address. `/cade mcp init` gives the person a key of
 their own, shown only to them with the endpoint and the commands to add it to
 their agent, and `/cade mcp revoke` ends it; only a hash is kept, in
-`mcp_tokens`. Its ten tools are `get_flows(name?, task_id?)`, which lists the flows Cade
-supports (`src/flows.js`: `summarize_task`, `explain_task`, `plan_my_work`) and
-gives the steps of one, so a client that doesn't show MCP prompts can follow them
-too; `get_task(task_id | link)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
+`mcp_tokens`. Its tools are `get_flows()`, which lists the flows Cade
+supports (`src/flows.js`: `summarize_task`, `triage_tasks`, `explain_task`, `plan_my_work`), and `get_flow(name, task_id?)`, which gives the steps of one as text and as the chain of tools to call (with where each argument comes from), so a client that doesn't show MCP prompts can follow them
+too; `get_task(task_id, fields?)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
 thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
 `get_task_history(task_id | link)`, which reads the messages Cade kept of a tracked
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still

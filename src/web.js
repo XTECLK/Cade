@@ -156,7 +156,7 @@ textarea{box-sizing:border-box;width:100%;background:var(--card);color:var(--fg)
 button{margin-top:8px;background:var(--accent);color:var(--bg);border:0;border-radius:6px;padding:8px 18px;font:inherit;cursor:pointer}
 .error{color:#d93025}.ok{color:#188038}`;
 
-function page(status, title, content, headers = {}) {
+export function page(status, title, content, headers = {}) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers } });
 }

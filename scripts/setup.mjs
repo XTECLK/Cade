@@ -183,16 +183,13 @@ You'll be asked for it, then to install the app and give its bot token; both hid
     if ((await runLive("node", ["scripts/slack-app.mjs", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
   });
 
-  await step("Google Doc for executive summaries (optional)", async () => {
+  await step("Google Doc for executive summaries", async () => {
     if (await exists(GOOGLE_APP)) {
       console.log("The Google web app is already created (.cade/google-app.json).");
       return;
     }
-    if (!(await yes("Keep each group's executive summaries in a Google Doc?", false))) {
-      console.log("Skipped. Add them later with npm run google:create.");
-      return;
-    }
     console.log(`
+Every project keeps its executive summaries in a Google Doc, which Cade makes for it when it's added.
 Cade's script and Docs are best owned by a Google account of their
 own, so Cade can only reach what it makes, not your personal Drive.`);
     if (await yes("Create a separate Google account for Cade? (No: use an existing account.)")) {

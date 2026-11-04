@@ -1,7 +1,7 @@
 # Getting started
 
 Self-host Cade for your team: one Cloudflare Worker and one Slack app, and
-an optional Google Doc for executive summaries. There is no server to run;
+a Google Doc for each project's executive summaries. There is no server to run;
 Cade keeps its tasks, their threads and their notes in a Cloudflare D1
 database that comes with the Worker, and shows them in Slack and on pages of
 the Worker.
@@ -15,7 +15,7 @@ npm run setup
 ```
 
 It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
-Slack app, optionally a Google Doc for executive summaries, then your first group. It
+Slack app, a Google Doc for executive summaries, then your first group. It
 pauses where a person has to click in a browser, skips what's done already,
 and can be run again to carry on. Tokens and secrets are asked for by the
 scripts it runs, hidden, and never stored in a file.
@@ -29,7 +29,7 @@ someone to click in a browser.
 - Node.js 20 or newer, and git.
 - A Cloudflare account (the free plan is enough).
 - A Slack workspace where you can create apps.
-- Optional: a Google account, for executive summaries.
+- A Google account, for each project's executive-summary Doc.
 
 ## Settings
 
@@ -49,7 +49,7 @@ values).
 | `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `admins` | Optional (none) | The Slack user IDs of the people who can run `/cade project init` and `/cade project settings` and so change each project's switches in a Slack form, without editing the file. Everyone else is told only an admin can. | Add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
 | `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (`/cade mcp init`). `false` turns the MCP endpoint off: it answers 404, `/cade mcp init` gives no keys and the new-task prompt for an agent isn't shown. Keys already made stop working, and `/cade mcp revoke` still deletes them. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
-| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work; Cade needs nothing else from Google. With it, each project's Doc is made for it by `/cade project init`; a project from the config file takes its `workDoc` from there. | Set for you by `npm run google:create` (step 7). |
+| `googleUrl` | Required to add projects | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Every project has a Google Doc for its executive summaries, made for it by `/cade project init` (and by `/cade project import` for a project without one); without Google set up, neither works. A project from the config file can name an existing Doc as `workDoc`. | Set for you by `npm run google:create` (step 7). |
 
 Each entry in `projects` takes these. Nothing else is set at the top of the file: the settings below belong to a project, so two projects can differ.
 
@@ -204,7 +204,7 @@ and paste it when the script asks. If you skipped that:
 npx wrangler secret put SLACK_BOT_TOKEN
 ```
 
-## 7. Optional: a Google Doc for executive summaries
+## 7. A Google Doc for executive summaries
 
 Each group can have its own Google Doc, where `/cade
 brief` writes executive summaries to go through with the client and

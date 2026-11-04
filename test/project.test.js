@@ -14,6 +14,9 @@ const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   PROJECTS: [{ name: "acme", channel: "CDEV", summaryCanvas: true }],
+  // Every project has a Google Doc, which /cade project init has the web app make.
+  GOOGLE_URL: "https://script.google.com/macros/s/test/exec",
+  GOOGLE_SECRET: "g",
   // Only these can run /cade project and open the settings form.
   ADMINS: JSON.stringify(["UADMIN"]),
 };
@@ -28,10 +31,15 @@ async function sign(body) {
 }
 
 // A fake Slack API: `slack` maps a method to its result (or a function of its arguments).
-function mock(t, slack = {}) {
+function mock(t, slack = {}, google = () => ({ ok: true, id: "1NewDocNewDocNewDocNewDocNewDoc" })) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
+    if (url === env.GOOGLE_URL) {
+      const body = JSON.parse(init.body);
+      calls.push({ method: `google:${body.action}`, args: body });
+      return Response.json(google(body));
+    }
     const method = new URL(url).pathname.split("/").pop();
     const args = Object.fromEntries(new URLSearchParams(init.body));
     calls.push({ method, args });
@@ -219,6 +227,8 @@ test("/cade project import copies the config's projects into the database, with 
   assert.match(await run("import", configured, "UMEMBER"), /Only an admin/);
   const first = await run("import");
   assert.match(first, /Copied 2 projects .*\*acme\*, \*beta\*/);
+  // acme has a doc in the config; beta is given one.
+  assert.match(first, /Made a Google Doc for \*beta\*\./);
   // The database now has them, with what the config set: the config can be left without projects.
   const bare = { ...env, PROJECTS: undefined, CHANNEL_PAIRS: undefined };
   const merged = projects(await withSettings(bare));
@@ -233,34 +243,31 @@ test("/cade project import copies the config's projects into the database, with 
   assert.match(await run("import", bare), /no projects to import/);
 });
 
-test("/cade project init makes the project's Google Doc when Google is set up, and needs none when it isn't", async (t) => {
+test("/cade project init makes the project's Google Doc first, and keeps it with the project", async (t) => {
   const docId = "1PaymentsDocPaymentsDocPayments";
-  const google = { ...env, GOOGLE_URL: "https://script.google.com/macros/s/test/exec", GOOGLE_SECRET: "g" };
-  const calls = [];
-  const original = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    if (url === google.GOOGLE_URL) {
-      const body = JSON.parse(init.body);
-      calls.push(body);
-      return Response.json({ ok: true, id: docId });
-    }
-    return Response.json({ ok: true, channel: { name: "payments", is_member: true } });
-  };
-  t.after(() => (globalThis.fetch = original));
-  const run = async (e, channel) => {
-    const body = new URLSearchParams({ command: "/cade", text: "project init", user_id: "UADMIN", channel_id: channel, trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
-    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), e, { waitUntil() {} })).json()).text;
-  };
-  const reply = await run(google, "CNEW");
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: true, id: docId }));
+  const reply = await slash("init");
   assert.match(reply, /now the project \*payments\*/);
   assert.match(reply, new RegExp(`https://docs\\.google\\.com/document/d/${docId}/edit\\|a Google Doc`));
-  assert.deepEqual(calls.map((call) => [call.action, call.title]), [["doc.create", "payments executive summaries"]]);
-  // The doc is kept with the project, so /cade brief finds it.
+  assert.deepEqual(calls.filter((call) => call.method.startsWith("google:")).map((call) => [call.method, call.args.title]), [["google:doc.create", "payments executive summaries"]]);
   const { withSettings } = await import("../src/settings.js");
-  assert.equal(projects(await withSettings(google)).find((p) => p.channel === "CNEW").workDoc, docId);
-  // Without Google, the project is added all the same, and no doc is asked for.
-  calls.length = 0;
-  const plain = await run(env, "COTHER");
-  assert.match(plain, /now the project \*payments\*|There is a project called/);
-  assert.equal(calls.length, 0);
+  assert.equal(projects(await withSettings(env)).find((p) => p.channel === "CNEW").workDoc, docId);
+});
+
+test("/cade project init and import need Google set up, and add nothing when the doc can't be made", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: false, error: "quota" }));
+  const { withSettings } = await import("../src/settings.js");
+  // The doc can't be made: the project isn't added.
+  assert.match(await slash("init"), /couldn't make the project's Google Doc just now \(Google web app refused doc\.create: quota\), so I haven't added it/);
+  assert.deepEqual(projects(await withSettings(env)).map((p) => p.name), ["acme"]);
+  // Without Google, neither works.
+  const bare = { ...env, GOOGLE_URL: undefined };
+  const run = async (text) => {
+    const body = new URLSearchParams({ command: "/cade", text: `project ${text}`, user_id: "UADMIN", channel_id: "CNEW", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
+    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), bare, { waitUntil() {} })).json()).text;
+  };
+  const before = calls.length;
+  assert.match(await run("init"), /Google web app isn't set up yet: run `npm run google:create`/);
+  assert.match(await run("import"), /Google web app isn't set up yet/);
+  assert.equal(calls.length, before);
 });

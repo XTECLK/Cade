@@ -11,7 +11,8 @@ const PICK_ACTION = "project:pick";
 // `/cade project init` makes the channel it's sent in a project, as one added to cade.config.json
 // would be: its tasks are tracked there (see channels.js). The project is named after the channel,
 // or by `/cade project init <name>`, and its name and channel can't be changed afterwards. In a
-// channel that is a project already it only warns. `/cade project settings` opens a form in Slack
+// channel that is a project already it only warns. Every project has a Google Doc for its executive
+// summaries, made by `init` (so Google must be set up first) and by `import` for a project without one. `/cade project settings` opens a form in Slack
 // with a project's switches (see settings.js), each following the config or turned on or off, and a
 // list to pick the project from. `/cade project` tells which project the channel is. Only the
 // admins listed in cade.config.json can use any of it.
@@ -35,11 +36,14 @@ export default {
       return undefined;
     }
     if (action.toLowerCase() === "import") {
-      const { moved, kept } = await importProjects(env, command.user);
+      if (!googleEnabled(env)) return NO_GOOGLE;
+      const { moved, kept, docs, failed } = await importProjects(env, command.user);
       if (!moved.length && !kept.length) return "cade.config.json has no projects to import. Send `/cade project init` in a channel to add one.";
       return [
         moved.length ? `:white_check_mark: Copied ${moved.length} project${moved.length === 1 ? "" : "s"} from cade.config.json into Cade's database: ${moved.map((name) => `*${name}*`).join(", ")}, with their switches, AI model and work doc.` : "Nothing new to copy.",
         kept.length ? `Already in the database: ${kept.map((name) => `*${name}*`).join(", ")}.` : "",
+        docs.length ? `Made a Google Doc for ${docs.map((name) => `*${name}*`).join(", ")}.` : "",
+        failed.length ? `:warning: I couldn't make a Google Doc for ${failed.map((name) => `*${name}*`).join(", ")}; send \`/cade project import\` again.` : "",
         "You can now take `projects` out of cade.config.json and run `npm run config`; their settings are changed with `/cade project settings`.",
       ].filter(Boolean).join("\n");
     }
@@ -48,6 +52,7 @@ export default {
     if (existing) {
       return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. \`/cade project settings\` opens its settings.`;
     }
+    if (!googleEnabled(env)) return NO_GOOGLE;
     let info;
     try {
       ({ channel: info } = await callSlack(env, "conversations.info", { channel: command.channel }));
@@ -65,24 +70,23 @@ export default {
     if (projects(env).some((project) => project.name.toLowerCase() === name.toLowerCase())) {
       return `:warning: There is a project called *${name}* already. Send \`/cade project init <another name>\`.`;
     }
+    // Its Google Doc, for executive summaries, is made first: without it the project isn't added.
+    let doc;
+    try {
+      doc = await ensureWorkDoc(env, { name, channel: command.channel }, command.user);
+    } catch (error) {
+      console.error("Could not make a work doc", { name, error: error.message });
+      return `I couldn't make the project's Google Doc just now (${error.message}), so I haven't added it. Could you try again?`;
+    }
     await addProject(env, command.channel, name, command.user);
     console.log("Project added", { name, channel: command.channel, by: command.user });
-    // Its work doc, for executive summaries, is made now if Google is set up; if not, nothing is needed.
-    let doc = "";
-    let docNote = "";
-    if (googleEnabled(env)) {
-      try {
-        doc = await ensureWorkDoc(env, { name, channel: command.channel }, command.user);
-      } catch (error) {
-        console.error("Could not make a work doc", { name, error: error.message });
-        docNote = " I couldn't make its Google Doc just now; `/cade brief` will try again.";
-      }
-    }
-    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and \`/cade project settings\` opens its settings.${doc ? ` Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).` : ""}${docNote}`;
+    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and \`/cade project settings\` opens its settings. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
   },
   views: { [SETTINGS_VIEW]: saveSettings },
   actions: { [PICK_ACTION]: pickProject },
 };
+
+const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md), then try again.";
 
 const CHOICES = { config: "Use the config", on: "On", off: "Off" };
 const state = (on) => (on === "some" ? "partly on" : on ? "on" : "off");

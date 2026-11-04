@@ -147,7 +147,7 @@ export function docProblem(env, group) {
     return "Executive summaries are kept in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md).";
   }
   if (!workDocId(group)) {
-    return `${group.name} has no Google Doc linked. It is made when a project is added with \`/cade project init\` and Google is set up; for this one, add the doc's address as \`"workDoc"\` to its project in cade.config.json, then run \`npm run config\`.`;
+    return `${group.name} has no Google Doc yet. Every project has one, made when it's added with \`/cade project init\`; for a project from cade.config.json, an admin sends \`/cade project import\` to make it.`;
   }
   return undefined;
 }

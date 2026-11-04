@@ -4753,7 +4753,7 @@ test("/cade brief needs the group to have a Google Doc, and does not make one", 
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
-  assert.match(JSON.parse(now).text, /^acme has no Google Doc linked\. It is made when a project is added with `\/cade project init`/);
+  assert.match(JSON.parse(now).text, /^acme has no Google Doc yet\. Every project has one, made when it's added with `\/cade project init`/);
   assert.equal(later, undefined);
   // Only /cade project init makes one.
   assert.ok(!calls.some((call) => call.method === "doc"));

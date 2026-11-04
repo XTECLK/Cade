@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
-import { getTask, putSummary, putTask } from "../src/db.js";
+import { getTask, insertRelease, decideRelease, putSummary, putTask } from "../src/db.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 import { fakeD1 } from "./d1.js";
 import { check } from "./schema.js";
@@ -121,7 +121,7 @@ test("the MCP server offers the summarize_task prompt, for a task's issue only",
   mock(t);
   const url = addressIn(await slash("mcp init"));
   const { result: list } = await (await rpc(url, { id: 1, method: "prompts/list" })).json();
-  assert.deepEqual(list.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [["summarize_task", [["task_id", false]]], ["triage_tasks", [["task_id", false]]], ["explain_task", [["task_id", false]]], ["plan_my_work", []]]);
+  assert.deepEqual(list.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [["summarize_task", [["task_id", false]]], ["triage_tasks", [["task_id", false]]], ["explain_task", [["task_id", false]]], ["check_prs", [["task_id", false]]], ["report_progress", [["task_id", false]]], ["plan_my_work", []]]);
   assert.ok(list.prompts.every((prompt) => !("steps" in prompt)));
 
   const { result } = await (await rpc(url, { id: 2, method: "prompts/get", params: { name: "summarize_task", arguments: { task_id: "CDEV:1700000000.000100" } } })).json();
@@ -184,10 +184,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_flows", "get_flow", "get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "get_projects", "get_user", "get_users", "find_user_by_name", "send_task_message", "update_task"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_flows", "get_flow", "get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_projects", "send_task_message"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -742,7 +742,7 @@ test("get_flows lists the flows, and get_flow gives the steps and tool chain of 
   assert.match(list.text, /^The flows Cade supports\./);
   assert.match(list.text, /- summarize_task \(task_id\?\): Write a task's summary: the issue, from the thread the task was made from\./);
   assert.match(list.text, /- plan_my_work: Look at my open tasks/);
-  assert.deepEqual(list.data.flows.map((flow) => flow.name), ["summarize_task", "triage_tasks", "explain_task", "plan_my_work"]);
+  assert.deepEqual(list.data.flows.map((flow) => flow.name), ["summarize_task", "triage_tasks", "explain_task", "check_prs", "report_progress", "plan_my_work"]);
   assert.deepEqual(list.data.flows[0].arguments.map((arg) => [arg.name, arg.required]), [["task_id", false]]);
 
   // One flow's steps are the prompt's text, whichever way an agent asks for it.
@@ -763,7 +763,7 @@ test("get_flows lists the flows, and get_flow gives the steps and tool chain of 
   assert.match((await tool(url, "get_flow", { name: "explain_task", task_id: TASK })).text, /Explain the Cade task CDEV:1700000000\.000100 to the person.*Save nothing\./s);
   assert.match((await tool(url, "get_flow", { name: "plan_my_work" })).text, /get_tasks with mine for their open tasks/);
 
-  assert.match((await tool(url, "get_flow", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, plan_my_work/);
+  assert.match((await tool(url, "get_flow", { name: "nope" })).text, /no flow called "nope"\. They are: summarize_task, triage_tasks, explain_task, check_prs, report_progress, plan_my_work/);
   assert.match((await tool(url, "get_flow", { name: "summarize_task", task_id: "12" })).text, /channel and the message time joined by a colon/);
   // The prompts don't carry the chain.
   const prompts = (await (await rpc(url, { id: 3, method: "prompts/list" })).json()).result.prompts;
@@ -845,4 +845,89 @@ test("the prompt isn't offered for a task not made from a message, from a DM, or
   t.after(() => (env.CHANNEL_PAIRS = original));
   const move = { channel: "CGEN", ts: "500.1", link: "https://acme.slack.com/archives/CGEN/p5001" };
   assert.deepEqual(await submitTrack({ channel: "CDEV", move }), { response_action: "clear" });
+});
+
+const PR1 = "https://github.com/acme/web/pull/1";
+const PR2 = "https://github.com/acme/web/pull/2";
+const PR3 = "https://github.com/acme/api/pull/3";
+
+test("get_task and get_tasks give a task's pull requests with where each is and the release it was sent with", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2, PR3] }));
+  const sent = await insertRelease(env, "CDEV", TS, { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  const approved = await insertRelease(env, "CDEV", TS, { prs: [PR2], note: "Sign-up", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  await decideRelease(env, approved, "APPROVED", "UCLIENT");
+  const turnedDown = await insertRelease(env, "CDEV", TS, { prs: [PR3], note: "Search", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  await decideRelease(env, turnedDown, "NOT_APPROVED", "UCLIENT");
+  mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" } });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs", "releases"] });
+  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.id ?? null]), [["web/1", "pending_approval", sent], ["web/2", "approved", approved], ["api/3", "pending", null]]);
+  assert.deepEqual(view.data.releases.map((release) => [release.id, release.status, release.sent_by, release.decided_by]), [[sent, "pending_approval", "UBOB", ""], [approved, "approved", "UBOB", "UCLIENT"]]);
+  assert.match(view.text, /- web\/1 \(pending approval\): https:\/\/github\.com\/acme\/web\/pull\/1/);
+  assert.match(view.text, /Release \d+ \(approved\), sent by UBOB, decided by UCLIENT: Sign-up/);
+
+  // get_tasks gives them when asked for, with the same states.
+  const listed = await tool(url, "get_tasks", { fields: ["title", "prs"] });
+  assert.deepEqual(listed.data.tasks[0].prs.map((pr) => [pr.label, pr.state]), [["web/1", "pending_approval"], ["web/2", "approved"], ["api/3", "pending"]]);
+  assert.ok(!("prs" in (await tool(url, "get_tasks", {})).data.tasks[0]));
+  // A Done task's are all approved.
+  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR3], status: "DONE" }));
+  assert.deepEqual((await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs"] })).data.prs.map((pr) => pr.state), ["approved", "approved"]);
+});
+
+test("get_releases lists releases waiting for approval, or approved or turned down, only for channels you can read", async (t) => {
+  await putTask(env, "CDEV", "1000000000.000100", stored({ title: "Login", prs: [PR1, PR2] }));
+  await putTask(env, "CPRIV", "1000000001.000100", stored({ title: "Secret", prs: [PR3] }));
+  const a = await insertRelease(env, "CDEV", "1000000000.000100", { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  const b = await insertRelease(env, "CDEV", "1000000000.000100", { prs: [PR2], note: "Sign-up", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  await decideRelease(env, b, "NOT_APPROVED", "UCLIENT");
+  await insertRelease(env, "CPRIV", "1000000001.000100", { prs: [PR3], note: "Hidden", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: [] },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const waiting = await tool(url, "get_releases", {});
+  assert.equal(waiting.isError, false, waiting.text);
+  assert.equal(waiting.data.total, 1);
+  assert.deepEqual(waiting.data.releases.map((r) => [r.id, r.task_id, r.task_title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "pending_approval", "Login done", ["web/1"]]]);
+  assert.match(waiting.text, /^1 release, oldest first:\n1\. acme: Login \(CDEV:1000000000\.000100\) — pending approval, sent by UBOB/);
+  assert.deepEqual((await tool(url, "get_releases", { status: "not_approved" })).data.releases.map((r) => [r.id, r.decided_by]), [[b, "UCLIENT"]]);
+  assert.equal((await tool(url, "get_releases", { status: "all" })).data.total, 2);
+  assert.equal((await tool(url, "get_releases", { task_id: "CDEV:1000000000.000100", status: "all" })).data.total, 2);
+  assert.equal((await tool(url, "get_releases", { project: "bare", status: "all" })).data.total, 0);
+  assert.match((await tool(url, "get_releases", { status: "approved" })).text, /^There are no releases approved to show\./);
+  assert.match((await tool(url, "get_releases", { status: "soon" })).text, /status is pending_approval/);
+  // A member of the private channel sees its release too.
+  const bob = addressIn(await slash("mcp init", "UBOB"));
+  const members = mock(t, { "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }), "conversations.members": { members: ["UBOB"] } });
+  assert.equal((await tool(bob, "get_releases", {})).data.total, 2);
+  assert.ok(members.length > 0);
+});
+
+test("update_task links and unlinks pull requests, and won't unlink one sent to the client", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2] }));
+  await insertRelease(env, "CDEV", TS, { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "chat.postMessage": {}, "chat.update": {}, "auth.test": { url: "https://acme.slack.com/" } });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const id = `CDEV:${TS}`;
+
+  const added = await tool(url, "update_task", { task_id: id, prs: { add: [PR3, ` <${PR3}> `] } });
+  assert.equal(added.isError, false, added.text);
+  assert.equal(added.data.changed, true);
+  assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR2, PR3]);
+  // PR2 was never sent, so it can go; the one in a release can't.
+  assert.equal((await tool(url, "update_task", { task_id: id, prs: { remove: [PR2] } })).data.changed, true);
+  assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR3]);
+  assert.match((await tool(url, "update_task", { task_id: id, prs: { remove: [PR1] } })).text, /sent to the client for approval, so I can't unlink it/);
+  assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR3]);
+  // Mistakes are said plainly.
+  assert.match((await tool(url, "update_task", { task_id: id, prs: { add: ["https://example.com/x"] } })).text, /doesn't look like a pull request link/);
+  assert.match((await tool(url, "update_task", { task_id: id, prs: { add: [PR2], remove: [PR2] } })).text, /same pull request is in add and remove/);
+  assert.match((await tool(url, "update_task", { task_id: id, prs: { add: "x" } })).text, /prs\.add is a list/);
+  assert.ok(calls.some((call) => call.method === "chat.update"));
 });

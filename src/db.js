@@ -750,3 +750,50 @@ export async function addedProjects(env) {
 export async function addProject(env, channel, name, user) {
   await env.DB.prepare("INSERT INTO projects (channel, name, created_by) VALUES (?, ?, ?)").bind(channel, name, user).run();
 }
+
+// The releases of many tasks (`keys`: [{ channel, ts }]) as a Map from "channel:ts" to their
+// releases, as getTask gives them (those not NOT_APPROVED); a task with none is absent. D1 takes few
+// values per query, so it asks in chunks.
+export async function releasesOfTasks(env, keys) {
+  const found = new Map();
+  for (let i = 0; i < keys.length; i += 40) {
+    const chunk = keys.slice(i, i + 40);
+    const { results } = await env.DB.prepare(
+      `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts FROM releases r JOIN tasks t ON t.id = r.task_id
+       WHERE r.status != 'NOT_APPROVED' AND (${chunk.map(() => "(t.channel = ? AND t.ts = ?)").join(" OR ")}) ORDER BY r.id`,
+    )
+      .bind(...chunk.flatMap(({ channel, ts }) => [channel, ts]))
+      .all();
+    for (const row of results) {
+      const key = `${row.task_channel}:${row.task_ts}`;
+      found.set(key, [...(found.get(key) ?? []), releaseFromRow(row)]);
+    }
+  }
+  return found;
+}
+
+// The releases with one of `statuses` (PENDING_APPROVAL, APPROVED, NOT_APPROVED) of the posted tasks
+// not deleted or archived, oldest first, as { channel, ts, title, release }.
+export async function releasesWithStatus(env, statuses) {
+  const { results } = await env.DB.prepare(
+    `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts, t.title AS task_title FROM releases r JOIN tasks t ON t.id = r.task_id
+     WHERE t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL AND r.status IN (${statuses.map(() => "?").join(", ")})
+     ORDER BY r.id`,
+  )
+    .bind(...statuses)
+    .all();
+  return results.map((row) => ({ channel: row.task_channel, ts: row.task_ts, title: row.task_title, release: releaseFromRow(row) }));
+}
+
+function releaseFromRow(row) {
+  return {
+    id: row.id,
+    prs: JSON.parse(row.prs),
+    note: row.note,
+    status: row.status,
+    sentBy: row.sent_by,
+    sentAt: row.sent_at,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at,
+  };
+}

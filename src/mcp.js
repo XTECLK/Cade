@@ -3,13 +3,13 @@ import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
 import { parseStatus } from "./commands/status.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
-import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
+import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
 import { FLOWS } from "./flows.js";
 import { DEFAULT_TASKS, DEFAULT_USERS, EXTRA_FIELDS, MAX_MESSAGE, MAX_SUMMARY, MAX_TASKS, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
 import { callSlack, escapeSlack, linkedMessage, linkedThread, mrkdwn } from "./slack.js";
-import { PRIORITIES, ROLES, STATUSES, loadTask, statusName, taskMessage } from "./tasks.js";
+import { PRIORITIES, ROLES, STATUSES, loadTask, parsePullRequest, statusName, taskMessage, unsentPrs } from "./tasks.js";
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
@@ -88,7 +88,7 @@ const INSTRUCTIONS = [
   "Find tasks: get_tasks lists tasks, open ones by default: mine or role for the ones you are on, assignee or unassigned for others, status and limit to narrow it. It gives each task's ID and link.",
   "Read a task with get_task (details, summary and notes; no threads), and its threads separately: get_task names the thread the task was made from (where the problem or request was first raised), which get_thread_history reads from Slack, and get_task_history gives the messages Cade kept of the task's own thread, even those Slack no longer returns, which is what was done about it: the solution applied, the actions taken and how it ended. Pass either the task_id.",
   "Read any other thread with get_thread_history and a message link; it asks Slack, which hides messages older than 90 days on the free plan. Look up the people in a thread (the user IDs on its messages and in <@…> mentions) with get_user. get_users lists the workspace's people with their IDs, and find_user_by_name finds one by name.",
-  "Cade has flows, step-by-step ways to do a job with its tools, such as writing a task's summary (summarize_task), triaging tasks (triage_tasks), explaining a task (explain_task) and planning the person's work (plan_my_work). When asked to do one, call get_flow with its name to get the steps and the tools to chain, and follow them; get_flows lists them.",
+  "Cade has flows, step-by-step ways to do a job with its tools, such as writing a task's summary (summarize_task), triaging tasks (triage_tasks), explaining a task (explain_task), checking a task's pull requests (check_prs), reporting progress from the repository (report_progress) and planning the person's work (plan_my_work). When asked to do one, call get_flow with its name to get the steps and the tools to chain, and follow them; get_flows lists them.",
   "If the person asks to summarize or prepare a task's summary without saying which task, call get_tasks with mine, list their tasks and ask which one; don't guess.",
   "To summarize a task, write its issue only: read the thread it was made from (get_task gives its ID) with get_thread_history, look up the people, then draft the summary, show it to the person and ask whether to save it or change it, and only when they approve it save it with update_task and the same task_id. Leave out the actions and the result, which the task's own thread already has. It replaces the summary written before. The summarize_task prompt does all of this.",
   "To triage a task, change its status, priority, due date or people with update_task (find a person's user ID with find_user_by_name): propose the changes with the reason, show them to the person and ask, and only when they approve call update_task. Cade posts the change in the task's thread, so never change a task unasked.",
@@ -97,7 +97,7 @@ const INSTRUCTIONS = [
 ].join(" ");
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_flows: getFlows, get_flow: getFlow, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
+const RUNNERS = { get_flows: getFlows, get_flow: getFlow, get_releases: getReleases, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
 
 // The flows (see flows.js) as MCP prompts, which an agent offers its user, such
@@ -362,6 +362,38 @@ function taskData(env, channel, ts, task, link) {
   };
 }
 
+// A release as data, with its time as YYYY-MM-DD HH:MM in UTC.
+const releaseData = (release) => ({
+  id: release.id,
+  prs: release.prs,
+  note: release.note,
+  status: release.status.toLowerCase(),
+  sent_by: release.sentBy ?? "",
+  sent_at: release.sentAt ? release.sentAt.slice(0, 16).replace("T", " ") : "",
+  decided_by: release.decidedBy ?? "",
+  decided_at: release.decidedAt ? release.decidedAt.slice(0, 16).replace("T", " ") : "",
+});
+
+// A task's pull requests with where each is, and its releases, as data: a PR is pending until it is
+// sent to the client with a release, then pending_approval, then approved (all are, once the task is
+// Done). `releases` are the task's, not counting those turned down.
+function prData(task, releases = task.releases ?? []) {
+  const sentWith = new Map();
+  for (const release of releases) for (const url of release.prs) sentWith.set(url, release);
+  const prs = task.prs.map((url) => {
+    const pr = parsePullRequest(url);
+    const release = sentWith.get(url);
+    const approved = release?.status === "APPROVED";
+    return {
+      url,
+      label: pr ? `${pr.repo}/${pr.number}` : url,
+      state: task.status === "DONE" || approved ? "approved" : release ? "pending_approval" : "pending",
+      release: release ? { id: release.id, note: release.note, status: approved ? "approved" : "pending_approval" } : null,
+    };
+  });
+  return { prs, releases: releases.map(releaseData) };
+}
+
 // One task: its details, summary and notes, without its threads, or only the `fields` asked
 // for. Nothing is asked of Slack.
 async function getTaskView(env, user, args) {
@@ -389,6 +421,7 @@ async function getTaskView(env, user, args) {
     notes: notes.body ?? "",
     original_thread_state: state,
     original_thread: threadOut(original),
+    ...prData(task),
   };
   const data = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : all;
 
@@ -403,6 +436,11 @@ async function getTaskView(env, user, args) {
     lines.push("", "Summary of the issue" + (notes.summary && notes.summaryBy ? ` (written by ${notes.summaryBy})` : "") + ":", notes.summary || "(none yet)");
   }
   if (want("notes")) lines.push("", "Notes written by people:", notes.body || "(none)");
+  if (want("prs", "releases")) {
+    const { prs, releases } = prData(task);
+    lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.replace("_", " ")}): ${pr.url}`) : ["(none linked)"]));
+    for (const release of releases) lines.push(`Release ${release.id} (${release.status.replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
+  }
   if (want("original_thread", "original_thread_state")) {
     lines.push(
       "",
@@ -434,6 +472,39 @@ const MOVED_FROM = /^Moved from <@[UW][A-Z0-9]+>'s <([^|>]+)\|message>/;
 function sourceThreadOf(messages) {
   const found = messages.map((message) => MOVED_FROM.exec(message.text ?? "")).find(Boolean);
   return found ? { ...linkedThread(found[1]), link: found[1].replace(/&amp;/g, "&") } : null;
+}
+
+// The releases (PRs sent to the client for approval) of the tasks `user` can read, oldest first.
+async function getReleases(env, user, { status, task_id: taskId, project, limit } = {}) {
+  const wanted = status ?? "pending_approval";
+  const statuses = { pending_approval: ["PENDING_APPROVAL"], approved: ["APPROVED"], not_approved: ["NOT_APPROVED"], all: ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] }[wanted];
+  if (!statuses) throw new ToolError("status is pending_approval, approved, not_approved or all.");
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
+  const only = taskId === undefined ? null : taskRef({ task_id: taskId });
+  const channel = project === undefined ? null : projectChannel(env, project);
+  const found = (await releasesWithStatus(env, statuses)).filter((row) => (!only || (row.channel === only.channel && row.ts === only.ts)) && (!channel || row.channel === channel));
+  const readable = new Map();
+  const visible = [];
+  for (const row of found) {
+    if (!readable.has(row.channel)) readable.set(row.channel, (await readableName(env, row.channel, user)) !== null);
+    if (readable.get(row.channel)) visible.push(row);
+  }
+  const shown = visible.slice(0, limit ?? DEFAULT_TASKS);
+  const releases = shown.map(({ channel: c, ts, title, release }) => {
+    const project = projects(env).find((pair) => pair.channel === c)?.name ?? c;
+    return {
+      ...releaseData(release),
+      prs: release.prs.map((url) => ({ url, label: (({ repo, number } = {}) => (repo ? `${repo}/${number}` : url))(parsePullRequest(url) ?? {}) })),
+      task_id: `${c}:${ts}`,
+      task_title: title,
+      project,
+    };
+  });
+  const label = wanted.replace("_", " ");
+  if (!releases.length) return { text: `There are no releases ${wanted === "all" ? "" : `${label} `}to show.`.replace("  ", " "), data: { total: 0, releases: [] } };
+  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.task_title} (${r.task_id}) — ${r.status.replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
+  const more = visible.length > shown.length ? `\n…and ${visible.length - shown.length} more; raise limit (up to ${MAX_TASKS}).` : "";
+  return { text: [`${visible.length} release${visible.length === 1 ? "" : "s"}, oldest first:`, ...lines].join("\n") + more, data: { total: visible.length, releases } };
 }
 
 // The projects whose channel `user` can read, one per line.
@@ -539,6 +610,8 @@ async function taskLines(env, entries, about, fields) {
   // The notes pages are read only when summary, notes or the like are asked for.
   const wantsNotes = (fields ?? []).some((field) => ["summary", "summary_by", "notes", "notes_link"].includes(field));
   const pages = wantsNotes ? await notesOf(env, entries.map(({ channel, ts }) => ({ channel, ts }))) : new Map();
+  // Releases are read only when the pull requests are asked for.
+  const releases = (fields ?? []).includes("prs") ? await releasesOfTasks(env, entries.map(({ channel, ts }) => ({ channel, ts }))) : new Map();
   let section;
   for (const [n, { entry }] of sorted.entries()) {
     const { channel, ts, task } = entry;
@@ -558,6 +631,7 @@ async function taskLines(env, entries, about, fields) {
       notes: page?.body ?? "",
       notes_link: task.notes?.url ?? "",
       created_by: task.createdBy ?? "",
+      prs: fields?.includes("prs") ? prData(task, releases.get(`${channel}:${ts}`) ?? []).prs : [],
     };
     // Only the fields asked for, or the base ones.
     const item = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : Object.fromEntries(Object.entries(all).filter(([field]) => !(field in EXTRA_FIELDS)));
@@ -714,13 +788,32 @@ async function updateTask(env, user, args) {
     if (add.some((id) => remove.includes(id))) throw new ToolError(`${role}: the same person is in add and remove.`);
     changes.people = { ...changes.people, [role]: { add, remove } };
   }
+  if (args.prs !== undefined) {
+    const links = (name) => {
+      const list = args.prs[name];
+      if (list === undefined) return [];
+      if (!Array.isArray(list)) throw new ToolError(`prs.${name} is a list of pull request links.`);
+      return [...new Set(list.map((link) => {
+        const pr = parsePullRequest(String(link).trim().replace(/^<|>$/g, ""));
+        if (!pr) throw new ToolError(`"${link}" doesn't look like a pull request link (GitHub, GitLab or Bitbucket).`);
+        return pr.url;
+      }))];
+    };
+    const add = links("add");
+    const remove = links("remove");
+    if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");
+    // One sent to the client is part of a release; whether it stands is theirs and the team's to settle in Slack.
+    const sent = remove.filter((url) => !unsentPrs(task).includes(url) && task.prs.includes(url));
+    if (sent.length) throw new ToolError(`${sent.join(", ")} ${sent.length === 1 ? "was" : "were"} sent to the client for approval, so I can't unlink ${sent.length === 1 ? "it" : "them"}. Tell the person to settle it in the task's thread.`);
+    changes.prs = { add, remove };
+  }
   let summary;
   if (args.summary !== undefined) {
     summary = String(args.summary).trim();
     if (!summary) throw new ToolError("The summary is empty.");
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
   }
-  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, owner, reviewer, tester or summary.");
+  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, owner, reviewer, tester, prs or summary.");
 
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told = [];

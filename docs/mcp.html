@@ -68,7 +68,7 @@
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>name</code></td><td>string: summarize_task | triage_tasks | explain_task | plan_my_work</td><td>yes</td><td>The flow, as get_flows names it</td></tr>
+<tr><td><code>name</code></td><td>string: summarize_task | triage_tasks | explain_task | check_prs | report_progress | plan_my_work</td><td>yes</td><td>The flow, as get_flows names it</td></tr>
 <tr><td><code>task_id</code></td><td>string</td><td></td><td>For a flow about a task: its ID, such as C0123ABCD:1700000000.000100. Leave out to be told to ask which</td></tr>
 </tbody>
 </table></div>
@@ -100,7 +100,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | original_thread | original_thread_state</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs | original_thread | original_thread_state | releases</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -128,6 +128,23 @@
 <tr><td><code>original_thread</code></td><td>object or null</td><td></td><td>The thread a task was made from, or null</td></tr>
 <tr><td><code>original_thread.thread_id</code></td><td>string</td><td></td><td>For get_thread_history</td></tr>
 <tr><td><code>original_thread.link</code></td><td>string</td><td></td><td>A link to the thread</td></tr>
+<tr><td><code>prs</code></td><td>object[]</td><td></td><td>The pull requests linked to the task, each with where it is and the release it was sent with</td></tr>
+<tr><td><code>prs[].url</code></td><td>string</td><td>yes</td><td>The pull request's address</td></tr>
+<tr><td><code>prs[].label</code></td><td>string</td><td>yes</td><td>repo/number</td></tr>
+<tr><td><code>prs[].state</code></td><td>string: pending | pending_approval | approved</td><td>yes</td><td>pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved</td></tr>
+<tr><td><code>prs[].release</code></td><td>object or null</td><td>yes</td><td>The release it was sent with, or null while pending</td></tr>
+<tr><td><code>prs[].release.id</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>prs[].release.note</code></td><td>string</td><td></td><td></td></tr>
+<tr><td><code>prs[].release.status</code></td><td>string: pending_approval | approved</td><td></td><td></td></tr>
+<tr><td><code>releases</code></td><td>object[]</td><td></td><td>The partial releases sent to the client for approval, oldest first (those not approved are not kept): which PRs, what they complete, who sent them and who approved</td></tr>
+<tr><td><code>releases[].id</code></td><td>integer</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].prs</code></td><td>string[]</td><td>yes</td><td>The pull requests' addresses</td></tr>
+<tr><td><code>releases[].note</code></td><td>string</td><td>yes</td><td>What the release completes</td></tr>
+<tr><td><code>releases[].status</code></td><td>string: pending_approval | approved | not_approved</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].sent_by</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
+<tr><td><code>releases[].sent_at</code></td><td>string</td><td>yes</td><td>When it was sent, as YYYY-MM-DD HH:MM in UTC</td></tr>
+<tr><td><code>releases[].decided_by</code></td><td>string</td><td>yes</td><td>A Slack user ID, or empty while waiting</td></tr>
+<tr><td><code>releases[].decided_at</code></td><td>string</td><td>yes</td><td>When it was decided, or empty</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -212,7 +229,7 @@
 <tr><td><code>unassigned</code></td><td>boolean</td><td></td><td>Only tasks nobody is owner, reviewer or tester of</td></tr>
 <tr><td><code>status</code></td><td>string: open | all | TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>open (default: everything not done), all, or one status</td></tr>
 <tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by. Add summary or notes to get them for every task listed</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs. Add summary or notes to get them for every task listed</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -239,6 +256,53 @@
 <tr><td><code>tasks[].notes</code></td><td>string</td><td></td><td>The notes people wrote, or empty</td></tr>
 <tr><td><code>tasks[].notes_link</code></td><td>string</td><td></td><td>A link to the notes page, or empty</td></tr>
 <tr><td><code>tasks[].created_by</code></td><td>string</td><td></td><td>Who raised it</td></tr>
+<tr><td><code>tasks[].prs</code></td><td>object[]</td><td></td><td>The pull requests linked to the task, each with its state and the release it was sent with</td></tr>
+<tr><td><code>tasks[].prs[].url</code></td><td>string</td><td>yes</td><td>The pull request's address</td></tr>
+<tr><td><code>tasks[].prs[].label</code></td><td>string</td><td>yes</td><td>repo/number</td></tr>
+<tr><td><code>tasks[].prs[].state</code></td><td>string: pending | pending_approval | approved</td><td>yes</td><td>pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved</td></tr>
+<tr><td><code>tasks[].prs[].release</code></td><td>object or null</td><td>yes</td><td>The release it was sent with, or null while pending</td></tr>
+<tr><td><code>tasks[].prs[].release.id</code></td><td>integer</td><td></td><td></td></tr>
+<tr><td><code>tasks[].prs[].release.note</code></td><td>string</td><td></td><td></td></tr>
+<tr><td><code>tasks[].prs[].release.status</code></td><td>string: pending_approval | approved</td><td></td><td></td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="get_releases">
+  <div class="wrap">
+    <h2><code>get_releases</code></h2>
+    <p>Lists the partial releases of tasks: pull requests sent to the client (or whoever approves) before the whole task is done, each with the task, its PRs, what it completes, who sent it and who approved or turned it down. Waiting for approval by default; status picks approved, not_approved (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>status</code></td><td>string: pending_approval | approved | not_approved | all</td><td></td><td>Default pending_approval</td></tr>
+<tr><td><code>task_id</code></td><td>string</td><td></td><td>Only this task's releases</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
+<tr><td><code>limit</code></td><td>integer</td><td></td><td>How many releases to return, oldest first. Default 20 · min 1, max 100</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>total</code></td><td>integer</td><td>yes</td><td>How many match and you can see</td></tr>
+<tr><td><code>releases</code></td><td>object[]</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].id</code></td><td>integer</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].prs</code></td><td>object[]</td><td>yes</td><td>The release's pull requests</td></tr>
+<tr><td><code>releases[].prs[].url</code></td><td>string</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].prs[].label</code></td><td>string</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].note</code></td><td>string</td><td>yes</td><td>What the release completes</td></tr>
+<tr><td><code>releases[].status</code></td><td>string: pending_approval | approved | not_approved</td><td>yes</td><td></td></tr>
+<tr><td><code>releases[].sent_by</code></td><td>string</td><td>yes</td><td>A Slack user ID</td></tr>
+<tr><td><code>releases[].sent_at</code></td><td>string</td><td>yes</td><td>When it was sent, as YYYY-MM-DD HH:MM in UTC</td></tr>
+<tr><td><code>releases[].decided_by</code></td><td>string</td><td>yes</td><td>A Slack user ID, or empty while waiting</td></tr>
+<tr><td><code>releases[].decided_at</code></td><td>string</td><td>yes</td><td>When it was decided, or empty</td></tr>
+<tr><td><code>releases[].task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>releases[].task_title</code></td><td>string</td><td>yes</td><td>The task's title</td></tr>
+<tr><td><code>releases[].project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -370,7 +434,7 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. Status is one of TODO, IN_PROGRESS, IN_REVIEW, IN_TESTING, CLIENT_REVIEW, DONE. Priority is one of Urgent, High, Medium, Low. due_date is DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove it. owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. An incident's priority and due date never change. The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, &quot;- &quot; for bullets, and people's names rather than @mentions. At most 8000 characters, and it replaces any earlier summary. Takes the task's ID, as get_tasks gives it.</p>
+    <p>Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. Status is one of TODO, IN_PROGRESS, IN_REVIEW, IN_TESTING, CLIENT_REVIEW, DONE. Priority is one of Urgent, High, Medium, Low. due_date is DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove it. owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. prs takes { add: [pull request links], remove: [links] } to link or unlink pull requests (GitHub, GitLab or Bitbucket); adding asks the task's reviewers to review it, and one already sent to the client for approval can't be removed here. An incident's priority and due date never change. The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, &quot;- &quot; for bullets, and people's names rather than @mentions. At most 8000 characters, and it replaces any earlier summary. Takes the task's ID, as get_tasks gives it.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -381,6 +445,9 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td></td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date</td></tr>
 <tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the task's issue, as plain text, replacing any earlier one</td></tr>
+<tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests to link to and unlink from the task, as links</td></tr>
+<tr><td><code>prs.add</code></td><td>string[]</td><td></td><td></td></tr>
+<tr><td><code>prs.remove</code></td><td>string[]</td><td></td><td></td></tr>
 <tr><td><code>owner</code></td><td>object</td><td></td><td>Who to add to and remove from the task's owners</td></tr>
 <tr><td><code>owner.add</code></td><td>string[]</td><td></td><td></td></tr>
 <tr><td><code>owner.remove</code></td><td>string[]</td><td></td><td></td></tr>

@@ -60,6 +60,30 @@ const PERSON = {
   required: ["user_id"],
 };
 const USER_FIELDS_ARG = { type: "array", items: { type: "string", enum: ["name", "username"] }, description: "Only these fields for each person, to keep the result small; user_id is always there. Default: all" };
+const RELEASE_ITEM = {
+  type: "object",
+  properties: {
+    id: { type: "integer" },
+    prs: strings("The pull requests' addresses"),
+    note: str("What the release completes"),
+    status: { type: "string", enum: ["pending_approval", "approved", "not_approved"] },
+    sent_by: str("A Slack user ID"),
+    sent_at: str("When it was sent, as YYYY-MM-DD HH:MM in UTC"),
+    decided_by: str("A Slack user ID, or empty while waiting"),
+    decided_at: str("When it was decided, or empty"),
+  },
+  required: ["id", "prs", "note", "status", "sent_by", "sent_at", "decided_by", "decided_at"],
+};
+const PR_ITEM = {
+  type: "object",
+  properties: {
+    url: str("The pull request's address"),
+    label: str("repo/number"),
+    state: { type: "string", enum: ["pending", "pending_approval", "approved"], description: "pending: not sent to the client yet; pending_approval: sent, waiting for the approver; approved. A Done task's are all approved" },
+    release: { type: ["object", "null"], description: "The release it was sent with, or null while pending", properties: { id: { type: "integer" }, note: { type: "string" }, status: { type: "string", enum: ["pending_approval", "approved"] } } },
+  },
+  required: ["url", "label", "state", "release"],
+};
 // What get_tasks can include for each task, besides its task_id: the base fields, and these.
 export const EXTRA_FIELDS = {
   summary: str("The summary of the issue, or empty"),
@@ -67,10 +91,11 @@ export const EXTRA_FIELDS = {
   notes: str("The notes people wrote, or empty"),
   notes_link: str("A link to the notes page, or empty"),
   created_by: str("Who raised it"),
+  prs: { type: "array", items: PR_ITEM, description: "The pull requests linked to the task, each with its state and the release it was sent with" },
 };
 export const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
 // get_task can also give where the task came from.
-export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state"];
+export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "releases"];
 // What get_users and find_user_by_name can give for each person, besides user_id.
 export const USER_FIELDS = ["name", "username"];
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
@@ -169,6 +194,8 @@ export const TOOL_DEFS = [
       notes: str("The notes people wrote, or empty"),
       original_thread_state: { type: "string", enum: ["found", "none", "unknown"], description: "found: original_thread names it; none: made from no other thread; unknown: no messages kept yet" },
       original_thread: THREAD,
+      prs: { type: "array", items: PR_ITEM, description: "The pull requests linked to the task, each with where it is and the release it was sent with" },
+      releases: { type: "array", items: RELEASE_ITEM, description: "The partial releases sent to the client for approval, oldest first (those not approved are not kept): which PRs, what they complete, who sent them and who approved" },
       },
     },
   },
@@ -245,6 +272,40 @@ export const TOOL_DEFS = [
         type: "array",
         items: { type: "object", properties: { ...TASK_ITEM.properties, ...EXTRA_FIELDS }, required: ["task_id"], description: "Every field, or just those asked for in fields" },
         description: "The ones shown, grouped by project, most urgent first within each",
+      },
+    }),
+  },
+  {
+    name: "get_releases",
+    title: "List releases",
+    annotations: READS,
+    description:
+      "Lists the partial releases of tasks: pull requests sent to the client (or whoever approves) before the whole task is done, each with the task, its PRs, what it completes, who sent it and who approved or turned it down. " +
+      "Waiting for approval by default; status picks approved, not_approved (turned down, their PRs are pending again) or all. Filter by task_id or project. Only tasks in channels you can read. Approving or turning one down is done in the task's thread in Slack, by the approver, not with a tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["pending_approval", "approved", "not_approved", "all"], description: "Default pending_approval" },
+        task_id: { type: "string", description: "Only this task's releases" },
+        project: { type: "string", description: "Only this project's tasks, by the name get_projects gives" },
+        limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many releases to return, oldest first. Default ${DEFAULT_TASKS}` },
+      },
+    },
+    outputSchema: outputOf({
+      total: { type: "integer", description: "How many match and you can see" },
+      releases: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            ...RELEASE_ITEM.properties,
+            task_id: TASK_ID,
+            task_title: str("The task's title"),
+            project: str("The project's name"),
+            prs: { type: "array", items: { type: "object", properties: { url: { type: "string" }, label: { type: "string" } }, required: ["url", "label"] }, description: "The release's pull requests" },
+          },
+          required: [...RELEASE_ITEM.required, "task_id", "task_title", "project"],
+        },
       },
     }),
   },
@@ -326,7 +387,7 @@ export const TOOL_DEFS = [
       "Changes a task in one call: its status, priority, due date, who is its owner, reviewer or tester, and the summary on its notes page. Every argument but the task is optional: give only what changes, at least one. Cade posts the changes to the fields in the task's thread, as the person you act for, and asks the people it assigns to pick it up; the summary is saved quietly on the notes page. " +
       "Call this only with changes the person has seen and approved: show them what you propose to change and why, and ask first. " +
       `Status is one of ${Object.keys(STATUSES).join(", ")}. Priority is one of ${Object.keys(PRIORITIES).join(", ")}. due_date is DD/MM/YYYY or YYYY-MM-DD, or "none" to remove it. ` +
-      "owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. An incident's priority and due date never change. " +
+      "owner, reviewer and tester each take { add: [user IDs], remove: [user IDs] }; find a person's ID with find_user_by_name. prs takes { add: [pull request links], remove: [links] } to link or unlink pull requests (GitHub, GitLab or Bitbucket); adding asks the task's reviewers to review it, and one already sent to the client for approval can't be removed here. An incident's priority and due date never change. " +
       `The summary is of the issue only, taken from the thread the task was made from (named by get_task, read with get_thread_history): what the problem or request is, who raised it and when, the impact and the details needed to understand it. Leave out what was done and how it ended, which the task's own thread (get_task_history) already has. For someone who wasn't in the discussion. Plain text only, as the page shows markup as it is: short paragraphs, "- " for bullets, and people's names rather than @mentions. At most ${MAX_SUMMARY} characters, and it replaces any earlier summary. ` +
       "Takes the task's ID, as get_tasks gives it.",
     inputSchema: {
@@ -337,6 +398,11 @@ export const TOOL_DEFS = [
         priority: { type: "string", enum: Object.keys(PRIORITIES) },
         due_date: { type: "string", description: 'DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date' },
         summary: { type: "string", description: "The summary of the task's issue, as plain text, replacing any earlier one" },
+        prs: {
+          type: "object",
+          description: "Pull requests to link to and unlink from the task, as links",
+          properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } },
+        },
         ...Object.fromEntries(
           Object.entries(ROLES).map(([role, label]) => [
             role,

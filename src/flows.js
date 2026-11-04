@@ -72,6 +72,34 @@ function explainPrompt(taskId) {
   ].join("\n");
 }
 
+// Checking a task's pull requests against the repository, and unlinking those closed unmerged.
+function checkPrsPrompt(taskId) {
+  const task = taskId || "they choose";
+  return [
+    ...(taskId ? [] : ASK_WHICH),
+    `Check the pull requests linked to the Cade task ${task}, and unlink those that were closed without being merged.`,
+    `1. Read it with get_task (${taskId ? "task_id above" : "its task_id"}), asking for its prs and releases. Each pull request has a state: pending, pending_approval or approved.`,
+    "2. Check each one's status in the repository yourself with its own tools (for GitHub, `gh pr view <url> --json state,mergedAt`); Cade cannot see the repositories. Skip any you can't reach and say so.",
+    "3. Tell the person what you found: for each, open, merged or closed without merging. Propose to unlink the ones closed without merging. Leave merged and open ones linked. One in pending_approval or approved can't be unlinked with Cade's tools, so only report it.",
+    "4. Only when they approve, unlink them with update_task (prs.remove) and the same task_id, and tell them what changed.",
+    `${OTHERS}`,
+  ].join("\n");
+}
+
+// A progress update on a task from the work done in the repository.
+function reportProgressPrompt(taskId) {
+  const task = taskId || "they choose";
+  return [
+    ...(taskId ? [] : ASK_WHICH),
+    `Write a progress update for the Cade task ${task} from the work in this repository, and post it after the person approves it.`,
+    `1. Read it with get_task (${taskId ? "task_id above" : "its task_id"}) and what was already reported with get_task_history, so you say what is new.`,
+    "2. Read the work yourself: the commits on this branch since the base branch (`git log`), and the pull request if one exists (`gh pr view`). The task's ID may be in the branch name or the PR text. Cade cannot see the repository.",
+    "3. Draft a short update in plain words for the team: what was done since the last report, what is left, and the pull request if there is one. Leave out secrets, internal hostnames and anything the people in the task's channel should not read, and don't paste commit messages or diffs.",
+    "4. Show it and ask whether to post it. Only when they approve, post it with send_task_message. If a pull request exists and isn't linked yet (check the prs of get_task), offer to link it with update_task (prs.add), and, if it is ready for review, to move the status to In review. Do those only after they approve too.",
+    `${OTHERS}`,
+  ].join("\n");
+}
+
 // A plan of the person's day from their own tasks, saving nothing.
 function planPrompt() {
   return [
@@ -82,6 +110,8 @@ function planPrompt() {
     "Only read a task's threads (get_task_history, get_thread_history) if the person asks about a particular task. Look up names with get_user where you show people. Then ask whether they want the details of any of them.",
   ].join("\n");
 }
+
+const PRS_OF_TASK = { ...READ_TASK, purpose: "Read the task with its prs and releases", arguments: { task_id: "the chosen task, from get_tasks.tasks[].task_id", fields: "[\"prs\", \"releases\"]" } };
 
 export const FLOWS = [
   {
@@ -121,6 +151,32 @@ export const FLOWS = [
     arguments: [TASK_ID],
     chain: [PICK_TASK, READ_TASK, READ_ORIGINAL, READ_OWN, NAMES],
     steps: explainPrompt,
+  },
+  {
+    name: "check_prs",
+    title: "Check a task's pull requests",
+    description: "Check the status of a task's pull requests in the repository, and unlink those closed without merging, after you approve",
+    arguments: [TASK_ID],
+    chain: [
+      PICK_TASK,
+      PRS_OF_TASK,
+      { tool: "update_task", purpose: "Unlink the pull requests the person approved unlinking (those closed without merging), after checking each one's status in the repository with your own tools", arguments: { task_id: "the same task_id", prs: "{ remove: get_task.prs[].url of those closed unmerged }" }, optional: true, approval: true },
+    ],
+    steps: checkPrsPrompt,
+  },
+  {
+    name: "report_progress",
+    title: "Report progress on a task",
+    description: "Write a progress update from this repository's commits and pull request, post it in the task's thread and link the pull request, after you approve",
+    arguments: [TASK_ID],
+    chain: [
+      PICK_TASK,
+      PRS_OF_TASK,
+      READ_OWN,
+      { tool: "send_task_message", purpose: "Post the progress update the person approved, written from the repository's commits (read with your own tools)", arguments: { task_id: "the same task_id", text: "the approved update" }, optional: false, approval: true },
+      { tool: "update_task", purpose: "Link the pull request if it isn't linked, and move the status to In review if it is ready", arguments: { task_id: "the same task_id", prs: "{ add: [the pull request's link] }", status: "optional, IN_REVIEW" }, optional: true, approval: true },
+    ],
+    steps: reportProgressPrompt,
   },
   {
     name: "plan_my_work",

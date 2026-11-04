@@ -331,3 +331,16 @@ pre.prompt { white-space: pre-wrap; padding-top: 40px; max-height: 260px; }
 .schema h3 { font-size: 1rem; margin-bottom: 8px; }
 .schema pre { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; overflow-x: auto; font-size: .85rem; line-height: 1.5; }
 .schema pre code { background: none; padding: 0; }
+
+.tools { list-style: none; padding: 0; columns: 2; column-gap: 28px; }
+@media (max-width: 760px) { .tools { columns: 1; } }
+.tools li { break-inside: avoid; margin: 6px 0; }
+.tool { padding: 36px 0 8px; border-top: 1px solid var(--border); }
+.tool h3 { font-size: 1rem; margin: 22px 0 8px; }
+.tool h3 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.tool .none { color: var(--muted); }
+.tablewrap { overflow-x: auto; }
+.tool table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.tool th, .tool td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tool th { color: var(--muted); font-weight: 600; }
+.tool td:nth-child(4) { color: var(--muted); }

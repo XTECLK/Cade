@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "deploy": "node scripts/wrangler.mjs deploy && node scripts/wrangler.mjs d1 migrations apply DB --remote",
     "test": "node --test",
+    "docs": "node scripts/docs.mjs",
     "db:migrate": "node scripts/wrangler.mjs d1 migrations apply DB --remote",
     "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply DB --local",
     "slack:create": "node scripts/slack-app.mjs create",

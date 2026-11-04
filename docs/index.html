@@ -16,12 +16,10 @@
   <div class="wrap">
     <a class="brand" href="#"><span class="logo">C</span>Cade</a>
     <ul>
-      <li><a href="#walkthrough">Demo</a></li>
-      <li><a href="#how">How it works</a></li>
-      <li><a href="#features">Features</a></li>
-      <li><a href="#mcp">AI agents</a></li>
-      <li><a href="#commands">Commands &amp; AI</a></li>
-      <li><a href="#principles">Principles</a></li>
+      <li><a href="#hero-video">Demo</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="proactive.html">Proactive agent</a></li>
+      <li><a href="mcp.html">Connect your agent</a></li>
     </ul>
     <div class="nav-right">
       <a class="btn primary nav-cta" href="setup.html">Set up</a>
@@ -32,7 +30,7 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">A Slack bot for team work</div>
+    <div class="eyebrow">What is Cade</div>
     <h1>From any message to shipped, <em>without leaving Slack.</em></h1>
     <p class="lede">
       Cade turns any message, in a client's channel, a DM or your own dev channel, into a task or an
@@ -40,18 +38,17 @@
       keeping every thread and its notes for good.
     </p>
     <div class="cta">
-      <a class="btn primary" href="#walkthrough">▶ Watch the full walkthrough</a>
+      <a class="btn primary" href="#hero-video">▶ Watch the demo</a>
       <a class="btn" href="setup.html">Get started</a>
     </div>
 
     <!--
-      Act 1 plays here on a silent loop. The clips live in docs/videos/ (see
-      CHAPTERS in the script below); a clip that isn't there yet shows as
-      "coming soon".
+      One demo video covers the whole story. Put it at docs/videos/demo.mp4
+      (and a still, demo.jpg); until it is there the box says "coming soon".
     -->
-    <div class="video loop" id="hero-video">
-      <video autoplay muted loop playsinline preload="metadata" poster="videos/act-1-message-to-task.jpg">
-        <source src="videos/act-1-message-to-task.mp4" type="video/mp4">
+    <div class="video" id="hero-video">
+      <video controls playsinline preload="metadata" poster="videos/demo.jpg">
+        <source src="videos/demo.mp4" type="video/mp4">
       </video>
       <div class="placeholder">
         <div>
@@ -64,30 +61,33 @@
   </div>
 </header>
 
-<section id="walkthrough" class="alt">
+<section class="alt" id="principles">
   <div class="wrap">
-    <div class="eyebrow">See it in action</div>
-    <h2>The whole story, one act at a time.</h2>
-    <p class="lede">A client asks for a feature, the team tracks it, builds, reviews and ships it, an incident lands in the middle, and everyone keeps track. Pick an act, or let them play through.</p>
+    <div class="eyebrow">Why Cade</div>
+    <h2>Work stays where your team already is, and stays simple on purpose.</h2>
+    <p class="lede">Requests get lost between chats, trackers and inboxes. Cade keeps one thread per task, with no new tool to learn.</p>
 
-    <div class="player">
-      <div>
-        <div class="video" id="player">
-          <video controls playsinline preload="metadata"></video>
-          <div class="placeholder">
-            <div>
-              <div class="play">▶</div>
-              <p><strong id="soon">Coming soon</strong></p>
-              <p>This act is still being recorded.</p>
-            </div>
-          </div>
-        </div>
-        <div class="now">
-          <h3 id="now-title"></h3>
-          <p id="now-summary"></p>
-        </div>
+    <div class="principles">
+      <div class="principle">
+        <div class="bar"></div>
+        <h3>Nobody leaves Slack</h3>
+        <p>Clients, developers and QA all work in threads they already read. No new tool to log in to.</p>
       </div>
-      <ol class="chapters" id="chapters"></ol>
+      <div class="principle">
+        <div class="bar"></div>
+        <h3>Clear ownership</h3>
+        <p>The team owns its tasks. The client approves only what they're asked to, and incidents stay urgent.</p>
+      </div>
+      <div class="principle">
+        <div class="bar"></div>
+        <h3>Cade only asks</h3>
+        <p>Suggestions are private and change nothing until someone clicks. Deletes ask twice.</p>
+      </div>
+      <div class="principle">
+        <div class="bar"></div>
+        <h3>One source of truth</h3>
+        <p>Task cards and summaries are rendered from the same record, so they never disagree.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -194,7 +194,7 @@
   </div>
 </section>
 
-<section id="features" class="alt">
+<section class="alt" id="features">
   <div class="wrap">
     <div class="eyebrow">Features</div>
     <h2>Everything a project needs, in the channels you already use.</h2>
@@ -257,45 +257,70 @@
   </div>
 </section>
 
-<section id="mcp" class="alt">
+<section id="commands">
   <div class="wrap">
-    <div class="eyebrow">AI agents (MCP)</div>
-    <h2>Bring your own agent. Every tool says what it takes and what it gives back.</h2>
-    <p>Send <code>/cade mcp init</code> for an API key, and add Cade to Claude Code, Gemini CLI, Cursor or any client that takes a remote MCP server. The agent reads what you can read and changes tasks as you, after you approve. Each tool has an <code>inputSchema</code> for its arguments and an <code>outputSchema</code> for its result, which comes both as text and as structured JSON, so an agent can pass a result straight into the next call. <a href="mcp.html#connect">How to connect, and every tool →</a></p>
-
-    <div class="grid">
-      <!-- mcp-tools:start -->
-      <div class="feature"><div class="bar"></div><h3>Tools, from the server's own definitions</h3>
-        <ul class="tools">
-          <li><a href="mcp.html#get_flows"><code>get_flows</code></a> → <code>flows</code></li>
-          <li><a href="mcp.html#get_flow"><code>get_flow</code></a> (name, task_id) → <code>name</code>, <code>title</code>, <code>steps</code>, <code>chain</code></li>
-          <li><a href="mcp.html#get_task"><code>get_task</code></a> (task_id, fields) → <code>task_id</code>, <code>title</code>, <code>project</code>, <code>channel</code>, …</li>
-          <li><a href="mcp.html#get_thread_history"><code>get_thread_history</code></a> (thread_id, link) → <code>thread_id</code>, <code>channel_name</code>, <code>messages</code></li>
-          <li><a href="mcp.html#get_task_history"><code>get_task_history</code></a> (task_id) → <code>task_id</code>, <code>title</code>, <code>messages</code>, <code>original_thread</code></li>
-          <li><a href="mcp.html#get_tasks"><code>get_tasks</code></a> (mine, role, assignee, unassigned, status, project, fields, limit) → <code>total</code>, <code>tasks</code></li>
-          <li><a href="mcp.html#get_releases"><code>get_releases</code></a> (status, task_id, project, limit) → <code>total</code>, <code>releases</code></li>
-          <li><a href="mcp.html#update_release"><code>update_release</code></a> (release_id, prs, note) → <code>release_id</code>, <code>task_id</code>, <code>changed</code>, <code>release</code></li>
-          <li><a href="mcp.html#get_projects"><code>get_projects</code></a> → <code>total</code>, <code>projects</code></li>
-          <li><a href="mcp.html#get_user"><code>get_user</code></a> (user_id) → <code>user_id</code>, <code>name</code>, <code>handle</code></li>
-          <li><a href="mcp.html#get_users"><code>get_users</code></a> (limit, fields) → <code>total</code>, <code>users</code></li>
-          <li><a href="mcp.html#find_user_by_name"><code>find_user_by_name</code></a> (name, fields) → <code>total</code>, <code>users</code></li>
-          <li><a href="mcp.html#send_task_message"><code>send_task_message</code></a> (task_id, text) → <code>task_id</code>, <code>sent</code>, <code>link</code></li>
-          <li><a href="mcp.html#update_task"><code>update_task</code></a> (task_id, status, priority, due_date, summary, prs, owner, reviewer, tester) → <code>task_id</code>, <code>changed</code>, <code>summary_saved</code>, <code>notes_link</code></li>
-        </ul>
-        <p><a href="mcp.html">Every argument and result →</a></p></div>
-      <!-- mcp-tools:end -->
-      <div class="feature"><div class="bar"></div><h3>Flows</h3>
-        <ul>
-          <li><code>get_flows</code> lists step-by-step jobs: <code>summarize_task</code>, <code>triage_tasks</code>, <code>explain_task</code>, <code>plan_my_work</code></li>
-          <li>They also show up as prompts in agents that offer them</li>
-        </ul></div>
-      <div class="feature"><div class="bar"></div><h3>Under your control</h3>
-        <ul>
-          <li>One key per person; <code>/cade mcp status</code> shows the setup, <code>/cade mcp revoke</code> ends it</li>
-          <li>An admin can turn MCP off with <code>mcp</code> in the config</li>
-        </ul></div>
+    <div class="eyebrow">Every feature</div>
+    <h2>Say exactly what to do. Cade does it.</h2>
+    <p class="lede"><code>/cade …</code> at the top of a channel, <code>@Cade …</code> in any thread, the ⋯ menu on task cards, message shortcuts and emoji. Commands always work, whatever else is switched on.</p>
+    <div class="cmds">
+      <div class="cmd-group">
+        <h3>Most used commands</h3>
+        <div class="cmd"><code>/cade task</code><span>Track a task</span></div>
+        <div class="cmd"><code>/cade incident</code><span>Report an incident</span></div>
+        <div class="cmd"><code>@Cade status in review</code><span>Move a task on</span></div>
+      </div>
+      <div class="cmd-group">
+        <h3>&nbsp;</h3>
+        <div class="cmd"><code>@Cade pr add &lt;link&gt;</code><span>Link a pull request</span></div>
+        <div class="cmd"><code>@Cade move</code><span>Move a message into a thread</span></div>
+        <div class="cmd"><code>/cade tasks</code><span>Your open tasks</span></div>
+      </div>
     </div>
+    <div class="more"><a class="btn primary" href="commands.html">See every feature and command →</a></div>
+  </div>
+</section>
 
+<section class="alt" id="proactive">
+  <div class="wrap">
+    <div class="eyebrow">Proactive agent</div>
+    <h2>Cade reads along, and only ever asks.</h2>
+    <p class="lede">Write “@mia can you review this?” or paste a PR link in a task's thread. Cade offers, privately, to assign or link it, optionally with AI, and changes nothing without a click.</p>
+    <div class="mocks single" aria-hidden="true">
+      <div class="channel">
+        <header># acme-dev <span>· task thread</span></header>
+        <div class="msg">
+          <div class="avatar" style="background:#2b8a3e">R</div>
+          <div class="body">
+            <div class="who">Rex <small>14:20</small></div>
+            <p>First pass is up: github.com/acme/booking-web/pull/128. @Mia can you review this?</p>
+          </div>
+        </div>
+        <div class="msg">
+          <div class="avatar" style="background:#3b5bdb">C</div>
+          <div class="body">
+            <div class="private">Only visible to you</div>
+            <div class="who">Cade</div>
+            <p>Should I update the task? From your message:<br><b>PRs:</b> booking-web#128 (Add) · <b>Reviewers:</b> @Mia (Add) · <b>Status:</b> In progress → In review</p>
+            <div class="buttons"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid layers">
+        <div class="feature"><div class="bar"></div><h3>Commands</h3><span class="where">Always on</span><p>You say exactly what to do.</p></div>
+        <div class="feature"><div class="bar"></div><h3>Proactive agent</h3><span class="where">On by default</span><p>Reads phrases, PR links and “lgtm” in task threads.</p></div>
+        <div class="feature"><div class="bar"></div><h3>AI suggestions</h3><span class="where">Off by default</span><p>Several changes from one message, read by a small model.</p></div>
+      </div>
+    </div>
+    <div class="more"><a class="btn primary" href="proactive.html">See how the proactive agent works →</a></div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="wrap">
+    <div class="eyebrow">Connect with your existing agent</div>
+    <h2>Bring your own agent.</h2>
+    <p class="lede">Send <code>/cade mcp init</code> for an API key, and add Cade to Claude Code, Gemini CLI, Cursor or any client that takes a remote MCP server. The agent reads what you can read and changes tasks as you, after you approve.</p>
+    <pre class="term"><code>claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>
     <div class="schema">
       <div>
         <h3>Input: <code>get_tasks</code></h3>
@@ -320,106 +345,14 @@
 }</code></pre>
       </div>
     </div>
-    <p>The <code>task_id</code> goes straight into <code>get_task</code>, <code>get_task_history</code>, <code>update_task</code> and <code>send_task_message</code>; user IDs go into <code>get_user</code> and <code>update_task</code>. Clients that ignore structured output still get the same answer as text.</p>
-  </div>
-</section>
-
-<section id="commands">
-  <div class="wrap">
-    <div class="eyebrow">Three layers</div>
-    <h2>Commands always work. Cade can also read along, with or without AI.</h2>
-    <p class="lede">Each layer builds on the one before. Turn the proactive agent and AI on or off in <code>cade.config.json</code>, for every group or one group at a time, and Cade still asks before it changes anything.</p>
-
-    <div class="grid">
-      <div class="feature">
-        <div class="bar"></div>
-        <h3>1 · Commands</h3>
-        <span class="where">Always on</span>
-        <p>You say exactly what to do, and Cade does it.</p>
-        <ul>
-          <li><code>/cade …</code> and <code>@Cade …</code> commands</li>
-          <li>The ⋯ menu on task cards (Edit, Release, Archive), message shortcuts and emoji</li>
-          <li>A message posted on its own in the dev channel gets a private question: track it as a task or incident, or move it to an existing thread</li>
-        </ul>
-      </div>
-      <div class="feature">
-        <div class="bar"></div>
-        <h3>2 · Proactive agent</h3>
-        <span class="where"><code>suggestions</code> · on by default</span>
-        <p>Cade reads messages in the threads it manages and offers, privately, what you're about to do.</p>
-        <ul>
-          <li>“@mia can you review this?” offers to add a reviewer</li>
-          <li>A pasted PR link offers to link it</li>
-          <li>“on it”, “lgtm”, “done” offer the next status</li>
-          <li>Off means commands only: nothing is read from messages in threads</li>
-        </ul>
-      </div>
-      <div class="feature">
-        <div class="bar"></div>
-        <h3>3 · AI suggestions</h3>
-        <span class="where"><code>ai</code> · off by default</span>
-        <p>The proactive agent reads task threads with a small model on Cloudflare Workers AI, so one message can mean several changes.</p>
-        <ul>
-          <li>Several people across roles, added or removed</li>
-          <li>Status, priority and due date (“need it by Friday”)</li>
-          <li>A summary to <b>Accept</b>, <b>Edit…</b> in the task's form, or <b>Reject</b></li>
-          <li>Needs the proactive agent on, and falls back to phrases if the model fails</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="cmds">
-      <div class="cmd-group">
-        <h3>Most used commands</h3>
-        <div class="cmd"><code>/cade task</code><span>Track a task</span></div>
-        <div class="cmd"><code>/cade incident</code><span>Report an incident</span></div>
-        <div class="cmd"><code>@Cade status in review</code><span>Move a task on</span></div>
-      </div>
-      <div class="cmd-group">
-        <h3>&nbsp;</h3>
-        <div class="cmd"><code>@Cade pr add &lt;link&gt;</code><span>Link a pull request</span></div>
-        <div class="cmd"><code>@Cade move</code><span>Move a message into a thread</span></div>
-        <div class="cmd"><code>/cade tasks</code><span>Your open tasks</span></div>
-      </div>
-    </div>
-    <div class="more"><a class="btn" href="commands.html">See all commands →</a> <a class="btn" href="commands.html#words">Proactive agent →</a> <a class="btn" href="commands.html#ai">AI suggestions →</a></div>
-  </div>
-</section>
-
-<section id="principles" class="alt">
-  <div class="wrap">
-    <div class="eyebrow">Principles</div>
-    <h2>Simple on purpose.</h2>
-
-    <div class="principles">
-      <div class="principle">
-        <div class="bar"></div>
-        <h3>Nobody leaves Slack</h3>
-        <p>Clients, developers and QA all work in threads they already read. No new tool to log in to.</p>
-      </div>
-      <div class="principle">
-        <div class="bar"></div>
-        <h3>Clear ownership</h3>
-        <p>The team owns its tasks. The client approves only what they're asked to, and incidents stay urgent.</p>
-      </div>
-      <div class="principle">
-        <div class="bar"></div>
-        <h3>Cade only asks</h3>
-        <p>Suggestions are private and change nothing until someone clicks. Deletes ask twice.</p>
-      </div>
-      <div class="principle">
-        <div class="bar"></div>
-        <h3>One source of truth</h3>
-        <p>Task cards and summaries are rendered from the same record, so they never disagree.</p>
-      </div>
-    </div>
+    <div class="more"><a class="btn primary" href="mcp.html">How to connect, and every tool →</a></div>
   </div>
 </section>
 
 <section class="setup-cta" id="setup">
   <div class="wrap">
-    <div class="eyebrow">Set it up</div>
-    <h2>Up and running in minutes, with an AI agent guiding you.</h2>
+    <div class="eyebrow">Give it a try</div>
+    <h2>Why wait? Up and running in minutes, with an AI agent guiding you.</h2>
     <p class="lede">Claude Code is the easiest, and any coding agent that can run terminal commands works too. It runs every command, checks it worked, and stops whenever it needs you. Your tokens never leave your terminal.</p>
     <ol class="mini-steps">
       <li><span class="dot">1</span><div><h3>Copy it to your repo</h3><p>Fork Cade on GitHub and clone your copy.</p></div></li>
@@ -427,7 +360,7 @@
       <li><span class="dot">3</span><div><h3>Follow along</h3><p>Click through the logins and Slack settings when it asks. That's it.</p></div></li>
     </ol>
     <div class="cta">
-      <a class="btn primary" href="setup.html">Set up Cade →</a>
+      <a class="btn primary" href="setup.html">Give Cade a try →</a>
       <a class="btn" href="https://github.com/XTECLK/Cade">View on GitHub</a>
     </div>
   </div>
@@ -436,75 +369,15 @@
 <footer>
   <div class="wrap">
     <span>Cade: from any message to shipped, in Slack.</span>
-    <a href="commands.html">All commands →</a>
+    <a href="commands.html">Commands</a> · <a href="proactive.html">Proactive agent</a> · <a href="mcp.html">Connect your agent</a>
   </div>
 </footer>
 
 <script>
-  // The acts of the demo (see DEMO.md), each a clip in docs/videos/ with an
-  // optional still of the same name as a .jpg.
-  const CHAPTERS = [
-    { file: "act-1-message-to-task", title: "A message becomes a task", summary: "A client's message becomes a task in the dev channel; a follow-up in a DM is moved in." },
-    { file: "act-2-team-picks-up", title: "The team picks it up", summary: "\"@rex please start on this\" makes Rex the owner, In progress." },
-    { file: "act-3-build-review-ship", title: "Build, review, test, ship", summary: "PRs, reviewers and QA in plain words; a partial release; the client approves." },
-    { file: "act-4-incident", title: "Something breaks", summary: "New incident: always urgent, at the top of everyone's list." },
-    { file: "act-5-own-work", title: "The team's own work", summary: "Dev messages become tasks or move into one; deleting asks twice." },
-    { file: "act-6-everyones-view", title: "Everyone's view", summary: "/cade tasks, a standup in one screen, and the help." },
-  ];
-  const clip = (chapter, ext) => `videos/${chapter.file}.${ext}`;
-
-  // The hero loop shows the placeholder until Act 1 is recorded.
+  // The demo box shows "coming soon" until the video file is there.
   (() => {
     const box = document.getElementById("hero-video");
     box.querySelector("source").addEventListener("error", () => box.classList.add("missing"));
-  })();
-
-  // The walkthrough: one player and a button per act. Clicking an act plays
-  // it; when one ends, the next starts. Each act's length is read from its
-  // clip, and an act not recorded yet says so.
-  (() => {
-    const box = document.getElementById("player");
-    const video = box.querySelector("video");
-    const list = document.getElementById("chapters");
-    const format = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
-    let current = 0;
-
-    const buttons = CHAPTERS.map((chapter, i) => {
-      const item = document.createElement("li");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.innerHTML = `<span class="num">${i + 1}</span><span><strong></strong><small></small></span><span class="len">…</span>`;
-      button.querySelector("strong").textContent = chapter.title;
-      button.querySelector("small").textContent = chapter.summary;
-      button.addEventListener("click", () => show(i, true));
-      item.append(button);
-      list.append(item);
-
-      const probe = document.createElement("video");
-      probe.preload = "metadata";
-      probe.muted = true;
-      probe.addEventListener("loadedmetadata", () => { button.querySelector(".len").textContent = format(probe.duration); });
-      probe.addEventListener("error", () => { button.querySelector(".len").textContent = "Soon"; });
-      probe.src = clip(chapter, "mp4");
-      return button;
-    });
-
-    function show(i, play) {
-      current = i;
-      const chapter = CHAPTERS[i];
-      buttons.forEach((button, j) => button.setAttribute("aria-current", String(j === i)));
-      document.getElementById("now-title").textContent = `${i + 1} · ${chapter.title}`;
-      document.getElementById("now-summary").textContent = chapter.summary;
-      document.getElementById("soon").textContent = `Act ${i + 1} coming soon`;
-      box.classList.remove("missing");
-      video.poster = clip(chapter, "jpg");
-      video.src = clip(chapter, "mp4");
-      if (play) video.play().catch(() => {});
-    }
-
-    video.addEventListener("error", () => box.classList.add("missing"));
-    video.addEventListener("ended", () => { if (current < CHAPTERS.length - 1) show(current + 1, true); });
-    show(0, false);
   })();
 
   // Light / dark toggle, remembered per browser when storage allows.

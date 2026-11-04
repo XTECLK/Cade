@@ -1,9 +1,7 @@
 // Writes the website's MCP pages from the tool definitions in src/mcp-tools.js, so the site and
 // the server can't disagree: docs/mcp.html (how to connect an agent, which `/cade mcp status` links to, and every tool, its
-// arguments and its result) and the
-// list of tools in docs/index.html, between its mcp-tools markers. `npm run docs` writes them;
-// test/docs.test.js checks they are up to date.
-import { readFileSync, writeFileSync } from "node:fs";
+// arguments and its result). `npm run docs` writes it; test/docs.test.js checks it is up to date.
+import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { FLOWS } from "../src/flows.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
@@ -40,21 +38,6 @@ function table(schema, empty) {
   return `<div class="tablewrap"><table>\n<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`;
 }
 
-// A short "name(args) → results" line for the home page.
-function summary(tool) {
-  const args = Object.keys(tool.inputSchema.properties ?? {});
-  const gives = Object.keys(tool.outputSchema.properties ?? {});
-  return `<li><a href="mcp.html#${tool.name}"><code>${tool.name}</code></a>${args.length ? ` (${escape(args.join(", "))})` : ""} → ${gives.slice(0, 4).map(code).join(", ")}${gives.length > 4 ? ", …" : ""}</li>`;
-}
-
-export function toolList() {
-  return `<div class="feature"><div class="bar"></div><h3>Tools, from the server's own definitions</h3>
-        <ul class="tools">
-          ${TOOL_DEFS.map(summary).join("\n          ")}
-        </ul>
-        <p><a href="mcp.html">Every argument and result →</a></p></div>`;
-}
-
 export function mcpPage() {
   const flowItems = FLOWS.map((flow) => `      <li><code>${escape(flow.name)}</code>: ${escape(flow.description)}.</li>`).join("\n");
   const sections = TOOL_DEFS.map(
@@ -75,7 +58,7 @@ export function mcpPage() {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cade · MCP tools</title>
+<title>Cade · Connect your agent</title>
 <meta name="description" content="Every tool Cade's MCP server offers: its arguments, and the structured result it gives back.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -88,9 +71,10 @@ export function mcpPage() {
   <div class="wrap">
     <a class="brand" href="index.html"><span class="logo">C</span>Cade</a>
     <ul>
-      <li><a href="index.html#how">How it works</a></li>
-      <li><a href="index.html#mcp">AI agents</a></li>
+      <li><a href="index.html#hero-video">Demo</a></li>
       <li><a href="commands.html">Commands</a></li>
+      <li><a href="proactive.html">Proactive agent</a></li>
+      <li><a href="mcp.html" aria-current="page">Connect your agent</a></li>
     </ul>
     <div class="nav-right">
       <a class="btn primary nav-cta" href="setup.html">Set up</a>
@@ -101,8 +85,8 @@ export function mcpPage() {
 
 <header class="guide-head">
   <div class="wrap">
-    <div class="eyebrow">MCP reference</div>
-    <h1>Every tool, what it takes and what it gives back.</h1>
+    <div class="eyebrow">Connect with your existing agent</div>
+    <h1>Bring your own agent. Every tool says what it takes and gives back.</h1>
     <p class="lede">How to connect your own AI agent to Cade, and every tool it gets, generated from the server's own tool definitions, so it is always what an agent sees in <code>tools/list</code>. A result is text and, matching its schema, <code>structuredContent</code>, so an agent can pass one tool's IDs to the next.</p>
   </div>
 </header>
@@ -155,17 +139,8 @@ ${sections}
 `;
 }
 
-// docs/index.html with the list between its markers made from the definitions.
-export function indexPage(html) {
-  const pattern = /(<!-- mcp-tools:start -->)[\s\S]*?(<!-- mcp-tools:end -->)/;
-  if (!pattern.test(html)) throw new Error("docs/index.html has no mcp-tools markers");
-  return html.replace(pattern, `$1\n      ${toolList()}\n      $2`);
-}
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const docs = new URL("../docs/", import.meta.url);
   writeFileSync(new URL("mcp.html", docs), mcpPage());
-  const index = new URL("index.html", docs);
-  writeFileSync(index, indexPage(readFileSync(index, "utf8")));
-  console.log("Wrote docs/mcp.html and the tool list in docs/index.html");
+  console.log("Wrote docs/mcp.html");
 }

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cade · Proactive agent</title>
+<meta name="description" content="How Cade reads messages in its threads, with or without AI, and offers what you are about to do. Nothing changes until you click.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html"><span class="logo">C</span>Cade</a>
+    <ul>
+      <li><a href="index.html#hero-video">Demo</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="proactive.html" aria-current="page">Proactive agent</a></li>
+      <li><a href="mcp.html">Connect your agent</a></li>
+    </ul>
+    <div class="nav-right">
+      <a class="btn primary nav-cta" href="setup.html">Set up</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+  </div>
+</nav>
+
+<header class="guide-head">
+  <div class="wrap">
+    <div class="eyebrow">Proactive agent</div>
+    <h1>Cade reads along, and only ever asks.</h1>
+    <p class="lede">
+      In the task and incident threads it manages, Cade notices what you're about to do, such as handing the task over,
+      pasting a PR or saying it's done, and offers it to you privately. Nothing changes until you click. It works in
+      three layers, each built on the one before, and you turn the last two on or off in <code>cade.config.json</code>,
+      for every group or for each group on its own.
+    </p>
+    <ul class="toc">
+      <li><a href="#layers">The three layers</a></li>
+      <li><a href="#words">Plain words</a></li>
+      <li><a href="#ai">AI suggestions</a></li>
+    </ul>
+  </div>
+</header>
+
+<main class="guide">
+
+<section id="layers">
+  <div class="wrap">
+    <div class="eyebrow">Three layers</div>
+    <h2>Commands always work. Cade can also read along, with or without AI.</h2>
+    <div class="grid">
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>1 · Commands</h3>
+        <span class="where">Always on</span>
+        <p>You say exactly what to do, and Cade does it.</p>
+        <ul>
+          <li><code>/cade …</code> and <code>@Cade …</code> commands</li>
+          <li>The ⋯ menu on task cards (Edit, Release, Archive), message shortcuts and emoji</li>
+          <li>A message posted on its own in the dev channel gets a private question: track it as a task or incident, or move it to an existing thread</li>
+        </ul>
+        <p><a href="commands.html">Every command →</a></p>
+      </div>
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>2 · Proactive agent</h3>
+        <span class="where"><code>suggestions</code> · on by default</span>
+        <p>Cade reads messages in the threads it manages and offers, privately, what you're about to do.</p>
+        <ul>
+          <li>“@mia can you review this?” offers to add a reviewer</li>
+          <li>A pasted PR link offers to link it</li>
+          <li>“on it”, “lgtm”, “done” offer the next status</li>
+          <li>Off means commands only: nothing is read from messages in threads</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>3 · AI suggestions</h3>
+        <span class="where"><code>ai</code> · off by default</span>
+        <p>The proactive agent reads task threads with a small model on Cloudflare Workers AI, so one message can mean several changes.</p>
+        <ul>
+          <li>Several people across roles, added or removed</li>
+          <li>Status, priority and due date (“need it by Friday”)</li>
+          <li>A summary to <b>Accept</b>, <b>Edit…</b> in the task's form, or <b>Reject</b></li>
+          <li>Needs the proactive agent on, and falls back to phrases if the model fails</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="words" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Proactive agent</div>
+    <h2>Plain words Cade picks up in its threads</h2>
+    <p class="lede">With the proactive agent on, Cade reads messages in the task and incident threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"taskStatusChangeDetection": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="commands.html#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>Hand a task to someone</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <p>Mention someone with what you'd like them to do:</p>
+        <ul>
+          <li><b>Owner:</b> “start working”, “work on”, “look into”, “pick this up”, “take this”, “take care of”, “handle this”, “fix this”, “assign this to”, “over to you”, “implement”</li>
+          <li><b>Reviewer:</b> “review” · <b>Tester:</b> “test”, “QA”, “verify”</li>
+          <li>Cade suggests adding whoever that part of the message names. Someone only cc'd isn't added. Your own part is yours: “@udara can you implement this while I test it” suggests Udara as owner and you as tester.</li>
+        </ul>
+        <div class="example"><b>Example:</b> “@Rex please start working on this, first cut by Friday?”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Paste a pull request</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <p>Cade privately offers to link it, in the same summary as any other change it read (<b>PRs:</b> …), with <b>Accept</b>, <b>Edit…</b> and <b>Reject</b>. People your message mentions who aren't reviewers yet are added as reviewers, and the task moves to In review.</p>
+        <div class="example"><b>Example:</b> “First pass is up: https://github.com/acme/booking-web/pull/128. @Mia can you review this?”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Say how it's going</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <ul>
+          <li><b>Started:</b> “on it”, “started on this” from someone on the task offers <b>In progress</b>.</li>
+          <li><b>Progress:</b> “lgtm” from a reviewer, “QA passed” from a tester, or “done” from anyone on it offers the next status.</li>
+          <li>Role and status suggestions come together as one private message: a summary of what Cade read, with <b>Accept</b>, <b>Edit…</b> (the task's Edit form, filled in with it) and <b>Reject</b>. The same as <a href="#ai">AI suggestions</a>, read by phrases instead.</li>
+        </ul>
+        <div class="example"><b>Example:</b> “lgtm, approved the PR”</div>
+      </article>
+
+
+    </div>
+  </div>
+</section>
+
+<section id="ai">
+  <div class="wrap">
+    <div class="eyebrow">AI suggestions</div>
+    <h2>One message, every change, read with AI</h2>
+    <p class="lede">With AI suggestions on, the proactive agent reads messages in task threads with a small model on Cloudflare Workers AI, not by fixed phrases. That catches more ways of saying things, and several changes in one message.</p>
+    <p class="lede"><b>Off by default.</b> Turn it on with <code>"aiSuggestions": true</code> in <code>cade.config.json</code>, or name another Workers AI model, for every group or only some: <code>{ "name": "acme", …, "ai": true }</code> in <code>channels</code>. It needs the proactive agent on: with <code>"taskStatusChangeDetection": false</code>, AI is never asked.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>What it reads</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <ul>
+          <li><b>People:</b> owners, reviewers and testers added or removed, several roles in one message. Only people the message mentions, or whoever wrote it, can be added. A mention that only informs (“cc @rex”, “thanks @mia”) changes nothing.</li>
+          <li><b>Status:</b> when the message says the work moved on, never for a question or a plan.</li>
+          <li><b>Priority and due date:</b> “this is urgent”, “need it by Friday”, but not an incident's.</li>
+        </ul>
+        <div class="example"><b>Example:</b> “@Rex can you take this over from @Bob? @Mia please review. Need it by Friday, it's blocking the release”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Accept, edit, or reject</h3>
+        <div class="tags"><span class="where">Only you see it</span></div>
+        <p>Whoever wrote the message gets a private summary of what Cade read, such as <i>Owners: @Rex (Add) · @Bob (Remove) · Reviewers: @Mia (Add) · Priority: High → Urgent · Due: none → 31/10</i>.</p>
+        <ul>
+          <li><b>Accept</b> applies it all, and the thread hears it as one message.</li>
+          <li><b>Edit…</b> opens the same form as the task card's ⋯ → Edit, filled in with it: every role's people, the status, priority, due date and PRs. Correct anything, then Save.</li>
+          <li><b>Reject</b> drops it.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3>Falls back on its own</h3>
+        <div class="tags"><span class="where">Always</span></div>
+        <p>If the model fails, or takes more than 8 seconds, the message is read by its phrases instead, as with AI off. Pasted PR links and new messages in the dev channel are always read without AI.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<section class="setup-cta" id="setup">
+  <div class="wrap">
+    <div class="eyebrow">Set it up</div>
+    <h2>Up and running in minutes, with an AI agent guiding you.</h2>
+    <p class="lede">Claude Code is the easiest, and any coding agent that can run terminal commands works too. It runs every command, checks it worked, and stops whenever it needs you. Your tokens never leave your terminal.</p>
+    <ol class="mini-steps">
+      <li><span class="dot">1</span><div><h3>Copy it to your repo</h3><p>Fork Cade on GitHub and clone your copy.</p></div></li>
+      <li><span class="dot">2</span><div><h3>Start the agent</h3><p><code>npm run setup</code> with Claude Code, or paste the setup prompt into another agent.</p></div></li>
+      <li><span class="dot">3</span><div><h3>Follow along</h3><p>Click through the logins and Slack settings when it asks. That's it.</p></div></li>
+    </ol>
+    <div class="cta">
+      <a class="btn primary" href="setup.html">Set up Cade →</a>
+      <a class="btn" href="https://github.com/XTECLK/Cade">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Cade: from any message to shipped, in Slack.</span>
+    <a href="index.html">Home →</a>
+  </div>
+</footer>
+
+<script>
+  // Light / dark toggle, remembered per browser when storage allows.
+  (() => {
+    const root = document.documentElement;
+    try {
+      const saved = localStorage.getItem("cade-theme");
+      if (saved) root.dataset.theme = saved;
+    } catch {}
+    document.getElementById("theme").addEventListener("click", () => {
+      const dark = root.dataset.theme
+        ? root.dataset.theme === "dark"
+        : matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      try { localStorage.setItem("cade-theme", root.dataset.theme); } catch {}
+    });
+  })();
+</script>
+</body>
+</html>

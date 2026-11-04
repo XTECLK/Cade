@@ -344,3 +344,10 @@ pre.prompt { white-space: pre-wrap; padding-top: 40px; max-height: 260px; }
 .tool th, .tool td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tool th { color: var(--muted); font-weight: 600; }
 .tool td:nth-child(4) { color: var(--muted); }
+
+/* Landing: the proactive agent glimpse is one private suggestion with the three layers beside it. */
+.mocks.single { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+.mocks.single .layers { grid-template-columns: 1fr; margin-top: 0; gap: 12px; }
+.mocks.single .layers .feature { padding: 16px 18px; }
+.mocks.single .layers .where { margin-top: 6px; }
+@media (max-width: 820px) { .mocks.single { grid-template-columns: 1fr; } }

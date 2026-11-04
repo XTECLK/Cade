@@ -56,29 +56,17 @@ async function status(env, user) {
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
 }
 
-// The commands to run in each kind of AI agent to add Cade, for the endpoint
-// `url` and the API key `key`, sent as a header with every request.
-export function setupSteps(url, key) {
-  return [
-    "*Claude Code:*",
-    `\`\`\`claude mcp add --transport http cade ${url} --header "x-apikey: ${key}"\`\`\``,
-    "*Gemini CLI:*",
-    `\`\`\`gemini mcp add --transport http cade ${url} --header "x-apikey: ${key}"\`\`\``,
-    "*Cursor, Codex and any other client that takes a remote MCP server:* the URL above (Streamable HTTP), and the header `x-apikey` with your API key as its value.",
-  ].join("\n");
-}
-
-// What `/cade mcp init` answers, for the person's new API key.
+// What `/cade mcp init` answers: the endpoint and the API key, each in a code block (which has
+// Slack's own copy button), and the guide for connecting an agent.
 function granted(url, key) {
   const text = [
-    ":key: *Your Cade MCP connection.* Add it to your AI agent once, as a remote MCP server:",
+    ":key: *Your Cade MCP connection.*",
     "*Endpoint*",
     `\`\`\`${url}\`\`\``,
     "*API key*, sent with every request in the header `x-apikey`",
     `\`\`\`${key}\`\`\``,
-    setupSteps(url, key),
-    `Step by step: <${MCP_GUIDE}|how to connect your AI agent>.`,
-    "It lets your agent read the threads you can read, and change tasks and post in their threads as you, so keep the key to yourself. `/cade mcp revoke` ends it, and I can't show it again: `/cade mcp init` makes a new one.",
+    `*How to connect:* <${MCP_GUIDE}|Step by step guide>`,
+    "Keep the key to yourself: your agent acts as you. `/cade mcp revoke` ends it, and I can't show it again: `/cade mcp init` makes a new one.",
   ].join("\n");
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
 }

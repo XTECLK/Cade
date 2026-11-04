@@ -92,7 +92,8 @@ test("/cade mcp init gives an API key for the caller, and revoke ends it", async
   // The reply gives the endpoint, without the key in it, and says to send the key in the x-apikey header.
   assert.match(reply.text, /\*Endpoint\*\n```https:\/\/worker\.example\.net\/mcp```/);
   assert.ok(!reply.text.includes(`/mcp/${first}`));
-  assert.match(reply.text, /claude mcp add --transport http cade https:\/\/worker\.example\.net\/mcp --header "x-apikey: [\w-]{43}"/);
+  assert.ok(!reply.text.includes("claude mcp add"));
+  assert.match(reply.text, /mcp\.html#connect/);
   const list = async (url) => (await rpc(url, { id: 1, method: "tools/list" })).status;
   assert.equal(await list(first), 200);
 
@@ -441,7 +442,7 @@ test("/cade mcp status shows whether MCP is configured and whether you have a ke
   assert.match(before, /<https:\/\/xteclk\.github\.io\/Cade\/mcp\.html#connect\|How to connect your AI agent>/);
 
   const reply = await slash("mcp init", "UME");
-  assert.match(reply.text, /Step by step: <https:\/\/xteclk\.github\.io\/Cade\/mcp\.html#connect\|/);
+  assert.match(reply.text, /How to connect:\* <https:\/\/xteclk\.github\.io\/Cade\/mcp\.html#connect\|/);
   const key = addressIn(reply);
   const after = JSON.stringify(await slash("mcp status", "UME"));
   assert.match(after, /Your API key:\*[^"]*made \d{4}-\d{2}-\d{2}/);

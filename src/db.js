@@ -722,7 +722,7 @@ export async function deleteMcpToken(env, user) {
   return Boolean(row);
 }
 
-// The settings changed on the admin page, as { channel, key, value (JSON) }.
+// The settings changed in the project settings form, as { channel, key, value (JSON) }.
 export async function projectSettings(env) {
   const { results } = await env.DB.prepare("SELECT channel, key, value FROM project_settings").all();
   return results;

@@ -56,12 +56,12 @@ export async function handleWeb(request, env) {
 }
 
 // The signed-in user, or null.
-export async function currentUser(request, env) {
+async function currentUser(request, env) {
   const cookie = sessionToken(request);
   return cookie ? await webTokenUser(env, await hashToken(cookie), "session") : null;
 }
 
-export const SIGN_IN = "<p>Send <code>/cade login</code> in Slack. Cade answers with a link that signs you in here for thirty days; then open this page again.</p>";
+const SIGN_IN = "<p>Send <code>/cade login</code> in Slack. Cade answers with a link that signs you in here for thirty days; then open this page again.</p>";
 
 function sessionToken(request) {
   for (const part of (request.headers.get("cookie") ?? "").split(";")) {
@@ -135,7 +135,7 @@ async function saveNotes(request, env, channel, ts, title, where, user) {
   return notesPage(env, channel, ts, title, where, { saved: true });
 }
 
-export const methodNotAllowed = (allow) => new Response("Method not allowed", { status: 405, headers: { allow } });
+const methodNotAllowed = (allow) => new Response("Method not allowed", { status: 405, headers: { allow } });
 
 export function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -154,11 +154,9 @@ article header{font-size:.9rem}article time{color:var(--muted);margin-left:6px}
 article p,.text{white-space:pre-wrap;margin:4px 0 0;overflow-wrap:anywhere}
 textarea{box-sizing:border-box;width:100%;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
 button{margin-top:8px;background:var(--accent);color:var(--bg);border:0;border-radius:6px;padding:8px 18px;font:inherit;cursor:pointer}
-.error{color:#d93025}.ok{color:#188038}
-select{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
-.project{border:1px solid var(--line);border-radius:8px;padding:6px 16px 14px;margin:16px 0}.setting{margin-top:12px}.setting p{margin:2px 0 4px}`;
+.error{color:#d93025}.ok{color:#188038}`;
 
-export function page(status, title, content, headers = {}) {
+function page(status, title, content, headers = {}) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers } });
 }

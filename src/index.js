@@ -4,7 +4,6 @@ import { actions, intents, reactions, shortcuts, views } from "./commands/regist
 import { recordMessage } from "./export.js";
 import { publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
-import { handleAdmin } from "./admin.js";
 import { handleMcp } from "./mcp.js";
 import { retryUnposted } from "./retry.js";
 import { withSettings } from "./settings.js";
@@ -29,9 +28,8 @@ export default {
     // People reach a task's thread and notes pages with a session of their
     // own, which `/cade login` starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
-    // Settings changed on the admin page win over the config (see settings.js).
+    // Settings changed in the project settings form win over the config (see settings.js).
     env = await withSettings(env);
-    if (path === "/admin" || path === "/admin/") return handleAdmin(request, env);
     const route = ROUTES[path];
     if (!route) return new Response("Not found", { status: 404 });
     if (request.method !== "POST") {

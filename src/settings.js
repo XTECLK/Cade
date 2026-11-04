@@ -1,8 +1,8 @@
 import { aiModel } from "./ai.js";
 import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.js";
-import { addedProjects, projectSettings } from "./db.js";
+import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
 
-// The project settings that can be changed on the admin page (see admin.js), each on or off.
+// The project settings that can be changed in the form `/cade project settings` opens (see commands/project.js), each on or off.
 // A project's name, channel and aiModel stay in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS = [
@@ -36,7 +36,7 @@ export async function withSettings(env) {
 }
 
 // Whether `user` is one of the admins cade.config.json lists (`admins`, the Worker secret ADMINS),
-// who can run `/cade project …` and open the projects page. Without a list, no one is.
+// who can run `/cade project …` and open the settings form. Without a list, no one is.
 export function isAdmin(env, user) {
   try {
     const admins = typeof env.ADMINS === "string" ? JSON.parse(env.ADMINS) : env.ADMINS;
@@ -74,4 +74,31 @@ export function settingOn(env, channel, key) {
     default:
       throw new Error(`${key} is not a setting`);
   }
+}
+
+// The env as the config alone has it, without the added projects and the settings changed here.
+export const configEnv = (env) => (env.PROJECTS_BASE ? { ...env, PROJECTS: env.PROJECTS_BASE, CHANNEL_PAIRS: undefined } : env);
+
+// The choice made for each setting of the project with `channel` now: "config", "on" or "off".
+export async function choicesOf(env, channel) {
+  const kept = new Map((await projectSettings(env)).filter((row) => row.channel === channel).map((row) => [row.key, row.value]));
+  return Object.fromEntries(SETTINGS.map(({ key }) => [key, kept.has(key) ? (JSON.parse(kept.get(key)) ? "on" : "off") : "config"]));
+}
+
+// Applies `choices` ({ key: "config" | "on" | "off" }) to the project with `channel`, for `user`:
+// "config" goes back to the config. Returns how many settings changed.
+export async function applySettings(env, channel, choices, user) {
+  const project = projects(env).find((candidate) => candidate.channel === channel);
+  if (!project) return 0;
+  const before = await choicesOf(env, channel);
+  let changed = 0;
+  for (const { key } of SETTINGS) {
+    const choice = choices[key];
+    if (!["config", "on", "off"].includes(choice) || choice === before[key]) continue;
+    if (choice === "config") await clearProjectSetting(env, channel, key);
+    else await setProjectSetting(env, channel, key, choice === "on", user);
+    changed++;
+    console.log("Project setting changed", { project: project.name, key, to: choice, by: user });
+  }
+  return changed;
 }

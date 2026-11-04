@@ -150,7 +150,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/format.js` | Times in `TIMEZONE`, and Slack users' names |
 | `src/export.js` | Keeping each tracked thread's messages in D1 (`messages`) |
 | `src/notes.js`, `src/links.js` | A task's notes page and the addresses of its pages |
-| `src/admin.js`, `src/settings.js`, `src/commands/project.js` | The projects page (`/admin`) for the `admins` in the config, project settings kept in D1 over the config, and `/cade project init` to add a project |
+| `src/settings.js`, `src/commands/project.js` | `/cade project init` to add a project, `/cade project settings` (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
 | `src/web.js`, `src/access.js` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in with `/cade login`, and who may read a channel |
 | `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
 | `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |

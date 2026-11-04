@@ -11,7 +11,7 @@
 //             every project's Doc
 //   admins    the Slack user IDs of the people who can run        → ADMINS
 //             `/cade project init` and `/cade project settings`
-//             and open the projects page (/admin); none without it
+//             (a Slack form); none without it
 //   mcp       whether people can connect their AI agent to      → MCP
 //             Cade's MCP endpoint (optional, on): false turns
 //             it off, and `/cade mcp init` gives no keys

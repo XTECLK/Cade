@@ -7,7 +7,7 @@ CREATE TABLE projects (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- A project's settings changed on the admin page (see src/admin.js), over what
+-- A project's settings changed in the form `/cade project settings` opens (see src/commands/project.js), over what
 -- cade.config.json says. One row for each setting changed; the row is removed to go
 -- back to the config. `value` is JSON (true or false).
 CREATE TABLE project_settings (

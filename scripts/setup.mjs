@@ -10,9 +10,8 @@
 import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { askHidden } from "./prompt.mjs";
+import { ask, askHidden, choose, confirm, intro, log, note, outro, pause } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SLACK_APP = `${ROOT}.cade/slack-app.json`;
@@ -77,16 +76,9 @@ function run(command, args, { env = process.env } = {}) {
 }
 
 // Like run, but with the terminal itself, for logins and hidden prompts.
-// The setup's own prompt is paused meanwhile: two readers on one terminal
-// would split the input, and the child's hidden prompt would never get it.
-let livePrompt;
 function runLive(command, args) {
   return new Promise((resolve) => {
-    livePrompt?.pause();
-    const done = (code) => {
-      livePrompt?.resume();
-      resolve(code);
-    };
+    const done = resolve;
     const child = spawn(command, args, { cwd: ROOT, stdio: "inherit" });
     child.on("error", () => done(1));
     child.on("exit", (code) => done(code ?? 1));
@@ -104,9 +96,7 @@ async function workspaceName() {
   if (app.team || !process.stdin.isTTY) return app.team;
   const page = app.appId ? `https://api.slack.com/apps/${app.appId}/oauth` : "https://api.slack.com/apps (open Cade → OAuth & Permissions)";
   console.log(`\nTo put your Slack workspace's name in Cade's Gmail name and script, paste Cade's bot token: the Bot User OAuth Token (xoxb-…) at\n  ${page}`);
-  livePrompt?.pause();
   const token = process.env.SLACK_BOT_TOKEN || (await askHidden("Slack bot token (hidden), or Enter to skip: "));
-  livePrompt?.resume();
   if (!token) return undefined;
   process.env.SLACK_BOT_TOKEN ??= token; // the group step won't ask for it again
   try {
@@ -133,33 +123,25 @@ let stepNumber = 0;
 const outcomes = [];
 async function step(title, work) {
   stepNumber++;
-  console.log(`\n[${stepNumber}/${STEPS}] ${title}`);
-  console.log("─".repeat(Math.min(60, title.length + 8)));
+  log.step(`[${stepNumber}/${STEPS}] ${title}`);
   const note = await work();
   outcomes.push(`${note?.startsWith("skipped") ? "–" : "✓"} ${title}${note ? ` (${note})` : ""}`);
 }
 
 async function main() {
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  livePrompt = prompt;
-  const ask = async (question, fallback = "") => (await prompt.question(question)).trim() || fallback;
-  const yes = async (question, fallback = true) => {
-    const answer = (await ask(`${question} (${fallback ? "Y/n" : "y/N"}): `)).toLowerCase();
-    return answer ? answer.startsWith("y") : fallback;
-  };
+  intro("Cade setup");
+  const yes = (question, fallback = true) => confirm(question, fallback);
   // Shows an address and opens it once the person presses Enter.
   const openPage = async (url, message) => {
     console.log(`${message}\n  ${url}`);
-    await ask("Press Enter to open it… ");
-    openUrl(url);
+    if (await confirm("Open it in your browser?")) openUrl(url);
   };
   const fail = (message) => {
-    prompt.close();
     console.error(`\n${message}\nRun npm run setup again to carry on from here.`);
     process.exit(1);
   };
 
-  console.log("Cade setup. Each step is skipped if it's done already, so you can stop and run this again.");
+  log.info("Each step is skipped if it's done already, so you can stop and run this again.");
 
   await step("Cloudflare", async () => {
     let who = await run("npx", ["wrangler", "whoami"]);
@@ -170,8 +152,7 @@ async function main() {
     }
     const accounts = accountIdsIn(who.output);
     if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${ROOT}.cade/cloudflare.json`))) {
-      const id = await ask("\nSeveral accounts are listed. The account ID Cade is deployed to: ");
-      if (!accounts.includes(id)) fail("That isn't one of the listed account IDs.");
+      const id = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
       process.env.CLOUDFLARE_ACCOUNT_ID = id;
       await import("./cloudflare.mjs"); // saves it for every script
     }
@@ -202,7 +183,7 @@ async function main() {
       `Slack needs an app configuration token: scroll to "Your App Configuration Tokens" and Generate Token for your workspace.
 You'll be asked for it, then to install the app and give its bot token; both hidden.`,
     );
-    await ask("Press Enter once it's generated…");
+    await pause("Press Enter once it's generated…");
     if ((await runLive("node", ["scripts/slack-app.mjs", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
   });
 
@@ -220,7 +201,7 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
       const team = await workspaceName();
       const gmail = cadeGmail(team);
       console.log(`\nCreate it here, with the username ${gmail.replace("@gmail.com", "")} (${gmail}):\n  ${googleSignupUrl(gmail)}`);
-      await ask("Press Enter when the account exists… ");
+      await pause("Press Enter when the account exists… ");
       console.log("Sign in as that account when the browser opens for the login, and in the next step.");
     } else {
       console.log("Sign in as the account to use when the browser opens for the login.");
@@ -229,10 +210,10 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
       "https://script.google.com/home/usersettings",
       `\nAs that account, turn on the Apps Script API (clasp then asks you to log in to Google).`,
     );
-    await ask("Press Enter when the API is on… ");
+    await pause("Press Enter when the API is on… ");
     if ((await runLive("npx", ["clasp", "login"])) !== 0) fail("The Google login failed.");
     if ((await runLive("node", ["scripts/google-app.mjs", "create"])) !== 0) fail("Creating the Google web app failed.");
-    await ask("\nOpen the script link above, choose authorize, click Run and allow it. Press Enter when done… ");
+    await pause("Open the script link above, choose authorize, click Run and allow it. Press Enter when done… ");
   });
 
   await step("First group", async () => {
@@ -244,9 +225,8 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
     if ((await runLive("node", ["scripts/group.mjs"])) !== 0) process.exit(1);
   });
 
-  prompt.close();
-  console.log(`\n${outcomes.join("\n")}`);
-  console.log("\nSetup finished. In Slack, invite Cade to the channel with /invite @Cade, then try /cade help.");
+  note(outcomes.join("\n"), "Summary");
+  outro("Setup finished. In Slack, invite Cade to the channel with /invite @Cade, then try /cade help.");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

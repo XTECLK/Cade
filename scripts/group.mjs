@@ -13,11 +13,10 @@
 // files it made, so an existing file can't be linked. For a group already
 // there, only what's given changes; `none` removes a setting.
 import { readFile, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { callSlack } from "../src/slack.js";
 import { checkZone, readConfig, uploadConfig } from "./config.mjs";
-import { askHidden } from "./prompt.mjs";
+import { ask, askHidden, choose, chooseMany, confirm } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONFIG_FILE = `${ROOT}cade.config.json`;
@@ -220,9 +219,9 @@ export async function workspaceMembers(slack) {
 }
 
 // Asks who the admins are (those who can run `/cade project init` and
-// `/cade project settings`), from a numbered list of the workspace's people
-// with their emails. Answers: numbers, emails or member IDs, or Enter for none.
-export async function askAdmins(slack, ask) {
+// `/cade project settings`): the workspace's people with their emails, to
+// search (type), tick (Tab) and confirm (Enter). Returns their IDs.
+export async function askAdmins(slack) {
   let members;
   try {
     members = await workspaceMembers(slack);
@@ -230,25 +229,8 @@ export async function askAdmins(slack, ask) {
     console.log(`\nCouldn't list the workspace's people (${error.message}); admins can be set in cade.config.json.`);
     return [];
   }
-  console.log("\nAdmins can run /cade project init and /cade project settings in Slack:");
-  members.forEach((member, i) => console.log(`  ${String(i + 1).padStart(3)}. ${member.name}${member.email ? ` <${member.email}>` : ""}`));
-  while (true) {
-    const answer = await ask("Who should be admins? Numbers, emails or member IDs, separated by commas [none]: ");
-    const ids = [];
-    const other = [];
-    for (const who of answer.split(/[\s,]+/).filter(Boolean)) {
-      if (/^\d+$/.test(who)) {
-        const member = members[Number(who) - 1];
-        if (member) ids.push(member.id);
-        else other.push(who);
-      } else other.push(who);
-    }
-    try {
-      return [...new Set([...ids, ...(await memberIds(slack, other.join(",")))])];
-    } catch (error) {
-      console.log(`  ${error.message}`);
-    }
-  }
+  const options = members.map((member) => ({ value: member.id, label: member.name, hint: member.email || undefined }));
+  return chooseMany("Who should be admins (can run /cade project init and /cade project settings)? Type to search, Tab to tick, Enter when done", options);
 }
 
 // What to do for one of the group's channels, asked: an existing channel,
@@ -256,9 +238,17 @@ export async function askAdmins(slack, ask) {
 // it's private (it can't see a private one before); or a new one, by name,
 // which Cade makes, and is then in. `current` is the channel the group has,
 // kept with Enter. Returns null for none.
-export async function channelPlan(slack, ask, role, group, options, current) {
+export async function channelPlan(slack, ask, role, group, options, current, pick) {
   while (true) {
-    const choice = (await ask(`  Existing or new? (${options.join(", ")}): `)).toLowerCase();
+    // With `pick` (arrow keys) the choice is selected; without, typed.
+    const choice = pick
+      ? await pick("  Which channel?", [
+          { label: "Make a new channel", value: "n" },
+          { label: "Use an existing channel", value: "e" },
+          ...(current ? [{ label: `Keep ${current}`, value: "" }] : []),
+          ...(role.required ? [] : [{ label: current ? "Remove it" : "None", value: "-" }]),
+        ], { initial: current ? 2 : 0 })
+      : (await ask(`  Existing or new? (${options.join(", ")}): `)).toLowerCase();
     if (!choice && current) return { field: role.field, action: "keep", id: current };
     if (choice === "-" && !role.required) return current ? { field: role.field, action: "remove" } : null;
     if (choice === "e" || choice === "existing") {
@@ -287,7 +277,7 @@ export async function channelPlan(slack, ask, role, group, options, current) {
         console.log(`  #${wanted} exists already; choose e and give its ID to use it, or another name.`);
         continue;
       }
-      const isPrivate = /^y/i.test(await ask(`  Make #${wanted} private? (y/N): `));
+      const isPrivate = pick ? await pick(`  Make #${wanted} private?`, [{ label: "No, public", value: false }, { label: "Yes, private", value: true }]) : /^y/i.test(await ask(`  Make #${wanted} private? (y/N): `));
       return { field: role.field, action: "create", name: wanted, isPrivate };
     }
   }
@@ -324,8 +314,6 @@ async function guided() {
 
   const json = await currentConfig();
   const config = JSON.parse(json);
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = async (question, fallback = "") => (await prompt.question(question)).trim() || fallback;
   try {
     let name;
     while (!name) {
@@ -354,7 +342,7 @@ async function guided() {
 
     // Admins are asked once, while there are none.
     if (!config.admins?.length) {
-      const admins = await askAdmins(slack, ask);
+      const admins = await askAdmins(slack);
       if (admins.length) settings.admins = admins;
     }
 
@@ -366,7 +354,7 @@ async function guided() {
       const options = ["e for an existing one", "n to make a new one"];
       if (current[role.field]) options.push(`Enter to keep ${current[role.field]}`);
       if (!role.required) options.push(current[role.field] ? "- to remove it" : "- for none");
-      const plan = await channelPlan(slack, ask, role, name, options, current[role.field]);
+      const plan = await channelPlan(slack, ask, role, name, options, current[role.field], choose);
       if (plan) plans.push(plan);
     }
     const channels = plans.filter((plan) => plan.id || plan.action === "create");
@@ -378,9 +366,10 @@ async function guided() {
     const files = {};
     if (config.googleUrl) {
       for (const [field, what] of [["workDoc", "Google Doc for executive summaries (editable)"]]) {
+        console.log();
         if (current[field]) {
-          if (/^(-|u|unlink)$/i.test(await ask(`\n${what}: already on. Enter to keep it, - to unlink: `))) files[field] = "none";
-        } else if (/^y/i.test(await ask(`\nTurn on ${what}? Cade makes it (y/N): `))) files[field] = "new";
+          if (!(await choose(`${what} is on.`, [{ label: "Keep it", value: true }, { label: "Unlink it", value: false }]))) files[field] = "none";
+        } else if (await confirm(`Turn on ${what}? Cade makes it.`, false)) files[field] = "new";
       }
     } else {
       console.log("\nThe Google web app isn't set up (npm run google:create), so I'll skip the group's Doc.");
@@ -405,7 +394,8 @@ async function guided() {
     if (settings.timezone) console.log(`  set the time zone to ${settings.timezone}`);
     if (settings.admins) console.log(`  make ${settings.admins.length === 1 ? "1 person an admin" : `${settings.admins.length} people admins`}`);
     console.log("  save the group in cade.config.json and upload it");
-    if (/^n/i.test(await ask("Go ahead? (Y/n): "))) {
+    console.log();
+    if (!(await confirm("Go ahead?"))) {
       console.log("Nothing changed.");
       return;
     }
@@ -447,7 +437,7 @@ async function guided() {
     }
     if (saved.workDoc) console.log(`Work doc: ${saved.workDoc}\n  Share it as Editor with whoever goes through the summaries.`);
   } finally {
-    prompt.close();
+    process.stdin.pause(); // lets the process exit
   }
 }
 

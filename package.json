@@ -20,6 +20,7 @@
     "demo:record": "node scripts/demo/record.mjs"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.8.1",
     "@google/clasp": "^3.4.1",
     "playwright": "^1.64.1",
     "wrangler": "^4.152.0"

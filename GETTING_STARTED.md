@@ -16,7 +16,7 @@ npm run setup
 
 It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
 Slack app, a Google Doc for executive summaries, then your first group. It
-is numbered ([1/5]…), opens the pages you need to click in (press Enter), skips
+is numbered ([1/5]…), uses arrow-key menus and Yes/No choices, offers to open the pages you need to click in, skips
 what's done already, ends with a summary of what was done, and can be run again
 to carry on. Tokens and secrets are asked for by the
 scripts it runs, hidden, and never stored in a file.
@@ -263,8 +263,7 @@ npm run group
    the one it was given).
 2. The group's name, then your team's time zone (the first time only).
    Also the first time only, the **admins**: Cade lists the workspace's
-   people with their emails, and you pick by number (or give emails or
-   member IDs) who can run `/cade project init` and `/cade project settings`.
+   people with their emails, and you search, tick (Tab) and confirm who can run `/cade project init` and `/cade project settings`.
    Enter for none.
 3. The dev channel, **existing or new**: an existing channel by its ID
    (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins

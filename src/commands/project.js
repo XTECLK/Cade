@@ -1,4 +1,6 @@
 import { projects } from "../channels.js";
+import { ensureWorkDoc } from "../doc.js";
+import { googleEnabled } from "../google.js";
 import { addProject } from "../db.js";
 import { SETTINGS, applySettings, choicesOf, configEnv, importProjects, isAdmin, settingOn } from "../settings.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
@@ -65,7 +67,18 @@ export default {
     }
     await addProject(env, command.channel, name, command.user);
     console.log("Project added", { name, channel: command.channel, by: command.user });
-    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and \`/cade project settings\` opens its settings.`;
+    // Its work doc, for executive summaries, is made now if Google is set up; if not, nothing is needed.
+    let doc = "";
+    let docNote = "";
+    if (googleEnabled(env)) {
+      try {
+        doc = await ensureWorkDoc(env, { name, channel: command.channel }, command.user);
+      } catch (error) {
+        console.error("Could not make a work doc", { name, error: error.message });
+        docNote = " I couldn't make its Google Doc just now; `/cade brief` will try again.";
+      }
+    }
+    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and \`/cade project settings\` opens its settings.${doc ? ` Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).` : ""}${docNote}`;
   },
   views: { [SETTINGS_VIEW]: saveSettings },
   actions: { [PICK_ACTION]: pickProject },

@@ -10,7 +10,7 @@ import {
   releaseExport,
   setExportPeriod,
 } from "../db.js";
-import { docsEnabled, workDocId, writeSection } from "../doc.js";
+import { docsEnabled, ensureWorkDoc, workDocId, writeSection } from "../doc.js";
 import { formatTime } from "../format.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
@@ -78,7 +78,7 @@ export default {
     const { env } = context;
     const group = pickGroup(env, command.text, command.channel, "/cade brief");
     if (typeof group === "string") return group;
-    const noDoc = docProblem(env, group);
+    const noDoc = await docProblem(env, group);
     if (noDoc) return noDoc;
     context.waitUntil(
       (async () => {
@@ -141,12 +141,16 @@ export default {
 
 // Why the group's summaries can't be written in its Google Doc, if they
 // can't: the doc's web app isn't set up, or the group has no doc.
-export function docProblem(env, group) {
+// A project without a doc gets one made here, when Google is set up (see ensureWorkDoc).
+export async function docProblem(env, group) {
   if (!docsEnabled(env)) {
     return "Executive summaries are kept in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md).";
   }
-  if (!workDocId(group)) {
-    return `${group.name} has no Google Doc linked. Add the doc's address as \`"workDoc"\` to its group in cade.config.json, then run \`npm run config\`.`;
+  try {
+    await ensureWorkDoc(env, group);
+  } catch (error) {
+    console.error("Could not make a work doc", { group: group.name, error: error.message });
+    return `I couldn't make a Google Doc for ${group.name} just now (${error.message}). Could you try again?`;
   }
   return undefined;
 }
@@ -629,7 +633,7 @@ async function post(payload, env, at) {
     return;
   }
   const group = projects(env).find((pair) => pair.name === summary.group);
-  const problem = group ? docProblem(env, group) : `I don't know the group ${summary.group} any more.`;
+  const problem = group ? await docProblem(env, group) : `I don't know the group ${summary.group} any more.`;
   if (problem) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at, `:warning: ${problem}`)) });
     return;

@@ -4747,13 +4747,23 @@ test("/cade brief says so when the Google Doc can't be written, and can try agai
   assert.match(sent.at(-1).text, /^Added the executive summary for /);
 });
 
-test("/cade brief needs the group to have a Google Doc", async (t) => {
-  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+test("/cade brief needs the group to have a Google Doc, and makes one when it has none", async (t) => {
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, doc: (body) => (body.action === "doc.create" ? { ok: true, id: DOC_ID } : { ok: true, url: DOC_TAB, elements: [] }) });
   const { now: noApp } = await runTasksCommand("brief", "CDEV");
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
+  // A project with no doc gets one made, named after it, and kept in the database.
+  const { now } = await runTasksCommand("brief", "CDEV", noDoc);
+  assert.equal(now, "");
+  assert.deepEqual(calls.find((call) => call.method === "doc" && call.args.action === "doc.create").args.title, "acme executive summaries");
+  assert.equal(JSON.parse((await DB.prepare("SELECT value FROM project_settings WHERE channel = 'CDEV' AND key = 'workDoc'").first()).value), DOC_ID);
+});
+
+test("/cade brief says so when the group's Google Doc can't be made", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, doc: { ok: false, error: "quota" } });
+  const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
-  assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"workDoc\"` to its group in cade.config.json, then run `npm run config`.");
+  assert.match(JSON.parse(now).text, /I couldn't make a Google Doc for acme just now \(Google web app refused doc\.create: quota\)/);
   assert.equal(later, undefined);
 });
 

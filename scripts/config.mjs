@@ -123,7 +123,7 @@ export function readConfig(json) {
   // Always set, so taking someone out of the file takes them out of the Worker.
   const admins = config.admins ?? [];
   if (!Array.isArray(admins) || admins.some((id) => !/^[UW][A-Z0-9]{2,}$/.test(String(id)))) {
-    throw new Error("admins is a list of Slack user IDs, such as [\"U0123ABCD\"] (from a person's profile → ⋯ → Copy member ID).");
+    throw new Error("admins is a list of Slack user IDs, such as [\"U0123ABCD\"] (in Slack: click the person, then ⋯ → Copy member ID).");
   }
   secrets.ADMINS = JSON.stringify([...new Set(admins)]);
   if (config.mcp !== undefined) {

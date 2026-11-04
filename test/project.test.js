@@ -232,3 +232,35 @@ test("/cade project import copies the config's projects into the database, with 
   assert.match(await run("import"), /Nothing new to copy\.\nAlready in the database: \*acme\*, \*beta\*/);
   assert.match(await run("import", bare), /no projects to import/);
 });
+
+test("/cade project init makes the project's Google Doc when Google is set up, and needs none when it isn't", async (t) => {
+  const docId = "1PaymentsDocPaymentsDocPayments";
+  const google = { ...env, GOOGLE_URL: "https://script.google.com/macros/s/test/exec", GOOGLE_SECRET: "g" };
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (url === google.GOOGLE_URL) {
+      const body = JSON.parse(init.body);
+      calls.push(body);
+      return Response.json({ ok: true, id: docId });
+    }
+    return Response.json({ ok: true, channel: { name: "payments", is_member: true } });
+  };
+  t.after(() => (globalThis.fetch = original));
+  const run = async (e, channel) => {
+    const body = new URLSearchParams({ command: "/cade", text: "project init", user_id: "UADMIN", channel_id: channel, trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
+    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), e, { waitUntil() {} })).json()).text;
+  };
+  const reply = await run(google, "CNEW");
+  assert.match(reply, /now the project \*payments\*/);
+  assert.match(reply, new RegExp(`https://docs\\.google\\.com/document/d/${docId}/edit\\|a Google Doc`));
+  assert.deepEqual(calls.map((call) => [call.action, call.title]), [["doc.create", "payments executive summaries"]]);
+  // The doc is kept with the project, so /cade brief finds it.
+  const { withSettings } = await import("../src/settings.js");
+  assert.equal(projects(await withSettings(google)).find((p) => p.channel === "CNEW").workDoc, docId);
+  // Without Google, the project is added all the same, and no doc is asked for.
+  calls.length = 0;
+  const plain = await run(env, "COTHER");
+  assert.match(plain, /now the project \*payments\*|There is a project called/);
+  assert.equal(calls.length, 0);
+});

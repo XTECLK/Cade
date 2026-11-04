@@ -1,3 +1,4 @@
+import { setProjectSetting } from "./db.js";
 import { callGoogle, googleEnabled } from "./google.js";
 
 // Each group's executive summaries are kept in its work doc (its `workDoc` in
@@ -34,6 +35,21 @@ export async function readSection(env, docId, key) {
 // if it has none.
 export function workDocId(group) {
   return docId(group?.workDoc);
+}
+
+// The ID of the project's work doc, made first if it has none and Google is set up: a new doc
+// called "<name> executive summaries" (viewable by link, editable by the account that owns the web
+// app), kept in the database as the project's `workDoc` and set on `project` too. Returns "" when
+// there is no doc and Google isn't set up; throws if the doc can't be made.
+export async function ensureWorkDoc(env, project, user = null) {
+  const existing = workDocId(project);
+  if (existing || !googleEnabled(env)) return existing;
+  const { id } = await callGoogle(env, { action: "doc.create", title: `${project.name} executive summaries` });
+  if (!docId(id)) throw new Error("Google didn't give a doc");
+  await setProjectSetting(env, project.channel, "workDoc", id, user);
+  project.workDoc = id;
+  console.log("Work doc made", { project: project.name, channel: project.channel });
+  return id;
 }
 
 // The doc's ID in its address (…/document/d/<id>/…), or `value` itself if it

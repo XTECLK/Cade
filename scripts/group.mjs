@@ -218,19 +218,24 @@ export async function workspaceMembers(slack) {
   return members.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Asks who the admins are (those who can run `/cade project init` and
-// `/cade project settings`): the workspace's people with their emails, to
-// search (type), tick (Tab) and confirm (Enter). Returns their IDs.
-export async function askAdmins(slack) {
+// Asks which of the workspace's people, with their emails, to search (type),
+// tick (Tab) and confirm (Enter). Returns their IDs; none if the list can't
+// be read (`fallback` says what to do then).
+export async function askPeople(slack, question) {
   let members;
   try {
     members = await workspaceMembers(slack);
   } catch (error) {
-    console.log(`\nCouldn't list the workspace's people (${error.message}); admins can be set in cade.config.json.`);
-    return [];
+    console.log(`\nCouldn't list the workspace's people (${error.message}).`);
+    return null;
   }
   const options = members.map((member) => ({ value: member.id, label: member.name, hint: member.email || undefined }));
-  return chooseMany("Who should be admins (can run /cade project init and /cade project settings)? Type to search, Tab to tick, Enter when done", options);
+  return chooseMany(`${question} Type to search, Tab to tick, Enter when done`, options);
+}
+
+// Who the admins are (those who can run `/cade project init` and `/cade project settings`).
+export async function askAdmins(slack) {
+  return (await askPeople(slack, "Who should be admins (can run /cade project init and /cade project settings)?")) ?? [];
 }
 
 // What to do for one of the group's channels, asked: an existing channel,
@@ -358,10 +363,14 @@ async function guided() {
       if (plan) plans.push(plan);
     }
     const channels = plans.filter((plan) => plan.id || plan.action === "create");
-    const people = channels.length
-      ? await ask("\nPeople to add to these channels: emails or Slack member IDs, separated by commas [none]: ")
-      : "";
-    const ids = people ? await memberIds(slack, people) : [];
+    let ids = [];
+    if (channels.length) {
+      ids = await askPeople(slack, "People to add to these channels?");
+      if (!ids) {
+        const people = await ask("People to add to these channels: emails or Slack member IDs, separated by commas [none]: ");
+        ids = people ? await memberIds(slack, people) : [];
+      }
+    }
 
     const files = {};
     if (config.googleUrl) {

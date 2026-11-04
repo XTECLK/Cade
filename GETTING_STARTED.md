@@ -269,7 +269,7 @@ npm run group
    (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins
    if it's public, or waits for `/invite @Cade` in it if it's private; or a
    new one by name, which Cade makes, public or private, and is then in.
-4. People to add to the channel, by email or Slack member ID.
+4. People to add to the channel: pick them from a searchable list of the workspace (with emails).
 5. With the Google web app (step 7), whether to turn on the group's Google
    Doc. Cade makes it.
 6. What it will do (admins included), to confirm. It then does it, saves the group in

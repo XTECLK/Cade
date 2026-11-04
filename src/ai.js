@@ -78,7 +78,7 @@ Add a person to a role only when the message asks that person to do that work, o
 Never add people for anything else: approving ("lgtm"), a deadline, urgency, thanks or a cc changes no one's role.
 
 Statuses: TODO, IN_PROGRESS (work started), IN_REVIEW (code ready for review), IN_TESTING (review approved, ready to test), CLIENT_REVIEW (the client checks it), DONE (finished, merged and tested).
-Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test"). Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
+The task's "nextStatuses" are the only statuses you may answer with; a task never moves back, so answer "" when the message points to an earlier status or to none. Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test"). Work done on only a part of the task changes no status: a subtask, a piece or phase, one of several items, one side of it ("login part is done", "backend merged, frontend pending", "finished the first step", "subtask 2 is in testing"). Only a message about the whole task moves it. Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
 Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message says how urgent it is ("this is urgent", "blocking the release", "low priority").
 dueDate: when the message sets a deadline, as YYYY-MM-DD; for a weekday ("by Friday") or "tomorrow", take the date from "comingDays". "clear" if it says there's no deadline anymore.
 
@@ -87,6 +87,8 @@ Examples (author UA):
 - "lgtm" from a reviewer, task IN_REVIEW → status IN_TESTING, no one added.
 - "urgent, client needs it by Friday" → priority Urgent, dueDate that Friday, no one added.
 - "will start on this tomorrow" → nothing.
+- "the API part is done, UI still to do" → nothing (only a part).
+- "finished subtask 1, moving to testing for that bit" → nothing (only a subtask).
 - "thanks <@UB>, cc <@UC>" → nothing.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
@@ -106,6 +108,8 @@ export async function readChanges(env, { message, task, today, allowed }) {
     task: {
       title: task.title,
       status: task.status,
+      // The only statuses it can move to: forward from the current one.
+      nextStatuses: laterStatuses(task.status),
       priority: task.priority,
       dueDate: task.dueDate || "none",
       people: task.people,
@@ -179,13 +183,34 @@ export function checkChanges(raw, { task, message, allowed }) {
     const remove = unique(raw?.[role]?.remove).filter((id) => current.includes(id) && !add.includes(id));
     if (add.length || remove.length) (changes.people ??= {})[role] = { add, remove };
   }
-  if (allowed.status && STATUSES[raw?.status] && raw.status !== task.status) changes.status = raw.status;
+  if (allowed.status && isForward(task.status, raw?.status) && !PARTIAL.test(message.text ?? "")) changes.status = raw.status;
   if (allowed.details && PRIORITIES[raw?.priority] && raw.priority !== task.priority) changes.priority = raw.priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);
     if (dueDate !== null && dueDate !== (task.dueDate ?? "")) changes.dueDate = dueDate;
   }
   return Object.keys(changes).length ? changes : null;
+}
+
+// Words that say only a part of the task has moved on ("the login part is done", "subtask 2 is
+// in testing", "backend merged"). The model is told so, and a status it still proposes for such a
+// message is dropped here.
+const PARTIAL =
+  /\b(sub-?tasks?|sub-?items?|parts?|partly|partial(ly)?|pieces?|phases?|steps?|stages?|milestones?|(some|one|two|three|half|rest|remaining|other) of (it|them|the)|first (bit|half|one)|second (bit|half|one)|front-?end|back-?end|the (api|ui|db|database) (is|are|was|were)|bits?)\b/i;
+
+// The statuses in the order work moves through them (the order of STATUSES).
+const FLOW = Object.keys(STATUSES);
+
+// The statuses after `from`, in order: the only ones a message may move a task to.
+export function laterStatuses(from) {
+  const at = FLOW.indexOf(from);
+  return at < 0 ? [] : FLOW.slice(at + 1);
+}
+
+// Whether `to` is a known status later than `from`. A task never goes back from a message:
+// moving it back is a deliberate act (`@Cade status`, or Edit on the card).
+function isForward(from, to) {
+  return laterStatuses(from).includes(to);
 }
 
 function unique(ids) {

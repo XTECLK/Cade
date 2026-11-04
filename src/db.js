@@ -519,6 +519,7 @@ function taskToRow(task) {
     created_by: task.createdBy,
     completed_at: task.completedAt ?? "",
     source_incident: task.incident ? 1 : 0,
+    has_subtasks: task.subtasks ? 1 : 0,
     link: task.link ?? null,
     notes_url: task.notes?.url ?? null,
     export_url: task.export?.url ?? null,
@@ -541,6 +542,8 @@ function taskFromRow(row) {
     completedAt: row.completed_at,
     // Whether it is an incident: always urgent and due immediately.
     incident: Boolean(row.source_incident),
+    // Whether it is done in parts, so no status changes are suggested for it.
+    subtasks: Boolean(row.has_subtasks),
     link: row.link || undefined,
     // The address of the task's notes page on the Worker, once it has one (see notes.js).
     notes: row.notes_url ? { url: row.notes_url } : undefined,

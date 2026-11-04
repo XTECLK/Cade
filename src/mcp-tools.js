@@ -44,6 +44,7 @@ const TASK_ITEM = {
     priority: { type: "string", enum: Object.keys(PRIORITIES) },
     due_date: str("DD/MM/YYYY, or empty for none"),
     incident: { type: "boolean" },
+    has_subtasks: { type: "boolean", description: "Whether it is done in parts, so Cade suggests no status changes from messages" },
     link: str("A link to the task's message"),
     owner: strings("User IDs"),
     reviewer: strings("User IDs"),
@@ -540,6 +541,7 @@ export const TOOL_DEFS = [
         status: { type: "string", enum: Object.keys(STATUSES) },
         priority: { type: "string", enum: Object.keys(PRIORITIES) },
         due_date: { type: "string", description: 'DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date' },
+        has_subtasks: { type: "boolean", description: "true when the task is done in parts (subtasks): Cade then suggests no status changes from people's messages, and the status is set by hand. Pull requests are still tracked" },
         summary: { type: "string", description: "The summary of the task's issue, as plain text, replacing any earlier one" },
         prs: {
           type: "object",

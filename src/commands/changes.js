@@ -47,7 +47,7 @@ export async function changeTask(env, { channel, ts }, changes, user, { from, to
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
   const told = Object.fromEntries(mentioned.map((id) => [id, null]));
-  const change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null };
+  const change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, subtasks: null };
 
   // Only the roles there are now: a suggestion posted before owners were
   // called that names developers.
@@ -73,13 +73,18 @@ export async function changeTask(env, { channel, ts }, changes, user, { from, to
     }
   }
 
+  if ("subtasks" in changes && Boolean(changes.subtasks) !== Boolean(task.subtasks)) {
+    task.subtasks = Boolean(changes.subtasks);
+    change.subtasks = { to: task.subtasks };
+  }
+
   const stale = from && task.status !== from;
   if (changes.status && changes.status !== task.status && !stale) {
     change.status = { from: task.status, to: changes.status };
     setStatusFields(task, changes.status);
   }
 
-  if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status) return null;
+  if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status && !change.subtasks) return null;
   await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user);
   return change;

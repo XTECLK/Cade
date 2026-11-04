@@ -74,6 +74,12 @@ export function dueDateChanged(user, dueDate) {
   return dueDate ? `<@${user}> set the due date to ${dueDate}.` : `<@${user}> removed the due date.`;
 }
 
+export function subtasksChanged(user, on) {
+  return on
+    ? `<@${user}> marked this as having subtasks. Cade won't suggest status changes from messages here; set the status by hand. Pull requests are still tracked.`
+    : `<@${user}> marked this as having no subtasks, so Cade suggests status changes again.`;
+}
+
 // ---- From a change ----
 
 // A change is what changeTask (commands/changes.js) says it actually did:
@@ -85,7 +91,7 @@ export function dueDateChanged(user, dueDate) {
 // nothing else.
 
 // The change log: a line for each thing that changed, who changed it.
-export function changeLog({ user, told, people, prs, priority, dueDate, status }) {
+export function changeLog({ user, told, people, prs, priority, dueDate, status, subtasks }) {
   return [
     prs?.added.length && linked(user, prs.added),
     prs?.removed.length && unlinked(user, prs.removed),
@@ -96,6 +102,7 @@ export function changeLog({ user, told, people, prs, priority, dueDate, status }
     priority && priorityChanged(user, priority.to),
     dueDate && dueDateChanged(user, dueDate.to),
     status && statusChanged(user, status.to),
+    subtasks && subtasksChanged(user, subtasks.to),
   ].filter(Boolean);
 }
 

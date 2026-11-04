@@ -5,6 +5,14 @@ import { statusOption } from "./status.js";
 
 const EDIT_VIEW = "task:edit";
 
+// The checkbox for a task done in parts: Cade suggests no status changes for it, since a message
+// about one part says nothing about the whole. Pull requests are still tracked.
+const SUBTASKS_OPTION = {
+  text: plainText("Has subtasks"),
+  description: plainText("Cade won't suggest status changes from messages. Pull requests are still tracked."),
+  value: "subtasks",
+};
+
 // The Edit form: everything on a task in one place, its owners,
 // reviewers and testers, status, priority and due date, and pull requests.
 // An incident's priority and due date never change, so its form leaves them
@@ -92,6 +100,18 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
         : [{ type: "context", elements: [mrkdwn("Incidents are always :red_circle: Urgent and due Immediate.")] }]),
       {
         type: "input",
+        block_id: "subtasks",
+        optional: true,
+        label: plainText("Subtasks"),
+        element: {
+          type: "checkboxes",
+          action_id: "value",
+          options: [SUBTASKS_OPTION],
+          ...((changes.subtasks ?? task.subtasks) && { initial_options: [SUBTASKS_OPTION] }),
+        },
+      },
+      {
+        type: "input",
         block_id: "prs",
         // Saving with none unlinks them all.
         optional: true,
@@ -139,6 +159,7 @@ function saveEdit(payload, context) {
         changes.priority = values.priority.value.selected_option?.value ?? task.priority;
         changes.dueDate = formatDueDate(values.due_date.value.selected_date);
       }
+      changes.subtasks = (values.subtasks?.value.selected_options ?? []).length > 0;
       const wanted = [...new Set(urls)];
       changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
       await applyChanges(env, { channel, ts }, changes, payload.user.id, { told });

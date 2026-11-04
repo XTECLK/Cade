@@ -3900,7 +3900,7 @@ test("an incident's priority and due date can't be changed, and its Edit form le
   const calls = mockSlack(t, { stored: [incidentTask()] });
   await send("/slack/interactions", cardMenuClick("edit"));
   const form = calls[0].args.view;
-  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "subtasks", "prs"]);
   assert.match(blockText(form.blocks[4]), /Incidents are always :red_circle: Urgent and due Immediate/);
 });
 
@@ -5470,7 +5470,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "prs"]);
   assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
   assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
   assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
@@ -5631,7 +5631,7 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const form = calls[0].args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "prs"]);
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
@@ -6008,4 +6008,79 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   assert.equal(workerUrlIn("Deployed cade (1s)\n  https://cade.acme.workers.dev\n"), "https://cade.acme.workers.dev");
   assert.equal(withWorkerName('name = "cade"\nmain = "x"', "acme-cade"), 'name = "acme-cade"\nmain = "x"');
   assert.throws(() => withWorkerName('name = "cade"', "Bad Name"), /lowercase/);
+});
+
+test("AI moves a task's status forward only, never back or sideways", async () => {
+  const { checkChanges, laterStatuses } = await import("../src/ai.js");
+  const message = { user: "UACTOR", mentions: [] };
+  const allowed = { roles: [], status: true, details: false };
+  const at = (status) => ({ status, priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } });
+  assert.deepEqual(laterStatuses("IN_REVIEW"), ["IN_TESTING", "CLIENT_REVIEW", "DONE"]);
+  assert.deepEqual(laterStatuses("DONE"), []);
+  // Forward, even by several steps, is offered.
+  assert.deepEqual(checkChanges(aiRead({ status: "IN_TESTING" }), { task: at("IN_REVIEW"), message, allowed }), { status: "IN_TESTING" });
+  assert.deepEqual(checkChanges(aiRead({ status: "DONE" }), { task: at("IN_PROGRESS"), message, allowed }), { status: "DONE" });
+  // Back, or the same status, is not.
+  for (const [from, to] of [["IN_REVIEW", "IN_PROGRESS"], ["IN_TESTING", "TODO"], ["DONE", "IN_REVIEW"], ["IN_REVIEW", "IN_REVIEW"]]) {
+    assert.equal(checkChanges(aiRead({ status: to }), { task: at(from), message, allowed }), null, `${from} -> ${to}`);
+  }
+});
+
+test("AI doesn't move a task's status for work done on only a part of it", async () => {
+  const { checkChanges } = await import("../src/ai.js");
+  const allowed = { roles: [], status: true, details: false };
+  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } };
+  const read = (text) => checkChanges(aiRead({ status: "IN_TESTING" }), { task, message: { user: "UACTOR", mentions: [], text }, allowed });
+  for (const text of ["the login part is done", "subtask 2 is in testing", "backend merged, frontend pending", "finished the first step", "half of it is ready for QA", "the API is done"]) {
+    assert.equal(read(text), null, text);
+  }
+  assert.deepEqual(read("all done, ready for QA"), { status: "IN_TESTING" });
+});
+
+test("a task with subtasks gets no status suggestions, but its pull requests and people are still suggested", async (t) => {
+  const withSubtasks = (record) => {
+    record.task.subtasks = true;
+    return record;
+  };
+  for (const [text, record, user, changes] of [
+    // Status moves by phrases are not offered.
+    ["lgtm", withSubtasks(taskWith("IN_REVIEW", { reviewers: ["UACTOR"] })), "UACTOR", null],
+    ["done", withSubtasks(taskWith("IN_PROGRESS", { owners: ["UACTOR"] })), "UACTOR", null],
+    ["on it", withSubtasks(taskWith("TODO", { owners: ["UACTOR"] })), "UACTOR", null],
+    // People still are, and the status that would come with asking for a test is left out.
+    ["<@UTOM> please test it", withSubtasks(taskWith("IN_PROGRESS")), "UACTOR", { people: { tester: add("UTOM") } }],
+    // Without the flag the same message moves the status.
+    ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", { status: "IN_TESTING" }],
+  ]) {
+    const calls = mockSlack(t, { stored: [record] });
+    await send("/slack/events", threadReply(text, { user }));
+    const question = ephemeral(calls);
+    assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
+  }
+});
+
+test("the Edit form toggles subtasks, which the card shows and the thread is told", async (t) => {
+  const record = ownTask({ owners: ["UREX"] });
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/interactions", cardMenuClick("edit"));
+  const form = calls[0].args.view;
+  const box = form.blocks.find((block) => block.block_id === "subtasks");
+  assert.equal(box.element.type, "checkboxes");
+  assert.equal(box.element.initial_options, undefined);
+  const values = {
+    owner: { value: { selected_users: ["UREX"] } },
+    reviewer: { value: { selected_users: [] } },
+    tester: { value: { selected_users: [] } },
+    status: { value: { selected_option: { value: "TODO" } } },
+    priority: { value: { selected_option: { value: "High" } } },
+    due_date: { value: { selected_date: null } },
+    prs: { value: { value: "" } },
+    subtasks: { value: { selected_options: [{ value: "subtasks" }] } },
+  };
+  await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values } } }));
+  assert.equal((await savedTask()).subtasks, true);
+  const card = calls.filter((call) => call.method === "chat.update").at(-1);
+  assert.match(JSON.stringify(card.args), /:jigsaw: Has subtasks/);
+  const post = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").at(-1);
+  assert.match(post.args.text, /<@UACTOR> marked this as having subtasks\. Cade won't suggest status changes/);
 });

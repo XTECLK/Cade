@@ -267,7 +267,7 @@ async function suggestWork(message, env) {
   // Checked as AI's are, so only real changes are suggested.
   const read = { status: status ?? "" };
   for (const role of Object.keys(ROLES)) read[role] = { add: people[role] ?? [], remove: [] };
-  const allowed = { roles: Object.keys(ROLES), status: true, details: false };
+  const allowed = { roles: Object.keys(ROLES), status: !task.subtasks, details: false };
   const changes = withPullRequests(env, message, task, checkChanges(read, { task, message, allowed }));
   if (changes) await askToChange(env, message, about, changes);
 }

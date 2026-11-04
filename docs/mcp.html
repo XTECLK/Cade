@@ -61,7 +61,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs | original_thread | original_thread_state | releases</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | has_subtasks | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs | original_thread | original_thread_state | releases</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -76,6 +76,7 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td></td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td></td><td></td></tr>
+<tr><td><code>has_subtasks</code></td><td>boolean</td><td></td><td>Whether it is done in parts, so Cade suggests no status changes from messages</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
 <tr><td><code>owner</code></td><td>string[]</td><td></td><td>User IDs</td></tr>
 <tr><td><code>reviewer</code></td><td>string[]</td><td></td><td>User IDs</td></tr>
@@ -190,7 +191,7 @@
 <tr><td><code>unassigned</code></td><td>boolean</td><td></td><td>Only tasks nobody is owner, reviewer or tester of</td></tr>
 <tr><td><code>status</code></td><td>string: open | all | TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>open (default: everything not done), all, or one status</td></tr>
 <tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs. Add summary or notes to get them for every task listed</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel | status | priority | due_date | incident | has_subtasks | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs. Add summary or notes to get them for every task listed</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -208,6 +209,7 @@
 <tr><td><code>tasks[].priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td></td></tr>
 <tr><td><code>tasks[].due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>tasks[].incident</code></td><td>boolean</td><td></td><td></td></tr>
+<tr><td><code>tasks[].has_subtasks</code></td><td>boolean</td><td></td><td>Whether it is done in parts, so Cade suggests no status changes from messages</td></tr>
 <tr><td><code>tasks[].link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
 <tr><td><code>tasks[].owner</code></td><td>string[]</td><td></td><td>User IDs</td></tr>
 <tr><td><code>tasks[].reviewer</code></td><td>string[]</td><td></td><td>User IDs</td></tr>
@@ -614,6 +616,7 @@
 <tr><td><code>status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td></td></tr>
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td></td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date</td></tr>
+<tr><td><code>has_subtasks</code></td><td>boolean</td><td></td><td>true when the task is done in parts (subtasks): Cade then suggests no status changes from people's messages, and the status is set by hand. Pull requests are still tracked</td></tr>
 <tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the task's issue, as plain text, replacing any earlier one</td></tr>
 <tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests to link to and unlink from the task, as links</td></tr>
 <tr><td><code>prs.add</code></td><td>string[]</td><td></td><td></td></tr>

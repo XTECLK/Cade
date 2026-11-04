@@ -136,7 +136,7 @@ export function taskMessage(task, { archivedBy } = {}) {
   ].filter(Boolean);
   const card = [
     ...(links.length ? [smallText([links.join("  ·  ")])] : []),
-    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate)] },
+    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && task.subtasks)] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
@@ -174,9 +174,10 @@ export function smallText(lines) {
   return { type: "context", elements: [mrkdwn(lines.join("\n").slice(0, 3000))] };
 }
 
-// A card's line under its title, in small text: the status and due date, leaving out those not set.
-export function metaLine(status, dueDate) {
-  return mrkdwn([status, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
+// A card's line under its title, in small text: the status, the due date and, for a task done in
+// parts, a marker that its status is set by hand, leaving out those not set.
+export function metaLine(status, dueDate, subtasks) {
+  return mrkdwn([status, dueDate && `Due ${dueDate}`, subtasks && ":jigsaw: Has subtasks"].filter(Boolean).join("  ·  "));
 }
 
 

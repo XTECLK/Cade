@@ -310,6 +310,7 @@ function taskData(env, channel, ts, task, link) {
     priority: task.priority,
     due_date: task.dueDate || "",
     incident: Boolean(task.incident),
+    has_subtasks: Boolean(task.subtasks),
     link,
     owner: task.people.owner,
     reviewer: task.people.reviewer,
@@ -1041,6 +1042,10 @@ async function updateTask(env, user, args) {
     changes.priority = args.priority;
   }
   if (args.due_date !== undefined) changes.dueDate = dueDateOf(args.due_date);
+  if (args.has_subtasks !== undefined) {
+    if (typeof args.has_subtasks !== "boolean") throw new ToolError("has_subtasks is true or false.");
+    changes.subtasks = args.has_subtasks;
+  }
   for (const role of Object.keys(ROLES)) {
     if (args[role] === undefined) continue;
     const add = userIds(role, args[role].add);
@@ -1064,7 +1069,7 @@ async function updateTask(env, user, args) {
     if (!summary) throw new ToolError("The summary is empty.");
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
   }
-  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, owner, reviewer, tester, prs or summary.");
+  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, has_subtasks, owner, reviewer, tester, prs or summary.");
 
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told = [];

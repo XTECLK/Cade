@@ -13,8 +13,8 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // whoever wrote the message confirms it.
 
 // The quickest and cheapest of the models that read these messages as well
-// as any small one did, keeping to a JSON schema. A project's `aiModel` in
-// cade.config.json can name another text model instead.
+// as any small one did, keeping to a JSON schema. `aiModel` in cade.config.json (AI_MODEL_NAME)
+// can name another text model instead, for every project.
 export const DEFAULT_MODEL = "@cf/zai-org/glm-4.7-flash";
 
 // Models that reason before answering unless told not to, which only slows
@@ -31,16 +31,16 @@ const SPEAKS_FOR_SELF =
 const TIMEOUT_MS = 8000;
 
 // The model to read messages in `channel` with, or null when AI is off: the
-// project's `aiSuggestions` (true or false) with its `aiModel`, the default
-// model if it has none. Before `aiModel`, `ai` (now `aiSuggestions`) could be
-// "on", "off" or a model's name, as AI_MODEL still is for every project;
+// project's `aiSuggestions` (true or false) with the one model for every project, `aiModel` in
+// cade.config.json (AI_MODEL_NAME), the default model if it has none. Before that, `ai` (now
+// `aiSuggestions`) could be "on", "off" or a model's name, as AI_MODEL still is for every project;
 // those are still read.
 export function aiModel(env, channel) {
   let setting = groupSetting(env, channel, "aiSuggestions") ?? groupSetting(env, channel, "ai") ?? env.AI_MODEL;
   if (typeof setting === "boolean") setting = setting ? "on" : "off";
   if (!env.AI || !setting || setting === "off") return null;
   if (setting !== "on") return setting;
-  return groupSetting(env, channel, "aiModel") ?? DEFAULT_MODEL;
+  return env.AI_MODEL_NAME || DEFAULT_MODEL;
 }
 
 // What the model fills in. Empty strings and lists mean no change, as small

@@ -3,21 +3,20 @@ import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.
 import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
 
 // The project settings that can be changed in the form `/cade project settings` opens (see commands/project.js), each on or off.
-// A project's name, channel and aiModel stay in cade.config.json. A setting changed on the page
+// A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS = [
   { key: "taskStatusChangeDetection", label: "Task status change detection", about: "Cade reads messages in task threads and offers, privately, to link a PR, assign someone or move the status." },
   { key: "newMessageTaskDetection", label: "New message task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
-  { key: "aiSuggestions", label: "AI suggestions", about: "Cade reads messages with AI to make those offers; the model is set in cade.config.json." },
+  { key: "aiSuggestions", label: "AI suggestions", about: "Cade reads messages with AI to make those offers; the model is aiModel in cade.config.json." },
   { key: "activeTasksPinning", label: "Active tasks pinning", about: "A message listing the open tasks is pinned in the channel until they're done." },
   { key: "summaryCanvas", label: "Summary canvas", about: "Each task's summary is kept in a Slack canvas as well." },
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
 
-// What else a project can keep in the database besides those: its AI model and work doc, which
-// aren't changed in the form (the work doc is made by `/cade project init`).
-const IMPORTED = ["aiModel", "workDoc"];
-const STORED = [...SETTINGS.map((setting) => setting.key), ...IMPORTED];
+// What else a project keeps in the database besides those: its work doc, which isn't changed in the
+// form (`/cade project init` makes it).
+const STORED = [...SETTINGS.map((setting) => setting.key), "workDoc"];
 
 // The env with the projects added with `/cade project init` and the settings changed on the admin
 // page merged into its projects, so the code that reads them (projects, groupSetting, …) needs no

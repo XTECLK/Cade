@@ -135,7 +135,7 @@ test("/cade project settings opens a form with the channel's project, its name a
   assert.deepEqual(picker.options.map((option) => option.text.text), ["acme"]);
   assert.equal(picker.initial_option.value, "CDEV");
   assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskStatusChangeDetection", "s_newMessageTaskDetection", "s_aiSuggestions", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
-  assert.equal(view.blocks.some((block) => /aiModel|name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
+  assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
   assert.deepEqual(select(view, "summaryCanvas").element.options.map((option) => option.text.text), ["Use the config (on)", "On", "Off"]);

@@ -2526,10 +2526,11 @@ test("npm run config turns cade.config.json into the Worker's secrets", async ()
   assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", projects })), {
     PROJECTS: JSON.stringify(projects),
     ADMINS: "[]",
+    AI_MODEL_NAME: "",
     TIMEZONE: "Asia/Colombo",
   });
   // The timezone is optional.
-  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects), ADMINS: "[]" });
+  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects), ADMINS: "[]", AI_MODEL_NAME: "" });
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {
@@ -5556,21 +5557,24 @@ test("with suggestions off, AI isn't asked and only commands work", async (t) =>
   assert.equal(ephemeral(calls), undefined);
 });
 
-test("ai in cade.config.json turns AI on or off, and aiModel names the model", async () => {
+test("aiSuggestions in cade.config.json turns AI on or off per project, and aiModel names the one model", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const project = (settings) => JSON.parse(readConfig(JSON.stringify({ projects: [{ name: "acme", channel: "C0000000002", ...settings }] })).PROJECTS)[0];
-  assert.equal(project({ aiSuggestions: true }).aiSuggestions, true);
-  assert.equal(project({ aiSuggestions: false }).aiSuggestions, false);
-  assert.deepEqual(project({ aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" }), { name: "acme", channel: "C0000000002", aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" });
-  // `aiSuggestions` was called `ai`, which used to take a model's name.
-  assert.deepEqual(project({ ai: "@cf/qwen/qwen3-30b-a3b-fp8" }), { name: "acme", channel: "C0000000002", aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" });
-  assert.throws(() => project({ aiSuggestions: "gpt" }), /aiModel is a Workers AI/);
-  assert.throws(() => project({ aiSuggestions: true, aiModel: "gpt" }), /acme's aiModel is a Workers AI/);
+  const projects = (settings) => [{ name: "acme", channel: "C0000000002", ...settings }];
+  const config = (top, settings) => readConfig(JSON.stringify({ projects: projects(settings), ...top }));
+  assert.equal(JSON.parse(config({}, { aiSuggestions: true }).PROJECTS)[0].aiSuggestions, true);
+  assert.equal(JSON.parse(config({}, { aiSuggestions: false }).PROJECTS)[0].aiSuggestions, false);
+  // The model is one for every project, at the top of the file; without it, the secret is empty.
+  assert.equal(config({ aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" }, {}).AI_MODEL_NAME, "@cf/qwen/qwen3-30b-a3b-fp8");
+  assert.equal(config({}, {}).AI_MODEL_NAME, "");
+  assert.throws(() => config({ aiModel: "gpt" }, {}), /aiModel is a Workers AI/);
+  // Not on a project, and `aiSuggestions` takes no model's name.
+  assert.throws(() => config({}, { aiModel: "@cf/x/y" }), /acme's aiModel is set once at the top of the file/);
+  assert.throws(() => config({}, { aiSuggestions: "gpt" }), /acme's aiSuggestions is true or false; name the model with aiModel at the top/);
   const { aiModel } = await import("../src/ai.js");
-  const env = (settings) => ({ AI: {}, CHANNEL_PAIRS: [{ name: "acme", channel: "CDEV", ...settings }] });
+  const env = (settings, more = {}) => ({ AI: {}, CHANNEL_PAIRS: [{ name: "acme", channel: "CDEV", ...settings }], ...more });
   assert.equal(aiModel(env({ aiSuggestions: true }), "CDEV"), "@cf/zai-org/glm-4.7-flash");
-  assert.equal(aiModel(env({ aiSuggestions: true, aiModel: "@cf/x/y" }), "CDEV"), "@cf/x/y");
-  assert.equal(aiModel(env({ aiModel: "@cf/x/y" }), "CDEV"), null, "aiModel alone does nothing");
+  assert.equal(aiModel(env({ aiSuggestions: true }, { AI_MODEL_NAME: "@cf/x/y" }), "CDEV"), "@cf/x/y");
+  assert.equal(aiModel(env({}, { AI_MODEL_NAME: "@cf/x/y" }), "CDEV"), null, "aiModel alone does nothing");
   assert.equal(aiModel({ AI_MODEL: "on" }), null, "no binding");
   assert.equal(aiModel({ AI: {}, AI_MODEL: "off" }), null);
   assert.equal(aiModel({ AI: {}, AI_MODEL: "@cf/x/y" }), "@cf/x/y");
@@ -5612,7 +5616,7 @@ test("npm run config checks each group's suggestions and ai, and npm run group k
     projects[0],
     projects[1],
   ]);
-  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], aiSuggestions: "gpt" }] })), /acme's aiModel is a Workers AI/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], aiSuggestions: "gpt" }] })), /acme's aiSuggestions is true or false/);
   assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[1], taskStatusChangeDetection: ["nope"] }] })), /test's taskStatusChangeDetection is true or false/);
 
   const { withGroup } = await import("../scripts/group.mjs");

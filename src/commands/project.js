@@ -80,7 +80,7 @@ const CHOICES = { config: "Use the config", on: "On", off: "Off" };
 const state = (on) => (on === "some" ? "partly on" : on ? "on" : "off");
 
 // The form for the project with `channel` (the first project if it is none): a list of projects to
-// switch between, and a choice for each setting. Name, channel and aiModel stay in the config.
+// switch between, and a choice for each setting. Name and channel stay as they were set.
 async function settingsView(env, channel) {
   const list = projects(env);
   const project = list.find((candidate) => candidate.channel === channel) ?? list[0];
@@ -101,7 +101,7 @@ async function settingsView(env, channel) {
         text: mrkdwn("*Project*"),
         accessory: { type: "static_select", action_id: PICK_ACTION, initial_option: picks.find((pick) => pick.value === project.channel), options: picks },
       },
-      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name, channel and AI model" : "its name, channel and AI model are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
+      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
       ...SETTINGS.map(({ key, label, about }) => {
         const options = Object.entries(CHOICES).map(([value, text]) => option(value === "config" ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})` : text, value));
         return {

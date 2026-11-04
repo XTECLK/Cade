@@ -12,6 +12,9 @@
 //   admins    the Slack user IDs of the people who can run        → ADMINS
 //             `/cade project init` and `/cade project settings`
 //             (a Slack form); none without it
+//   aiModel   the Workers AI text model AI suggestions use (optional): a   → AI_MODEL_NAME
+//             name such as "@cf/google/gemma-4-26b-a4b-it"; the default
+//             model without it. One model for every project
 //   mcp       whether people can connect their AI agent to      → MCP
 //             Cade's MCP endpoint (optional, on): false turns
 //             it off, and `/cade mcp init` gives no keys
@@ -27,9 +30,6 @@
 //   aiSuggestions AI suggestions (optional, off): true to read people's
 //                 words with Workers AI, false to read them by their
 //                 phrases (see ai.js). Needs taskStatusChangeDetection on
-//   aiModel       the Workers AI text model for `aiSuggestions` (optional): a name such
-//                 as "@cf/google/gemma-4-26b-a4b-it"; the default model
-//                 without it
 //   newMessageTaskDetection
 //                 whether Cade asks about a message posted on its own in the
 //                 channel: track it as a task, report it as an incident or
@@ -71,7 +71,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["projects", "timezone", "googleUrl", "mcp", "admins"];
+  const known = ["projects", "timezone", "googleUrl", "mcp", "admins", "aiModel"];
   // `channels` is the old name for `projects`.
   const unknown = Object.keys(config).find((key) => !known.includes(key) && key !== "channels");
   if (PROJECT_SETTINGS.includes(unknown)) {
@@ -103,15 +103,14 @@ export function readConfig(json) {
         project.taskStatusChangeDetection ??= project.suggestions;
         delete project.suggestions;
       }
-      // `aiSuggestions` was `ai`, which used to be a model's name too: that's
-      // `aiModel` now.
+      // `aiSuggestions` was `ai`, which used to be a model's name too: the model is `aiModel`
+      // at the top of the file now, one for every project.
       if (project.ai !== undefined) {
         project.aiSuggestions ??= project.ai;
         delete project.ai;
       }
-      if (typeof project.aiSuggestions === "string") Object.assign(project, { aiSuggestions: true, aiModel: project.aiSuggestions });
+      if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
       if (project.aiSuggestions !== undefined) project.aiSuggestions = checkAiSuggestions(project.aiSuggestions);
-      if (project.aiModel !== undefined) project.aiModel = checkAiModel(project.aiModel);
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
       throw new Error(`${project.name}'s ${error.message}`);
@@ -126,6 +125,8 @@ export function readConfig(json) {
     throw new Error("admins is a list of Slack user IDs, such as [\"U0123ABCD\"] (in Slack: click the person, then ⋯ → Copy member ID).");
   }
   secrets.ADMINS = JSON.stringify([...new Set(admins)]);
+  // Always set, so taking it out of the file goes back to the default model.
+  secrets.AI_MODEL_NAME = config.aiModel === undefined ? "" : checkAiModel(config.aiModel);
   if (config.mcp !== undefined) {
     if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
     // Both are set, so turning it back on replaces an earlier "off".
@@ -146,7 +147,7 @@ export function readConfig(json) {
 const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection", "aiAgentSummary"];
 
 // What a project can set, which used to be allowed at the top of the file.
-const PROJECT_SETTINGS = ["aiSuggestions", "aiModel", ...SWITCHES];
+const PROJECT_SETTINGS = ["aiSuggestions", ...SWITCHES];
 
 function checkSwitch(key, value) {
   if (typeof value !== "boolean") throw new Error(`${key} is true or false.`);
@@ -156,7 +157,7 @@ function checkSwitch(key, value) {
 // `aiSuggestions` if it's true or false, else throws.
 export function checkAiSuggestions(aiSuggestions) {
   if (typeof aiSuggestions === "boolean") return aiSuggestions;
-  throw new Error("aiSuggestions is true or false; name a model with aiModel.");
+  throw new Error("aiSuggestions is true or false; name the model with aiModel at the top of the file.");
 }
 
 // `aiModel` if it's a Workers AI text model's name, else throws.
@@ -186,13 +187,14 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskStatusChangeDetection", "aiSuggestions", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
     const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
     console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.MCP) console.log(`mcp: ${secrets.MCP}`);
   console.log(`admins: ${JSON.parse(secrets.ADMINS).join(", ") || "none"}`);
+  if (secrets.AI_MODEL_NAME) console.log(`aiModel: ${secrets.AI_MODEL_NAME}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.

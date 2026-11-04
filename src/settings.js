@@ -1,7 +1,6 @@
 import { aiModel } from "./ai.js";
-import { ensureWorkDoc, workDocId } from "./doc.js";
 import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.js";
-import { addProject, addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
+import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
 
 // The project settings that can be changed in the form `/cade project settings` opens (see commands/project.js), each on or off.
 // A project's name, channel and aiModel stay in cade.config.json. A setting changed on the page
@@ -15,8 +14,8 @@ export const SETTINGS = [
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
 
-// What else a project keeps in the database besides those: its AI model and work doc, which
-// aren't changed in the form but come with the project when it's imported from the config.
+// What else a project can keep in the database besides those: its AI model and work doc, which
+// aren't changed in the form (the work doc is made by `/cade project init`).
 const IMPORTED = ["aiModel", "workDoc"];
 const STORED = [...SETTINGS.map((setting) => setting.key), ...IMPORTED];
 
@@ -107,42 +106,4 @@ export async function applySettings(env, channel, choices, user) {
     console.log("Project setting changed", { project: project.name, key, to: choice, by: user });
   }
   return changed;
-}
-
-// Copies the projects in cade.config.json into the database: each one's name and channel, and the
-// settings, AI model and work doc it sets. One already in the database is left as it is. Each project
-// ends up with a Google Doc: one without is given one now. Returns { moved, kept, docs, failed }:
-// the names of those copied, of those already there, of those given a doc, and of those whose doc
-// couldn't be made. Once they're in, the config's `projects` can go (`npm run config` then sets none).
-export async function importProjects(env, user) {
-  const present = new Set((await addedProjects(env)).map((project) => project.channel));
-  const stored = new Set((await projectSettings(env)).map((row) => `${row.channel}|${row.key}`));
-  const moved = [];
-  const kept = [];
-  const docs = [];
-  const failed = [];
-  // What the database holds now for each project, so a doc made earlier isn't made again.
-  const merged = new Map(projects(env).map((project) => [project.channel, project]));
-  for (const project of projects(configEnv(env))) {
-    if (present.has(project.channel)) {
-      kept.push(project.name);
-    } else {
-      await addProject(env, project.channel, project.name, user);
-      for (const key of STORED) {
-        if (project[key] !== undefined && !stored.has(`${project.channel}|${key}`)) await setProjectSetting(env, project.channel, key, project[key], user);
-      }
-      moved.push(project.name);
-      console.log("Project imported", { name: project.name, channel: project.channel, by: user });
-    }
-    const current = { ...project, ...merged.get(project.channel) };
-    if (workDocId(current)) continue;
-    try {
-      await ensureWorkDoc(env, current, user);
-      docs.push(project.name);
-    } catch (error) {
-      console.error("Could not make a work doc", { name: project.name, error: error.message });
-      failed.push(project.name);
-    }
-  }
-  return { moved, kept, docs, failed };
 }

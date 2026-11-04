@@ -79,7 +79,7 @@ export function readConfig(json) {
   }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
-  // None is allowed once the projects are in the database (`/cade project import`).
+  // None is allowed when the projects are kept in the database (`/cade project init`).
   const list = projects({ PROJECTS: config.projects ?? config.channels ?? [] });
   const ids = list.map((project) => project.channel);
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));

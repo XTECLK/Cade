@@ -216,33 +216,6 @@ test("/cade web logout ends every browser session of the person, and no one else
   assert.match(await reply("web"), /\/cade web logout/);
 });
 
-test("/cade project import copies the config's projects into the database, with their settings, and can be run again", async (t) => {
-  mock(t);
-  const { withSettings, configEnv } = await import("../src/settings.js");
-  const configured = { ...env, PROJECTS: [{ name: "acme", channel: "CDEV", summaryCanvas: true, aiModel: "@cf/x/y", workDoc: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }, { name: "beta", channel: "CBETA", newMessageTaskDetection: false }] };
-  const run = async (text, e = configured, user = "UADMIN") => {
-    const body = new URLSearchParams({ command: "/cade", text: `project ${text}`, user_id: user, channel_id: "CDEV", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
-    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), e, { waitUntil() {} })).json()).text;
-  };
-  assert.match(await run("import", configured, "UMEMBER"), /Only an admin/);
-  const first = await run("import");
-  assert.match(first, /Copied 2 projects .*\*acme\*, \*beta\*/);
-  // acme has a doc in the config; beta is given one.
-  assert.match(first, /Made a Google Doc for \*beta\*\./);
-  // The database now has them, with what the config set: the config can be left without projects.
-  const bare = { ...env, PROJECTS: undefined, CHANNEL_PAIRS: undefined };
-  const merged = projects(await withSettings(bare));
-  assert.deepEqual(merged.map((p) => [p.name, p.channel]), [["acme", "CDEV"], ["beta", "CBETA"]]);
-  assert.equal(merged[0].summaryCanvas, true);
-  assert.equal(merged[0].aiModel, "@cf/x/y");
-  assert.match(merged[0].workDoc, /1AcmeDoc/);
-  assert.equal(merged[1].newMessageTaskDetection, false);
-  assert.deepEqual(projects(configEnv(await withSettings(configured))).map((p) => p.name), ["acme", "beta"]);
-  // Again, nothing is copied twice; with no config projects, there is nothing to import.
-  assert.match(await run("import"), /Nothing new to copy\.\nAlready in the database: \*acme\*, \*beta\*/);
-  assert.match(await run("import", bare), /no projects to import/);
-});
-
 test("/cade project init makes the project's Google Doc first, and keeps it with the project", async (t) => {
   const docId = "1PaymentsDocPaymentsDocPayments";
   const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: true, id: docId }));
@@ -254,13 +227,13 @@ test("/cade project init makes the project's Google Doc first, and keeps it with
   assert.equal(projects(await withSettings(env)).find((p) => p.channel === "CNEW").workDoc, docId);
 });
 
-test("/cade project init and import need Google set up, and add nothing when the doc can't be made", async (t) => {
+test("/cade project init needs Google set up, and adds nothing when the doc can't be made", async (t) => {
   const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: false, error: "quota" }));
   const { withSettings } = await import("../src/settings.js");
   // The doc can't be made: the project isn't added.
   assert.match(await slash("init"), /couldn't make the project's Google Doc just now \(Google web app refused doc\.create: quota\), so I haven't added it/);
   assert.deepEqual(projects(await withSettings(env)).map((p) => p.name), ["acme"]);
-  // Without Google, neither works.
+  // Without Google, it does not work.
   const bare = { ...env, GOOGLE_URL: undefined };
   const run = async (text) => {
     const body = new URLSearchParams({ command: "/cade", text: `project ${text}`, user_id: "UADMIN", channel_id: "CNEW", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
@@ -268,6 +241,5 @@ test("/cade project init and import need Google set up, and add nothing when the
   };
   const before = calls.length;
   assert.match(await run("init"), /Google web app isn't set up yet: run `npm run google:create`/);
-  assert.match(await run("import"), /Google web app isn't set up yet/);
   assert.equal(calls.length, before);
 });

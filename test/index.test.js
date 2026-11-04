@@ -788,7 +788,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
       "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
-      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings` · `/cade project import`",
+      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings`",
       "Send `/cade help` any time to see this again.",
     ]);
     for (const usage of ["/cade task", "/cade incident", "@Cade task", "@Cade priority high", "@Cade due 31/12/2026"]) {

@@ -2,7 +2,7 @@ import { projects } from "../channels.js";
 import { ensureWorkDoc } from "../doc.js";
 import { googleEnabled } from "../google.js";
 import { addProject } from "../db.js";
-import { SETTINGS, applySettings, choicesOf, configEnv, importProjects, isAdmin, settingOn } from "../settings.js";
+import { SETTINGS, applySettings, choicesOf, configEnv, isAdmin, settingOn } from "../settings.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 
 const SETTINGS_VIEW = "project:settings";
@@ -12,14 +12,14 @@ const PICK_ACTION = "project:pick";
 // would be: its tasks are tracked there (see channels.js). The project is named after the channel,
 // or by `/cade project init <name>`, and its name and channel can't be changed afterwards. In a
 // channel that is a project already it only warns. Every project has a Google Doc for its executive
-// summaries, made by `init` (so Google must be set up first) and by `import` for a project without one. `/cade project settings` opens a form in Slack
+// summaries, made by `init` (so Google must be set up first). `/cade project settings` opens a form in Slack
 // with a project's switches (see settings.js), each following the config or turned on or off, and a
 // list to pick the project from. `/cade project` tells which project the channel is. Only the
 // admins listed in cade.config.json can use any of it.
 export default {
   name: "project",
   description: "Make this channel a project, so its tasks are tracked here: `init` adds it, `settings` opens the projects' settings. Admins only",
-  slashUsage: ["/cade project init", "/cade project settings", "/cade project import"],
+  slashUsage: ["/cade project init", "/cade project settings"],
   admin: true,
   section: "work",
   async slash(command, { env }) {
@@ -35,19 +35,7 @@ export default {
       await callSlack(env, "views.open", { trigger_id: command.triggerId, view: await settingsView(env, command.channel) });
       return undefined;
     }
-    if (action.toLowerCase() === "import") {
-      if (!googleEnabled(env)) return NO_GOOGLE;
-      const { moved, kept, docs, failed } = await importProjects(env, command.user);
-      if (!moved.length && !kept.length) return "cade.config.json has no projects to import. Send `/cade project init` in a channel to add one.";
-      return [
-        moved.length ? `:white_check_mark: Copied ${moved.length} project${moved.length === 1 ? "" : "s"} from cade.config.json into Cade's database: ${moved.map((name) => `*${name}*`).join(", ")}, with their switches, AI model and work doc.` : "Nothing new to copy.",
-        kept.length ? `Already in the database: ${kept.map((name) => `*${name}*`).join(", ")}.` : "",
-        docs.length ? `Made a Google Doc for ${docs.map((name) => `*${name}*`).join(", ")}.` : "",
-        failed.length ? `:warning: I couldn't make a Google Doc for ${failed.map((name) => `*${name}*`).join(", ")}; send \`/cade project import\` again.` : "",
-        "You can now take `projects` out of cade.config.json and run `npm run config`; their settings are changed with `/cade project settings`.",
-      ].filter(Boolean).join("\n");
-    }
-    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, `/cade project settings` for the projects' settings, `/cade project import` to copy the config's projects into the database, or `/cade project` to see if this channel is one.";
+    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, `/cade project settings` for the projects' settings or `/cade project` to see if this channel is one.";
 
     if (existing) {
       return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. \`/cade project settings\` opens its settings.`;

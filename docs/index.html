@@ -267,7 +267,7 @@
       <div class="feature"><div class="bar"></div><h3>Read tasks</h3>
         <ul>
           <li><code>get_projects</code> → <code>projects[]</code></li>
-          <li><code>get_tasks</code> (mine, role, assignee, unassigned, status, project, limit) → <code>total</code>, <code>tasks[]</code></li>
+          <li><code>get_tasks</code> (mine, role, assignee, unassigned, status, project, fields, limit) → <code>total</code>, <code>tasks[]</code>; <code>fields</code> picks what each task has, such as <code>summary</code> or <code>notes</code></li>
           <li><code>get_task</code> (task_id | link) → fields, summary, notes, <code>original_thread</code></li>
         </ul></div>
       <div class="feature"><div class="bar"></div><h3>Read threads</h3>
@@ -306,6 +306,7 @@
   "project": "acme",
   "status": "open",
   "unassigned": true,
+  "fields": ["title", "status", "summary"],
   "limit": 20
 }</code></pre>
       </div>
@@ -316,15 +317,8 @@
   "tasks": [{
     "task_id": "C0123ABCD:1700000000.000100",
     "title": "Fix login",
-    "project": "acme",
     "status": "IN_REVIEW",
-    "priority": "High",
-    "due_date": "31/12/2026",
-    "incident": false,
-    "link": "https://…",
-    "owner": ["U0123ABCD"],
-    "reviewer": [],
-    "tester": []
+    "summary": "Users can't sign in…"
   }]
 }</code></pre>
       </div>

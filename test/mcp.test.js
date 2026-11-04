@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
-import { getTask, putTask } from "../src/db.js";
+import { getTask, putSummary, putTask } from "../src/db.js";
 import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
@@ -680,6 +680,14 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
     ["CBARE:1000000002.000100", "bare", "TODO", []],
   ]);
   assert.equal(all.data.total, 3);
+  // fields picks what each task gives: task_id always, and summary or notes on request.
+  await putSummary(env, "CDEV", "1000000001.000100", "The login fails.", "UANN");
+  const picked = await tool(url, "get_tasks", { project: "acme", fields: ["title", "summary"] });
+  assert.deepEqual(picked.data.tasks.map((task) => Object.keys(task)), [["task_id", "title", "summary"], ["task_id", "title", "summary"]]);
+  assert.deepEqual(picked.data.tasks.map((task) => task.summary), ["The login fails.", ""]);
+  assert.match(picked.text, /Summary: The login fails\./);
+  assert.ok(!("summary" in all.data.tasks[0]));
+  assert.match((await tool(url, "get_tasks", { fields: ["nope"] })).text, /fields is a list of: title, project/);
   assert.deepEqual((await tool(url, "get_projects", {})).data.projects, [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }]);
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);

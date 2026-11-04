@@ -3,7 +3,7 @@ import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
 import { parseStatus } from "./commands/status.js";
 import { OPEN, byUrgency, threadLink } from "./commands/tasks.js";
-import { deleteMcpToken, getNotes, mcpTokenUser, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
+import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
 import { FLOWS } from "./flows.js";
@@ -146,6 +146,15 @@ const PERSON = {
   properties: { user_id: USER_ID, name: str("Real name"), username: str("Slack username") },
   required: ["user_id", "name", "username"],
 };
+// What get_tasks can include for each task, besides its task_id: the base fields, and these.
+const EXTRA_FIELDS = {
+  summary: str("The summary of the issue, or empty"),
+  summary_by: str("Who wrote the summary, or empty"),
+  notes: str("The notes people wrote, or empty"),
+  notes_link: str("A link to the notes page, or empty"),
+  created_by: str("Who raised it"),
+};
+const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
 const outputOf = (properties) => ({ type: "object", properties, required: Object.keys(properties) });
 
 const TOOLS = [
@@ -244,7 +253,7 @@ const TOOLS = [
     description:
       "Lists Cade tasks, most urgent first, each with its priority, title, status, due date, people, its task ID and a link. Open tasks (not done) by default. Filter with the arguments, all optional and combinable: " +
       "mine (only tasks you are on, from any project; role does the same for one role), assignee (only tasks a person is on, by user ID from find_user_by_name), unassigned (only tasks with no owner, reviewer or tester), status (open, all or one status), " +
-      "project (only one project's tasks, by name from get_projects), and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
+      "project (only one project's tasks, by name from get_projects), fields (which fields to give for each task, to keep the result small, or to add summary and notes), and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -254,12 +263,17 @@ const TOOLS = [
         unassigned: { type: "boolean", description: "Only tasks nobody is owner, reviewer or tester of" },
         status: { type: "string", enum: ["open", "all", ...Object.keys(STATUSES)], description: "open (default: everything not done), all, or one status" },
         project: { type: "string", description: "Only this project's tasks, by the name get_projects gives" },
+        fields: { type: "array", items: { type: "string", enum: TASK_FIELDS }, description: `The fields to give for each task, besides task_id which is always there. Default: all but ${Object.keys(EXTRA_FIELDS).join(", ")}. Add summary or notes to get them for every task listed` },
         limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many tasks to return, most urgent first. Default ${DEFAULT_TASKS}` },
       },
     },
     outputSchema: outputOf({
       total: { type: "integer", description: "How many tasks match and you can see" },
-      tasks: { type: "array", items: TASK_ITEM, description: "The ones shown, grouped by project, most urgent first within each" },
+      tasks: {
+        type: "array",
+        items: { type: "object", properties: { ...TASK_ITEM.properties, ...EXTRA_FIELDS }, required: ["task_id"], description: "Every field, or just those asked for in fields" },
+        description: "The ones shown, grouped by project, most urgent first within each",
+      },
     }),
     run: getTasks,
   },
@@ -714,7 +728,8 @@ function projectChannel(env, name) {
 
 // The tasks the arguments ask for: the person's own, or everyone's they can read.
 async function getTasks(env, user, args = {}) {
-  const { mine, role, assignee, unassigned, limit, project } = args;
+  const { mine, role, assignee, unassigned, limit, project, fields } = args;
+  if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_FIELDS.join(", ")}.`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
   if (assignee !== undefined && !/^[UW][A-Z0-9]{2,}$/.test(String(assignee))) throw new ToolError("assignee is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   if (unassigned && (mine || role || assignee)) throw new ToolError("unassigned can't be combined with mine, role or assignee.");
@@ -727,7 +742,7 @@ async function getTasks(env, user, args = {}) {
 }
 
 // The tasks `user` has a role in.
-async function getMyTasks(env, user, { role, status, limit, channel } = {}) {
+async function getMyTasks(env, user, { role, status, limit, channel, fields } = {}) {
   if (role !== undefined && !ROLES[role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
   const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : Object.keys(ROLES), statuses }))
@@ -738,12 +753,12 @@ async function getMyTasks(env, user, { role, status, limit, channel } = {}) {
   const shown = found.slice(0, limit ?? MAX_TASKS);
   const yours = ({ task }) => `you: ${Object.keys(ROLES).filter((key) => task.people[key].includes(user)).join(", ")}`;
   const more = found.length > shown.length ? `\n…and ${found.length - shown.length} more.` : "";
-  const { lines, items } = await taskLines(env, shown, yours);
+  const { lines, items } = await taskLines(env, shown, yours, fields);
   return { text: [`${found.length} task${found.length === 1 ? "" : "s"}, most urgent first:`, ...lines].join("\n") + more, data: { total: found.length, tasks: items } };
 }
 
 // Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel } = {}) {
+async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel, fields } = {}) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task) => Object.keys(ROLES).flatMap((role) => task.people[role]);
@@ -767,7 +782,7 @@ async function getAllTasks(env, user, { limit, status, assignee, unassigned, cha
   const people = ({ task }) =>
     Object.entries(ROLES).map(([key, label]) => `${label.toLowerCase()}: ${task.people[key].join(", ") || "—"}`).join("; ");
   const more = allowed > shown.length ? `\n…and ${allowed - shown.length} more; raise limit (up to ${MAX_TASKS}) or filter by status to see them.` : "";
-  const { lines, items } = await taskLines(env, shown, people);
+  const { lines, items } = await taskLines(env, shown, people, fields);
   return { text: [`${allowed} task${allowed === 1 ? "" : "s"}, showing the ${shown.length} most urgent:`, ...lines].join("\n") + more, data: { total: allowed, tasks: items } };
 }
 
@@ -782,7 +797,7 @@ function statusFilter(status) {
 // "*Project*" line over its tasks: a numbered entry each (numbers run on across sections) with
 // its priority, title, status and due date, `about(entry)`, its ID and its link. Gives
 // { lines, items }: the text, and the tasks as data in the same order.
-async function taskLines(env, entries, about) {
+async function taskLines(env, entries, about, fields) {
   // A task made before its link was kept gets one built from the workspace's address.
   let base;
   const named = projects(env);
@@ -793,6 +808,9 @@ async function taskLines(env, entries, about) {
   const sorted = entries.map((entry, i) => ({ entry, i })).sort((x, y) => order(x.entry.channel) - order(y.entry.channel) || x.i - y.i);
   const lines = [];
   const items = [];
+  // The notes pages are read only when summary, notes or the like are asked for.
+  const wantsNotes = (fields ?? []).some((field) => ["summary", "summary_by", "notes", "notes_link"].includes(field));
+  const pages = wantsNotes ? await notesOf(env, entries.map(({ channel, ts }) => ({ channel, ts }))) : new Map();
   let section;
   for (const [n, { entry }] of sorted.entries()) {
     const { channel, ts, task } = entry;
@@ -804,7 +822,19 @@ async function taskLines(env, entries, about) {
     const link = task.link || (base ? threadLink(base, channel, ts) : `${channel}/${ts}`);
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
     lines.push(`${n + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
-    items.push(taskData(env, channel, ts, task, link));
+    const page = pages.get(`${channel}:${ts}`);
+    const all = {
+      ...taskData(env, channel, ts, task, link),
+      summary: page?.summary ?? "",
+      summary_by: page?.summaryBy ?? "",
+      notes: page?.body ?? "",
+      notes_link: task.notes?.url ?? "",
+      created_by: task.createdBy ?? "",
+    };
+    // Only the fields asked for, or the base ones.
+    const item = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : Object.fromEntries(Object.entries(all).filter(([field]) => !(field in EXTRA_FIELDS)));
+    items.push(item);
+    for (const field of ["summary", "notes"]) if (fields?.includes(field)) lines.push(`   ${field === "summary" ? "Summary" : "Notes"}: ${(all[field] || "(none)").replace(/\n/g, "\n   ")}`);
   }
   return { lines, items };
 }

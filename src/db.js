@@ -604,6 +604,21 @@ export async function getNotes(env, channel, taskTs) {
   };
 }
 
+// The notes pages of many tasks (`keys`: [{ channel, ts }]) as a Map from
+// "channel:ts" to { summary, summaryBy, body }; a task with none is absent.
+// D1 takes few values per query, so it asks in chunks.
+export async function notesOf(env, keys) {
+  const found = new Map();
+  for (let i = 0; i < keys.length; i += 40) {
+    const chunk = keys.slice(i, i + 40);
+    const { results } = await env.DB.prepare(`SELECT * FROM task_notes WHERE ${chunk.map(() => "(channel = ? AND task_ts = ?)").join(" OR ")}`)
+      .bind(...chunk.flatMap(({ channel, ts }) => [channel, ts]))
+      .all();
+    for (const row of results) found.set(`${row.channel}:${row.task_ts}`, { summary: row.summary ?? "", summaryBy: row.summary_by ?? "", body: row.body ?? "" });
+  }
+  return found;
+}
+
 // Replaces the summary an AI agent wrote for `user`.
 export async function putSummary(env, channel, taskTs, summary, user) {
   await env.DB.prepare(

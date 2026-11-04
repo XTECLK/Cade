@@ -994,7 +994,7 @@ test("update_release changes the PRs of a release waiting for approval, never de
   assert.match(await say({ prs: { remove: [PR1, PR2] } }), /needs at least one pull request/);
   assert.match(await say({ prs: { add: [PR1], remove: [PR1] } }), /same pull request is in add and remove/);
   assert.match(await say({ note: " " }), /note is empty/);
-  assert.match((await tool(url, "update_release", { release_id: old, note: "x" })).text, /sent before it could be changed from here/);
+  assert.match((await tool(url, "update_release", { release_id: old, note: "x" })).text, /I don't have that release's request message/);
   assert.match((await tool(url, "update_release", { release_id: 999 })).text, /no such release/);
   assert.match((await tool(url, "update_release", { release_id: "x" })).text, /release_id is the number/);
   // Once decided, it stays as decided.

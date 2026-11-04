@@ -316,7 +316,7 @@ export const TOOL_DEFS = [
     description:
       "Changes a release still waiting for approval: add pull requests to it, remove some (they go back to pending), or change what it completes. It never approves or turns a release down: that is the approver's click in the task's thread in Slack. " +
       "Added PRs must be linked to the task already (update_task prs.add) and not in another release; a release keeps at least one PR. Cade updates the request the approver sees, the task's card, and tells the thread, mentioning the approver. " +
-      "Call this only with changes the person has seen and approved: show them the release as it is now (get_releases) and what you propose, and ask first. A release that was approved or turned down, or sent before it could be changed from here, can't be changed. Takes the release's number from get_releases.",
+      "Call this only with changes the person has seen and approved: show them the release as it is now (get_releases) and what you propose, and ask first. A release that was approved or turned down can't be changed. Takes the release's number from get_releases.",
     inputSchema: {
       type: "object",
       properties: {

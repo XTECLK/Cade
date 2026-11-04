@@ -784,7 +784,7 @@ async function updateRelease(env, user, { release_id: id, prs, note } = {}) {
   const { channel, ts, release } = found;
   if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't change its release for you.");
   if (release.status !== "PENDING_APPROVAL") throw new ToolError(`That release is already ${release.status === "APPROVED" ? "approved" : "decided"}; only one waiting for approval can be changed.`);
-  if (!release.messageTs || !release.approver) throw new ToolError("That release was sent before it could be changed from here. Change it in the task's thread in Slack.");
+  if (!release.messageTs || !release.approver) throw new ToolError("I don't have that release's request message, so I can't change it. Change it in the task's thread in Slack.");
 
   const task = await loadTask(env, channel, ts);
   const add = prLinksOf(prs?.add, "prs.add");

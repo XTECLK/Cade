@@ -449,12 +449,12 @@ export const TOOL_DEFS = [
     description:
       "Shows who in the team has room for work, least loaded first. For each person: their open tasks as owner, reviewer and tester, how many of those are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. " +
       "Use it to pick whom to assign a task to, together with find_user_by_name and update_task. For one person use get_availability. Open tasks count in the projects whose channels you can read. A status like vacation, sick or out of office means the person is away even if they have few tasks; presence 'away' often just means Slack is closed, so treat it as weak. " +
-      `Narrow it with users (Slack user IDs) or project (a name from get_projects). It covers the first ${DEFAULT_USERS} people of the workspace unless users or limit (at most ${MAX_USERS}) say otherwise; presence costs one Slack call per person, so it takes at most ${MAX_PRESENCE} people.`,
+      `Narrow it with users (Slack user IDs) or project (a name from get_projects). With project, open_tasks, overdue and the rest count only that project's tasks, so they show a person's load in that project, not their total load: call it without project too when deciding whom to assign, since someone light in one project may be heavy in another. If people were picked as working on the project (in its settings), only they are covered, so someone absent from the result is not on the project, not necessarily unavailable; if none were picked, everyone in the workspace is covered and you should say the project has no team set. It covers the first ${DEFAULT_USERS} people of the workspace unless users or limit (at most ${MAX_USERS}) say otherwise; presence costs one Slack call per person, so it takes at most ${MAX_PRESENCE} people.`,
     inputSchema: {
       type: "object",
       properties: {
         users: { type: "array", items: { type: "string" }, description: "Only these people, as Slack user IDs such as U0123ABCD" },
-        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives" },
+        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives, and cover only the people picked as working on it (everyone if none were picked)" },
         fields: AVAILABILITY_FIELDS_ARG,
         limit: { type: "integer", minimum: 1, maximum: MAX_USERS, description: `How many people to return, least loaded first. Default ${DEFAULT_USERS}` },
       },
@@ -478,12 +478,12 @@ export const TOOL_DEFS = [
     annotations: READS_SLACK,
     description:
       "Shows how much room one person has for work: their open tasks as owner, reviewer and tester, how many are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. " +
-      "Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.",
+      "Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. With project, they count only that project's tasks (the person's load there, not their total), and if the project has people picked as working on it, asking about someone else is an error: it means they are not on that project's team, so suggest checking the project's settings or choosing a member. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.",
     inputSchema: {
       type: "object",
       properties: {
         user_id: { type: "string", description: "The person, as a Slack user ID such as U0123ABCD" },
-        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives" },
+        project: { type: "string", description: "Count only this project's tasks, by the name get_projects gives. If the project has people picked, the person must be one of them" },
         fields: AVAILABILITY_FIELDS_ARG,
       },
       required: ["user_id"],

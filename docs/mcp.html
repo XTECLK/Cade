@@ -478,14 +478,14 @@
 <section class="tool" id="get_team_availability">
   <div class="wrap">
     <h2><code>get_team_availability</code></h2>
-    <p>Shows who in the team has room for work, least loaded first. For each person: their open tasks as owner, reviewer and tester, how many of those are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Use it to pick whom to assign a task to, together with find_user_by_name and update_task. For one person use get_availability. Open tasks count in the projects whose channels you can read. A status like vacation, sick or out of office means the person is away even if they have few tasks; presence 'away' often just means Slack is closed, so treat it as weak. Narrow it with users (Slack user IDs) or project (a name from get_projects). It covers the first 50 people of the workspace unless users or limit (at most 200) say otherwise; presence costs one Slack call per person, so it takes at most 50 people.</p>
+    <p>Shows who in the team has room for work, least loaded first. For each person: their open tasks as owner, reviewer and tester, how many of those are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Use it to pick whom to assign a task to, together with find_user_by_name and update_task. For one person use get_availability. Open tasks count in the projects whose channels you can read. A status like vacation, sick or out of office means the person is away even if they have few tasks; presence 'away' often just means Slack is closed, so treat it as weak. Narrow it with users (Slack user IDs) or project (a name from get_projects). With project, open_tasks, overdue and the rest count only that project's tasks, so they show a person's load in that project, not their total load: call it without project too when deciding whom to assign, since someone light in one project may be heavy in another. If people were picked as working on the project (in its settings), only they are covered, so someone absent from the result is not on the project, not necessarily unavailable; if none were picked, everyone in the workspace is covered and you should say the project has no team set. It covers the first 50 people of the workspace unless users or limit (at most 200) say otherwise; presence costs one Slack call per person, so it takes at most 50 people.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>users</code></td><td>string[]</td><td></td><td>Only these people, as Slack user IDs such as U0123ABCD</td></tr>
-<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives, and cover only the people picked as working on it (everyone if none were picked)</td></tr>
 <tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many people to return, least loaded first. Default 50 · min 1, max 200</td></tr>
 </tbody>
@@ -517,14 +517,14 @@
 <section class="tool" id="get_availability">
   <div class="wrap">
     <h2><code>get_availability</code></h2>
-    <p>Shows how much room one person has for work: their open tasks as owner, reviewer and tester, how many are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.</p>
+    <p>Shows how much room one person has for work: their open tasks as owner, reviewer and tester, how many are overdue or Urgent/High, their Slack status text (such as On vacation) and when it ends, their time zone, and, only if you add presence to fields, whether they are active in Slack right now. Takes the person's Slack user ID (find_user_by_name gives it). Open tasks count in the projects whose channels you can read. With project, they count only that project's tasks (the person's load there, not their total), and if the project has people picked as working on it, asking about someone else is an error: it means they are not on that project's team, so suggest checking the project's settings or choosing a member. To compare the whole team use get_team_availability. A status like vacation, sick or out of office means away; presence 'away' often just means Slack is closed, so treat it as weak.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>user_id</code></td><td>string</td><td>yes</td><td>The person, as a Slack user ID such as U0123ABCD</td></tr>
-<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, by the name get_projects gives. If the project has people picked, the person must be one of them</td></tr>
 <tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
 </tbody>
 </table></div>

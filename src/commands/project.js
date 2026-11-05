@@ -2,7 +2,7 @@ import { projects } from "../channels.js";
 import { ensureWorkDoc } from "../doc.js";
 import { googleEnabled } from "../google.js";
 import { addProject } from "../db.js";
-import { SETTINGS, applySettings, choicesOf, configEnv, isAdmin, settingOn } from "../settings.js";
+import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn } from "../settings.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 
 const SETTINGS_VIEW = "project:settings";
@@ -102,6 +102,14 @@ async function settingsView(env, channel) {
         accessory: { type: "static_select", action_id: PICK_ACTION, initial_option: picks.find((pick) => pick.value === project.channel), options: picks },
       },
       { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
+      {
+        type: "input",
+        block_id: "members",
+        optional: true,
+        label: plainText("People who work on this project"),
+        hint: plainText("Availability asked for this project covers only these people. Leave it empty to cover everyone in the workspace."),
+        element: { type: "multi_users_select", action_id: "value", initial_users: projectMembers(env, project.channel).slice(0, 500), placeholder: plainText("Pick people") },
+      },
       ...SETTINGS.map(({ key, label, about }) => {
         const options = Object.entries(CHOICES).map(([value, text]) => option(value === "config" ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})` : text, value));
         return {
@@ -134,7 +142,9 @@ async function saveSettings(payload, context) {
   const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, payload.view.state.values[`s_${key}`]?.value?.selected_option?.value]));
   context.waitUntil(
     (async () => {
-      const changed = await applySettings(env, channel, choices, payload.user.id);
+      const picked = payload.view.state.values.members?.value?.selected_users;
+      const membersChanged = await applyMembers(env, channel, picked, payload.user.id);
+      const changed = (await applySettings(env, channel, choices, payload.user.id)) + (membersChanged ? 1 : 0);
       const name = projects(env).find((project) => project.channel === channel)?.name ?? channel;
       await callSlack(env, "chat.postEphemeral", {
         channel,

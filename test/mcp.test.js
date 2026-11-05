@@ -1070,6 +1070,19 @@ test("get_team_availability ranks people by open workload and shows their status
   assert.match((await tool(url, "get_team_availability", { users: ["bob"] })).text, /users is a list of Slack user IDs/);
 });
 
+test("availability for a project covers only the people picked as working on it", async (t) => {
+  mock(t, { "users.list": { members: ["UANN", "UBOB", "UCAT"].map((id) => ({ id, name: id, real_name: id.slice(1) })) } });
+  const url = addressIn(await slash("mcp init", "UME"));
+  await DB.prepare("INSERT INTO project_settings (channel, key, value) VALUES ('CDEV', 'members', ?)").bind(JSON.stringify(["UBOB", "UCAT"])).run();
+  const ids = async (args) => (await tool(url, "get_team_availability", args)).data.people.map((person) => person.user_id);
+  assert.deepEqual(await ids({ project: "acme" }), ["UBOB", "UCAT"]);
+  assert.deepEqual(await ids({}), ["UANN", "UBOB", "UCAT"]);
+  assert.deepEqual(await ids({ project: "bare" }), ["UANN", "UBOB", "UCAT"]);
+  assert.deepEqual(await ids({ project: "acme", users: ["UANN", "UBOB"] }), ["UBOB"]);
+  assert.equal((await tool(url, "get_availability", { user_id: "UBOB", project: "acme" })).data.person.user_id, "UBOB");
+  assert.match((await tool(url, "get_availability", { user_id: "UANN", project: "acme" })).text, /isn't one of the people who work on acme/);
+});
+
 test("get_availability gives one person's workload and status", async (t) => {
   mock(t, {
     "users.list": { members: [{ id: "UANN", name: "ann", real_name: "Ann", profile: { status_text: "Sick leave" } }, { id: "UBOB", name: "bob", real_name: "Bob" }] },

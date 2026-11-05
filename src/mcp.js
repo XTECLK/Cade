@@ -1,3 +1,4 @@
+import { projectMembers } from "./settings.js";
 import { hashToken, isMember, newToken, readableName } from "./access.js";
 import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
@@ -809,7 +810,7 @@ const AWAY_STATUS = /vacation|holiday|leave|sick|ill\b|ooo|out of office|off wor
 async function getAvailability(env, user, { user_id, project, fields } = {}) {
   if (!/^[UW][A-Z0-9]{2,}$/.test(String(user_id ?? ""))) throw new ToolError("user_id is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   const result = await getTeamAvailability(env, user, { users: [user_id], project, fields });
-  if (!result.data.people.length) throw new ToolError(`There is no active person ${user_id} in the workspace.`);
+  if (!result.data.people.length) throw new ToolError(project !== undefined && projectMembers(env, projectChannel(env, project)).length ? `${user_id} isn't one of the people who work on ${project}, or isn't an active person in the workspace.` : `There is no active person ${user_id} in the workspace.`);
   return { text: result.text.split("\n").slice(1).join("\n").replace(/^1\. /, ""), data: { person: result.data.people[0] } };
 }
 
@@ -821,7 +822,9 @@ async function getTeamAvailability(env, user, { users, project, fields, limit } 
   if (users !== undefined && !(Array.isArray(users) && users.every((id) => /^[UW][A-Z0-9]{2,}$/.test(String(id))))) throw new ToolError("users is a list of Slack user IDs such as U0123ABCD. find_user_by_name gives them.");
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_USERS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_USERS}.`);
   const channel = project !== undefined ? projectChannel(env, project) : undefined;
-  const wanted = users ? new Set(users) : null;
+  // A project with people picked in its settings covers only them; asking for others in it finds no one.
+  const team = channel ? projectMembers(env, channel) : [];
+  const wanted = users || team.length ? new Set((users ?? team).filter((id) => !team.length || team.includes(id))) : null;
 
   const members = [];
   let cursor;

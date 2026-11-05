@@ -134,7 +134,7 @@ test("/cade project settings opens a form with the channel's project, its name a
   const picker = view.blocks[0].accessory;
   assert.deepEqual(picker.options.map((option) => option.text.text), ["acme"]);
   assert.equal(picker.initial_option.value, "CDEV");
-  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskStatusChangeDetection", "s_newMessageTaskDetection", "s_aiSuggestions", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
+  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["members", "s_taskStatusChangeDetection", "s_newMessageTaskDetection", "s_aiSuggestions", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
@@ -175,6 +175,29 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
   await interact(submitted("CNOPE", { summaryCanvas: "off" }));
   assert.equal(await setting("summaryCanvas"), true);
   assert.deepEqual(projects(await withSettings(env)).map((project) => project.name), ["acme"]);
+});
+
+test("the project's people are picked in the form and kept, and emptying the list puts it back", async (t) => {
+  const calls = mock(t, { "chat.postEphemeral": {}, "views.open": {} });
+  const { withSettings, projectMembers } = await import("../src/settings.js");
+  const members = async () => projectMembers(await withSettings(env), "CDEV");
+  assert.deepEqual(await members(), []);
+  const withPeople = (selected_users) => {
+    const payload = submitted("CDEV", {});
+    payload.view.state.values.members = { value: { selected_users } };
+    return payload;
+  };
+  await interact(withPeople(["UBOB", "UANN"]));
+  assert.deepEqual(await members(), ["UANN", "UBOB"]);
+  assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /Saved 1 setting for the project \*acme\*/);
+  await slash("settings", { channel: "CDEV" });
+  const view = JSON.parse(calls.findLast((call) => call.method === "views.open").args.view);
+  assert.deepEqual(view.blocks.find((block) => block.block_id === "members").element.initial_users, ["UANN", "UBOB"]);
+  // A submission that doesn't carry the field leaves them alone; an empty list clears them.
+  await interact(submitted("CDEV", {}));
+  assert.deepEqual(await members(), ["UANN", "UBOB"]);
+  await interact(withPeople([]));
+  assert.deepEqual(await members(), []);
 });
 
 test("picking another project in the form shows its settings, and a project added with /cade project init is one", async (t) => {

@@ -16,7 +16,26 @@ export const SETTINGS = [
 
 // What else a project keeps in the database besides those: its work doc, which isn't changed in the
 // form (`/cade project init` makes it).
-const STORED = [...SETTINGS.map((setting) => setting.key), "workDoc"];
+const STORED = [...SETTINGS.map((setting) => setting.key), "workDoc", "members"];
+
+// The people who work on a project, as Slack user IDs: picked in the settings form, or listed as `members` in
+// cade.config.json. Empty means none were picked, and availability then looks at the whole workspace.
+export function projectMembers(env, channel) {
+  const members = projects(env).find((project) => project.channel === channel)?.members;
+  return Array.isArray(members) ? members.filter((id) => typeof id === "string") : [];
+}
+
+// Keeps `members` as the people of the project with `channel` (none puts it back to the config). Returns whether it changed.
+export async function applyMembers(env, channel, members, user) {
+  const project = projects(env).find((candidate) => candidate.channel === channel);
+  if (!project || !Array.isArray(members)) return false;
+  const next = [...new Set(members)].sort();
+  if (next.join() === [...projectMembers(env, channel)].sort().join()) return false;
+  if (next.length) await setProjectSetting(env, channel, "members", next, user);
+  else await clearProjectSetting(env, channel, "members");
+  console.log("Project members changed", { project: project.name, count: next.length, by: user });
+  return true;
+}
 
 // The env with the projects added with `/cade project init` and the settings changed on the admin
 // page merged into its projects, so the code that reads them (projects, groupSetting, …) needs no

@@ -6,11 +6,9 @@ import { applyChanges } from "./changes.js";
 import { editForm } from "./edit.js";
 import { pullRequestsIn } from "./pr.js";
 
-// The action IDs are kept from when the buttons read Confirm, Change… and
-// Not now, so suggestions already posted still work.
-const ACCEPT_ACTION = "ai-suggest:confirm";
-const EDIT_ACTION = "ai-suggest:change";
-const REJECT_ACTION = "ai-suggest:skip";
+const ACCEPT_ACTION = "ai-suggest:accept";
+const EDIT_ACTION = "ai-suggest:edit";
+const REJECT_ACTION = "ai-suggest:reject";
 
 // Suggestions read with AI (see ai.js): what a message in a task's thread
 // asks to change, which can be several people in several roles, the status,

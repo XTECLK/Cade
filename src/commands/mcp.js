@@ -17,7 +17,7 @@ export default {
   section: "work",
   async slash(command, { env }) {
     const action = command.text.trim().toLowerCase();
-    if (action === "status" || action === "info") return status(env, command.user);
+    if (action === "status") return status(env, command.user);
     if (action === "init") {
       if (!mcpEnabled(env)) return "AI agent access is turned off for this Cade, so there is no key to give. An admin turns it on with `mcp` in cade.config.json.";
       if (await hasMcpToken(env, command.user)) {
@@ -36,7 +36,6 @@ export default {
 
 // What `/cade mcp status` answers: whether MCP is configured (on) for this Cade, whether the person
 // has a key (never the key itself), where the endpoint is, and a link to the page that guides the setup.
-// `info` is its old name and still works.
 async function status(env, user) {
   const { tools } = mcpCatalog();
   const on = mcpEnabled(env);

@@ -1,19 +1,10 @@
 import { aiModel, checkChanges } from "../ai.js";
 import { roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
-import { dismiss, respondLater } from "../slack.js";
 import { ROLES, loadTask } from "../tasks.js";
 import { askToChange, suggestWithAi, withPullRequests } from "./ai-suggest.js";
-import { applyChanges } from "./changes.js";
 import { pullRequestsIn } from "./pr.js";
 import { progressOptions, soundsLikeProgress } from "./status.js";
-
-// Suggestions by phrases used to come with pickers, Save and Not now; those
-// already posted are still answered (see save).
-const SAVE_ACTION = "suggest:save";
-const SKIP_ACTION = "suggest:skip";
-const ROLE_PICKS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `suggest:role:${role}`]));
-const STATUS_PICK = "suggest:status";
 
 // People's own words in a task's thread often mean the task should change,
 // and so does a pasted pull request link. This is the one place messages in a
@@ -166,16 +157,7 @@ const workIntent = intent({
 
 export default {
   intents: [workIntent],
-  actions: {
-    [SAVE_ACTION]: async (payload, context) => {
-      context.waitUntil(save(payload, context.env));
-    },
-    [SKIP_ACTION]: async (payload) => {
-      await respondLater(payload.response_url, { delete_original: true });
-    },
-    // Picking only chooses; Save saves.
-    ...Object.fromEntries([...Object.values(ROLE_PICKS), STATUS_PICK].map((id) => [id, async () => {}])),
-  },
+  actions: {},
 };
 
 // Who a message asks to take each role, as { [role]: ids }, read a request
@@ -279,30 +261,4 @@ async function threadTask(env, message) {
   const target = { channel: message.channel, ts: message.threadTs };
   const task = await loadTask(env, target.channel, target.ts);
   return task ? { target, task } : null;
-}
-
-// For a suggestion posted with pickers: saves what they show: each role set to the people chosen, and the
-// status chosen, as one change (see changes.js), and removes the question. A
-// status left as suggested isn't applied if the task has moved since the
-// question was asked.
-async function save(payload, env) {
-  const { channel, ts, people = {}, status: suggested, from } = JSON.parse(payload.actions[0].value);
-  const values = payload.state?.values ?? {};
-  // The question goes first, so the click shows at once.
-  await dismiss(payload.response_url);
-  const task = await loadTask(env, channel, ts);
-  if (task) {
-    const changes = { people: {} };
-    for (const [role, before] of Object.entries(people)) {
-      const pick = ROLE_PICKS[role];
-      const chosen = values[pick]?.[pick]?.selected_users ?? before;
-      changes.people[role] = {
-        add: chosen.filter((id) => !task.people[role].includes(id)),
-        remove: task.people[role].filter((id) => !chosen.includes(id)),
-      };
-    }
-    const status = values[STATUS_PICK]?.[STATUS_PICK]?.selected_option?.value ?? suggested;
-    if (status) changes.status = status;
-    await applyChanges(env, { channel, ts }, changes, payload.user.id, { from: status === suggested ? from : undefined });
-  }
 }

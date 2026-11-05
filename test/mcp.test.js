@@ -418,8 +418,6 @@ test("/cade mcp status shows whether MCP is configured and whether you have a ke
   assert.match(after, /Your API key:\*[^"]*made \d{4}-\d{2}-\d{2}/);
   assert.ok(!after.includes(key));
   assert.match(JSON.stringify(await slash("mcp status", "UOTHER")), /none yet/);
-  // `info` is the old name.
-  assert.match(JSON.stringify(await slash("mcp info", "UME")), /made \d{4}-\d{2}-\d{2}/);
 
   env.MCP = "off";
   t.after(() => delete env.MCP);

@@ -6082,5 +6082,5 @@ test("the Edit form toggles subtasks, which the card shows and the thread is tol
   const card = calls.filter((call) => call.method === "chat.update").at(-1);
   assert.match(JSON.stringify(card.args), /:jigsaw: Has subtasks/);
   const post = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").at(-1);
-  assert.match(post.args.text, /<@UACTOR> marked this as having subtasks\. Cade won't suggest status changes/);
+  assert.match(post.args.text, /<@UACTOR> marked this as having subtasks\./);
 });

@@ -76,8 +76,8 @@ export function dueDateChanged(user, dueDate) {
 
 export function subtasksChanged(user, on) {
   return on
-    ? `<@${user}> marked this as having subtasks. Cade won't suggest status changes from messages here; set the status by hand. Pull requests are still tracked.`
-    : `<@${user}> marked this as having no subtasks, so Cade suggests status changes again.`;
+    ? `<@${user}> marked this as having subtasks.`
+    : `<@${user}> marked this as having no subtasks.`;
 }
 
 // ---- From a change ----

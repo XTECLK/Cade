@@ -3,8 +3,8 @@ import { callGoogle, googleEnabled } from "./google.js";
 
 // Each group's executive summaries are kept in its work doc (its `workDoc` in
 // PROJECTS), which the team edits and goes through on calls: a section per
-// summary in its Summary tab, newest first. After a call, `/cade debrief`
-// reads the section back to find what was added. They are written and read
+// summary in its Summary tab, newest first. After a call, get_executive_summary_doc
+// reads the section back, for the agent to find what was added. They are written and read
 // through the Google web app (see google.js).
 export const docsEnabled = googleEnabled;
 

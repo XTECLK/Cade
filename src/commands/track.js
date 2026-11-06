@@ -1,7 +1,6 @@
 import { groupDisabled } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.js";
 import { CLOSE_ALL, callSlack, escapeSlack, plainText } from "../slack.js";
-import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
 import { mcpEnabled } from "../mcp.js";
 import { addPages } from "../export.js";
@@ -72,10 +71,8 @@ function fromThread(env, command, kind) {
 // `origin` says where the task goes: `channel`, the dev channel, or, without
 // one, the form asks for the project. It may have `title` to start with,
 // and `move`, the message to move into the task's thread once it is posted
-// (see moveMessage in move.js). From `/cade debrief` it has `sync`, the
-// suggestion it applies (see debrief.js), and the form has an Initial
-// message, starting as `initial`, posted in the task's thread.
-export function trackView(env, origin, { initial } = {}) {
+// (see moveMessage in move.js).
+export function trackView(env, origin) {
   return {
     type: "modal",
     callback_id: TRACK_VIEW,
@@ -86,7 +83,6 @@ export function trackView(env, origin, { initial } = {}) {
     blocks: [
       ...(origin.channel ? [] : [projectBlock(env)]),
       ...taskFormBlocks("Task title", origin),
-      ...(origin.sync ? [initialMessageBlock(initial)] : []),
     ],
   };
 }
@@ -111,25 +107,6 @@ export function incidentView(env, origin) {
   };
 }
 
-// The Initial message of a form opened from `/cade debrief`, posted in the
-// thread of the task it makes.
-function initialMessageBlock(initial) {
-  return {
-    type: "input",
-    block_id: "initial_message",
-    optional: true,
-    label: plainText("Initial message"),
-    hint: plainText("Posted in the task's thread once it's made."),
-    element: {
-      type: "plain_text_input",
-      action_id: "value",
-      multiline: true,
-      max_length: 3000,
-      initial_value: initial?.slice(0, 3000) || undefined,
-    },
-  };
-}
-
 // The form's origin, with the project chosen on it, or the errors to show.
 function readOrigin(payload) {
   const origin = JSON.parse(payload.view.private_metadata || "{}");
@@ -145,17 +122,7 @@ async function submit(payload, context) {
 
   const task = { title, priority, status: "TODO", dueDate, people: noPeople(), createdBy: payload.user.id };
   if (guides(context.env, origin)) return createAndGuide(context, task, origin, payload.user.id);
-  const initial = values.initial_message?.value?.value?.trim();
-  context.waitUntil(
-    (async () => {
-      const ts = await createTask(context.env, task, origin);
-      if (!origin.sync) return;
-      if (ts && initial) {
-        await callSlack(context.env, "chat.postMessage", { channel: origin.channel, thread_ts: ts, ...fromTheCall(initial, payload.user.id) });
-      }
-      await syncApplied(context.env, origin.sync, payload.user.id);
-    })(),
-  );
+  context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
 

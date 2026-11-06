@@ -5,8 +5,6 @@ import remove from "./delete.js";
 import replace from "./replace.js";
 import edit from "./edit.js";
 import { due, priority } from "./details.js";
-import brief from "./brief.js";
-import debrief from "./debrief.js";
 import home from "./home.js";
 import mcp from "./mcp.js";
 import menu from "./menu.js";
@@ -52,7 +50,7 @@ import web from "./web.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, web, mcp, project, tasks, standup, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, web, mcp, project, tasks, standup];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

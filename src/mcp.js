@@ -2,11 +2,12 @@ import { projectMembers } from "./settings.js";
 import { hashToken, isMember, newToken, readableName } from "./access.js";
 import { projects } from "./channels.js";
 import { applyChanges } from "./commands/changes.js";
+import { HEALTH, SummaryError, compareVersions, defaultPeriod, dayBoundary, docProblem, period, periodLabel, readSummaryDoc, writeSummary } from "./summaries.js";
 import { checkRoot, MOVED_REACTION } from "./commands/move.js";
 import { parseStatus } from "./commands/status.js";
 import { createTask } from "./commands/track.js";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.js";
-import { deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
+import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
 import { DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, AVAILABILITY_FIELDS, MAX_MESSAGE, MAX_PRESENCE, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
@@ -17,7 +18,7 @@ import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullReq
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Seventeen tools:
+// task, with the model and subscription they already have. Twenty-one tools:
 //
 //   get_task(task_id, fields?)         one task: its details, summary and
 //                                      notes, not its threads
@@ -92,7 +93,7 @@ function apiKeyOf(request) {
 
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask };
+const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
 
 // Thrown by a tool for what the agent should be told, as a result it can
@@ -372,6 +373,7 @@ async function getTaskView(env, user, args) {
   const all = {
     ...taskData(env, channel, ts, task, task.link ?? ""),
     created_by: task.createdBy ?? "",
+    completed_at: task.completedAt ? task.completedAt.slice(0, 16).replace("T", " ") : "",
     notes_link: task.notes?.url ?? "",
     summary: notes.summary ?? "",
     summary_by: notes.summaryBy ?? "",
@@ -627,6 +629,11 @@ async function getTasks(env, user, args = {}) {
   if (assignee !== undefined && !/^[UW][A-Z0-9]{2,}$/.test(String(assignee))) throw new ToolError("assignee is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   if (unassigned && (mine || role || assignee)) throw new ToolError("unassigned can't be combined with mine, role or assignee.");
   if (project !== undefined) args = { ...args, channel: projectChannel(env, project) };
+  if (args.completed_from !== undefined || args.completed_to !== undefined) {
+    const day = (value, name) => (value === undefined ? undefined : dayOf(value, name));
+    const [first, last] = [day(args.completed_from, "completed_from"), day(args.completed_to, "completed_to")];
+    args = { ...args, status: args.status ?? "DONE", completed: ({ completedAt }) => Boolean(completedAt) && (!first || completedAt.slice(0, 10) >= first) && (!last || completedAt.slice(0, 10) <= last) };
+  }
   if (mine || role) {
     if (assignee !== undefined && assignee !== user) throw new ToolError("mine and assignee name different people. Use one of them.");
     return getMyTasks(env, user, args);
@@ -635,11 +642,12 @@ async function getTasks(env, user, args = {}) {
 }
 
 // The tasks `user` has a role in.
-async function getMyTasks(env, user, { role, status, limit, channel, fields } = {}) {
+async function getMyTasks(env, user, { role, status, limit, channel, fields, completed } = {}) {
   if (role !== undefined && !ROLES[role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
   const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : Object.keys(ROLES), statuses }))
     .filter((entry) => !channel || entry.channel === channel)
+    .filter((entry) => !completed || completed(entry.task))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency);
   if (!found.length) return { text: `You have no ${wanted === "open" ? "open " : ""}tasks${role ? ` as ${role}` : ""}${statuses.length === 1 ? ` in ${statusName(wanted)}` : ""}.`, data: { total: 0, tasks: [] } };
@@ -651,12 +659,13 @@ async function getMyTasks(env, user, { role, status, limit, channel, fields } = 
 }
 
 // Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel, fields } = {}) {
+async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel, fields, completed } = {}) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task) => Object.keys(ROLES).flatMap((role) => task.people[role]);
   const found = (await tasksWithStatuses(env, statuses))
     .filter((entry) => !channel || entry.channel === channel)
+    .filter(({ task }) => !completed || completed(task))
     .filter(({ task }) => (assignee === undefined || everyone(task).includes(assignee)) && (!unassigned || !everyone(task).length))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency);
@@ -726,6 +735,7 @@ async function taskLines(env, entries, about, fields) {
       notes_link: task.notes?.url ?? "",
       created_by: task.createdBy ?? "",
       prs: fields?.includes("prs") ? prData(task, releases.get(`${channel}:${ts}`) ?? []).prs : [],
+      completed_at: task.completedAt ? task.completedAt.slice(0, 16).replace("T", " ") : "",
     };
     // Only the fields asked for, or the base ones.
     const item = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : Object.fromEntries(Object.entries(all).filter(([field]) => !(field in EXTRA_FIELDS)));
@@ -735,14 +745,19 @@ async function taskLines(env, entries, about, fields) {
   return { lines, items };
 }
 
-async function resolveUserName(env, user, { user_id: id }) {
+async function resolveUserName(env, user, { user_id: id, profile: withProfile }) {
   const match = /\b[UW][A-Z0-9]{2,}\b/.exec(String(id ?? ""));
   if (!match) throw new ToolError("That isn't a Slack user ID. They look like U0123ABCD.");
   try {
     const { user: found } = await callSlack(env, "users.info", { user: match[0] });
     const name = found.real_name || found.profile?.real_name || found.profile?.display_name || found.name || match[0];
     const handle = found.profile?.display_name;
-    return { text: handle && handle !== name ? `${name} (${handle})` : name, data: { user_id: match[0], name, handle: handle && handle !== name ? handle : "" } };
+    const shown = handle && handle !== name ? `${name} (${handle})` : name;
+    const data = { user_id: match[0], name, handle: handle && handle !== name ? handle : "", profile: null };
+    if (!withProfile) return { text: shown, data };
+    data.profile = { email: found.profile?.email ?? "", phone: found.profile?.phone ?? "", title: found.profile?.title ?? "" };
+    const lines = [shown, `Email: ${data.profile.email || "(none)"}`, `Phone: ${data.profile.phone || "(none)"}`, `Title: ${data.profile.title || "(none)"}`];
+    return { text: lines.join("\n"), data };
   } catch (error) {
     throw new ToolError(`I couldn't look up ${match[0]} (${error.message}).`);
   }
@@ -929,6 +944,13 @@ async function sendTaskMessage(env, user, args) {
   const message = String(args.text ?? "").trim();
   if (!message) throw new ToolError("The message is empty.");
   if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
+  // A message telling the thread what a client call decided is sent once, and marks the task as told.
+  const summaryId = args.executive_summary_id;
+  if (summaryId !== undefined) {
+    const item = Number.isInteger(summaryId) ? (await summaryItems(env, summaryId)).after.find((entry) => entry.channel === channel && entry.ts === ts) : undefined;
+    if (!item) throw new ToolError(`Summary #${summaryId} has no after-call entry for that task. Record the call first with update_executive_summary_after_call, or send without executive_summary_id.`);
+    if (item.informedAt) throw new ToolError(`That task's thread was already told about summary #${summaryId} on ${timeOf(item.informedAt)} UTC, so I haven't sent it again. Send without executive_summary_id to post anyway.`);
+  }
   const body = plainMessage(message);
   const from = `Sent by <@${user}>`;
   await callSlack(env, "chat.postMessage", {
@@ -940,8 +962,9 @@ async function sendTaskMessage(env, user, args) {
       { type: "context", elements: [mrkdwn(from)] },
     ],
   });
+  if (summaryId !== undefined) await markSummaryInformed(env, summaryId, channel, ts, user);
   console.log("Task message sent", { channel, ts, by: user, characters: message.length });
-  return { text: `Posted in the task's thread${task.link ? `: ${task.link}` : "."}`, data: { task_id: `${channel}:${ts}`, sent: true, link: task.link ?? "" } };
+  return { text: `Posted in the task's thread${task.link ? `: ${task.link}` : "."}${summaryId !== undefined ? ` Marked as told for summary #${summaryId}.` : ""}`, data: { task_id: `${channel}:${ts}`, sent: true, link: task.link ?? "" } };
 }
 
 // The DD/MM/YYYY date a due_date argument names, "" for none, or a ToolError.
@@ -1088,6 +1111,162 @@ async function updateTask(env, user, args) {
     text: `${changed || summary !== undefined ? "Done." : "Nothing changed."} ${told.join(" ")}`,
     data: { task_id: `${channel}:${ts}`, changed, summary_saved: summary !== undefined, notes_link: now?.notes?.url ?? "" },
   };
+}
+
+// The project called `name` whose channel `user` can read, or a ToolError.
+async function readableProject(env, user, name) {
+  const channel = projectChannel(env, name);
+  const group = projects(env).find((pair) => pair.channel === channel);
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that project's channel.");
+  return group;
+}
+
+// A day argument (YYYY-MM-DD) as given, or a ToolError.
+function dayOf(value, name) {
+  const text = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00Z`)) || new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) !== text) {
+    throw new ToolError(`${name} is a day written YYYY-MM-DD, such as 2026-11-06.`);
+  }
+  return text;
+}
+
+const timeOf = (iso) => (iso ? iso.slice(0, 16).replace("T", " ") : "");
+const taskIdOf = (item) => (item.channel ? `${item.channel}:${item.ts}` : "");
+const docError = (env, group) => {
+  const problem = docProblem(env, group);
+  if (problem) throw new ToolError(problem);
+};
+
+// A summary as the tools give it, with its two versions side by side.
+async function summaryData(env, summary) {
+  const rows = compareVersions(await summaryItems(env, summary.id));
+  const days = period(env, summary);
+  return {
+    summary_id: summary.id,
+    created_at: timeOf(summary.createdAt),
+    created_by: summary.createdBy,
+    from: days.from,
+    to: days.to,
+    doc_url: summary.docUrl ?? "",
+    call: summary.callAt ? { notes: summary.callNotes ?? "", recorded_by: summary.callBy ?? "", recorded_at: timeOf(summary.callAt) } : null,
+    items: rows.map((row) => ({ task_id: taskIdOf(row), title: row.title, status: row.status, incident: row.incident, kind: row.kind, before: row.before, after: row.after, change: row.change, informed_at: timeOf(row.informedAt) })),
+  };
+}
+
+// One side of an item as a line of text.
+const said = (version) => (version ? `${version.included ? "" : "left out · "}${[version.health, version.progress].filter(Boolean).join(" · ")}${version.notes ? ` — ${version.notes.replace(/\n+/g, " / ")}` : ""}` || "included" : "—");
+
+// An executive summary Cade kept: the last, or the one in force on a day, with what it said before and after the call.
+async function getExecutiveSummary(env, user, { project, date } = {}) {
+  const group = await readableProject(env, user, project);
+  const found = date === undefined ? await lastSummary(env, group.name) : (await summariesOf(env, group.name, { onOrBefore: dayBoundary(env, dayOf(date, "date"), { end: true }), limit: 1 }))[0];
+  const others = (await summariesOf(env, group.name, { limit: 11 })).filter((other) => other.id !== found?.id).slice(0, 10);
+  const earlier = others.map((other) => ({ summary_id: other.id, created_at: timeOf(other.createdAt), from: period(env, other).from, to: period(env, other).to }));
+  if (!found) {
+    const text = date === undefined ? `${group.name} has no executive summary yet. Write one with create_executive_summary.` : `${group.name} has no executive summary written on or before ${date}.`;
+    return { text: earlier.length ? `${text} Others: ${earlier.map((other) => `#${other.summary_id} (${other.from} to ${other.to})`).join(", ")}.` : text, data: { project: group.name, summary: null, earlier } };
+  }
+  const data = await summaryData(env, found);
+  const lines = [`${group.name} executive summary #${data.summary_id}, ${periodLabel(env, found)}, written ${data.created_at} UTC: ${data.doc_url}`];
+  lines.push(data.call ? `The client call was recorded ${data.call.recorded_at} UTC${data.call.notes ? `: ${data.call.notes}` : "."}` : "No client call is recorded for it yet.");
+  for (const kind of ["COMPLETED", "ACTIVE", "ADDED"]) {
+    const these = data.items.filter((item) => item.kind === kind);
+    if (!these.length) continue;
+    lines.push("", `${{ COMPLETED: "Completed", ACTIVE: "Not done", ADDED: "Added in the call" }[kind]} (${these.length}):`);
+    for (const item of these) {
+      const told = item.change === "pending" || item.change === "unchanged" || !item.task_id ? "" : item.informed_at ? `, thread told ${item.informed_at}` : ", thread not told yet";
+      lines.push(`- ${item.incident ? "[Incident] " : ""}${item.title}${item.task_id ? ` (${item.task_id})` : ""} — ${item.change}${told}\n    before: ${said(item.before)}${item.after ? `\n    after:  ${said(item.after)}` : ""}`);
+    }
+  }
+  if (earlier.length) lines.push("", `Earlier: ${earlier.map((other) => `#${other.summary_id} (${other.from} to ${other.to})`).join(", ")}.`);
+  return { text: lines.join("\n"), data: { project: group.name, summary: data, earlier } };
+}
+
+// A summary's section as it reads in the Google Doc now.
+async function getExecutiveSummaryDoc(env, user, { project, summary_id: id } = {}) {
+  const group = await readableProject(env, user, project);
+  docError(env, group);
+  const found = id === undefined ? await lastSummary(env, group.name) : await getSummary(env, Number.isInteger(id) ? id : 0);
+  if (!found || found.project !== group.name || !found.publishedAt) throw new ToolError(id === undefined ? `${group.name} has no executive summary yet. create_executive_summary writes one.` : `${group.name} has no summary #${id}. get_executive_summary lists them.`);
+  const lines = await readSummaryDoc(env, found);
+  if (!lines) throw new ToolError(`I couldn't find summary #${found.id} in its Google Doc any more. Was its heading deleted?`);
+  const text = [`Summary #${found.id} as it reads in the Google Doc now (${found.docUrl}). [new] marks a line people added:`, ...lines.map((line) => `${"  ".repeat(line.level)}${line.type === "heading" ? "# " : line.type === "item" ? "- " : ""}${line.text}${line.task_id ? ` (${line.task_id})` : ""}${line.written ? "" : "  [new]"}`)];
+  return { text: text.join("\n"), data: { project: group.name, summary_id: found.id, doc_url: found.docUrl, lines } };
+}
+
+// The health, progress and notes an agent gave a task, checked, with only what it gave.
+function choiceOf(item) {
+  if (item.health !== undefined && !HEALTH[item.health]) throw new ToolError(`health is one of ${Object.keys(HEALTH).join(", ")}.`);
+  return {
+    ...(item.included !== undefined && { included: Boolean(item.included) }),
+    ...(item.health !== undefined && { health: item.health }),
+    ...(item.progress !== undefined && { progress: String(item.progress).trim().slice(0, 200) }),
+    ...(item.notes !== undefined && { notes: String(item.notes).trim().slice(0, 1000) }),
+  };
+}
+
+// Writes an executive summary to the project's Google Doc, with what the person chose for each task.
+async function createExecutiveSummary(env, user, { project, from, to, items = [] } = {}) {
+  const group = await readableProject(env, user, project);
+  docError(env, group);
+  if (!Array.isArray(items)) throw new ToolError("items is a list of { task_id, included?, health?, progress?, notes? }.");
+  const base = await defaultPeriod(env, group);
+  const days = { from: from === undefined ? base.from : dayOf(from, "from"), to: to === undefined ? base.to : dayOf(to, "to") };
+  if (days.from > days.to) throw new ToolError(`The period starts ${days.from}, after it ends ${days.to}. Give from and to, YYYY-MM-DD, with from first.`);
+  const choices = items.map((item) => ({ ...taskRef(item), ...choiceOf(item) }));
+  const { url } = await callSlack(env, "auth.test", {});
+  let written;
+  try {
+    written = await writeSummary(env, group, { user, since: dayBoundary(env, days.from), until: dayBoundary(env, days.to, { end: true }), choices, url });
+  } catch (error) {
+    if (error instanceof SummaryError) throw new ToolError(error.message);
+    console.warn("Could not add the executive summary to the doc", { project: group.name, error: error.message });
+    throw new ToolError("I couldn't add the summary to the Google Doc just now. Try again.");
+  }
+  const carried = written.carried.map((entry) => `${entry.channel}:${entry.ts}`);
+  console.log("Executive summary written", { id: written.summary.id, project: group.name, user });
+  const text = [`Wrote summary #${written.summary.id} for ${days.from} to ${days.to} to ${group.name}'s Google Doc: ${written.address}`];
+  if (written.carried.length) text.push(`Not listed, so they kept what the last summary said: ${written.carried.map((entry) => entry.title).join("; ")}.`);
+  text.push("After the client call, read the doc back (get_executive_summary_doc) and compare it with get_executive_summary.");
+  return { text: text.join("\n"), data: { project: group.name, summary_id: written.summary.id, from: days.from, to: days.to, doc_url: written.address, carried_over: carried } };
+}
+
+// Records the summary as agreed in the client call, next to the one that was written.
+async function updateAfterCall(env, user, { summary_id: id, items = [], added = [], notes } = {}) {
+  const summary = Number.isInteger(id) ? await getSummary(env, id) : null;
+  if (!summary || !summary.publishedAt) throw new ToolError("There is no such summary. get_executive_summary lists them.");
+  const group = projects(env).find((pair) => pair.name === summary.project);
+  if (!group || (await readableName(env, group.channel, user)) === null) throw new ToolError("You can't read that summary's project.");
+  if (!Array.isArray(items) || !Array.isArray(added)) throw new ToolError("items and added are lists.");
+
+  const { before } = await summaryItems(env, id);
+  const overrides = new Map(items.map((item) => {
+    const { channel, ts } = taskRef(item);
+    if (!before.some((was) => was.channel === channel && was.ts === ts)) throw new ToolError(`${item.task_id} isn't in summary #${id}. Something the call added goes in added.`);
+    return [`${channel}:${ts}`, choiceOf(item)];
+  }));
+  const after = before.map((was) => ({ ...was, ...overrides.get(`${was.channel}:${was.ts}`), informedAt: undefined, informedBy: undefined }));
+  for (const item of added) {
+    const title = String(item.title ?? "").trim().slice(0, 200);
+    if (!title) throw new ToolError("Each item in added needs a title.");
+    let task = {};
+    if (item.task_id !== undefined) {
+      const { channel, ts } = taskRef(item);
+      const found = channel === group.channel ? await loadTask(env, channel, ts) : null;
+      if (!found) throw new ToolError(`${item.task_id} isn't a ${group.name} task. create_task makes one.`);
+      if (before.some((was) => was.channel === channel && was.ts === ts)) throw new ToolError(`${item.task_id} is in the summary already; change it in items.`);
+      task = { channel, ts, status: found.status, incident: Boolean(found.incident) };
+    }
+    after.push({ kind: "ADDED", title, included: true, health: "ON_TRACK", progress: "", notes: "", ...task, ...choiceOf(item) });
+  }
+  await putSummaryAfter(env, id, after, { notes: String(notes ?? "").trim().slice(0, 2000), user });
+
+  const rows = compareVersions(await summaryItems(env, id));
+  const changed = rows.filter((row) => ["changed", "removed"].includes(row.change)).map(taskIdOf).filter(Boolean);
+  const addedCount = rows.filter((row) => row.change === "added").length;
+  console.log("Executive summary call recorded", { id, project: group.name, user, changed: changed.length, added: addedCount });
+  const text = `Recorded the call for summary #${id}: ${changed.length} task${changed.length === 1 ? "" : "s"} changed or taken out, ${addedCount} added. get_executive_summary shows both versions and which threads still need telling.`;
+  return { text, data: { summary_id: id, changed, added: addedCount } };
 }
 
 // Saves the summary on the task's notes page, and returns what to tell the person.

@@ -1,8 +1,8 @@
 # Google Docs
 
-Each group can have its own **Google Doc**, where `/cade brief` writes its
-executive summaries to go through with the client and `/cade debrief` reads
-back what was added. A free Google account is enough. Everything else
+Each group can have its own **Google Doc**, where your agent's
+`create_executive_summary` MCP tool writes its executive summaries to go through with the client and
+`get_executive_summary_doc` reads back what was added. A free Google account is enough. Everything else
 (tasks, threads and notes) is kept in Cade's database, not in Google.
 
 The Worker reaches the docs through one Apps Script web app, this folder:
@@ -20,7 +20,7 @@ npm run group -- --name acme --workDoc new
 summaries"); `none` unlinks. It's saved on the group in `cade.config.json` as
 `workDoc`, and uploaded. A project added with `/cade project init` gets its Doc made for it (kept in
 Cade's database, not in the file); nothing else makes one. A project without a Doc
-can't use `/cade brief` or `/cade debrief`, which say so. Without the Google web app,
+can't use `create_executive_summary` or `get_executive_summary_doc`, which say so. Without the Google web app,
 none is made and they say it isn't set up. Share the doc as **Editor**
 with whoever goes through the summaries.
 
@@ -36,14 +36,14 @@ it.
 
 During the call, add to the section:
 
-- **A bullet of its own, with no link**: a new task in the dev channel.
-  Bullets under it are its details, which become its thread's first message.
-- **Bullets (or lines) under a linked one**: points for that task's thread.
+- **A bullet of its own, with no link**: something new, such as a task to make.
+- **Bullets (or lines) under a linked one**: points for that task.
+- **Changing or removing a line Cade wrote**: the client wants it changed or left out.
 
-`/cade debrief` suggests each, one at a time. Leave the section's heading as
-it is: it's how Cade finds the section again (through a named range).
-Editing or removing what Cade wrote is fine, but it isn't read back. Only
-what's new is.
+Afterwards your agent reads the whole section (`get_executive_summary_doc`, which marks the lines people added),
+compares it with the summary Cade saved (`get_executive_summary`), and goes through the differences with you.
+What the call decided is recorded next to the summary as written, so both versions are kept. Leave the
+section's heading as it is: it's how Cade finds the section again (through a named range).
 
 ## Setup
 

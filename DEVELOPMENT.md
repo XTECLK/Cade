@@ -27,7 +27,7 @@ npm run setup       # Cloudflare login, the Worker, the Slack app, your first gr
 
 `npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and sets up a first group (a dev channel)
 in your workspace. Name the Worker something of your own (such as `cade-dev`) when it asks. The Google Doc step is optional; skip
-it unless you're working on `/cade brief`. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
+it unless you're working on the brief tools. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
 ### 3. Change, deploy, try
@@ -177,7 +177,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`, `brief`, `debrief` |
+| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry` |
 | `src/db.js` | Reading and writing tasks in D1 |
 | `src/retry.js` | The cron's job: posting tasks Slack refused |
 | `src/tasks.js` | The task message: layout, saving, pins |

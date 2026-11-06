@@ -22,7 +22,7 @@
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required
 //   workDoc       the project's Google Doc, for executive summaries (an
-//                 address; without it `/cade brief` can't be used)
+//                 address; without it create_executive_summary can't be used)
 //   taskStatusChangeDetection
 //                 the proactive agent: Cade reading messages in the threads
 //                 it manages and offering changes (optional, on): true, or

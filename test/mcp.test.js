@@ -155,10 +155,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -713,7 +713,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_task_message", "update_release", "create_task"].includes(def.name);
+    const writes = ["update_task", "send_task_message", "update_release", "create_task", "create_executive_summary", "update_executive_summary_after_call"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -1094,4 +1094,130 @@ test("get_availability gives one person's workload and status", async (t) => {
   assert.match(ann.text, /^Ann \(UANN\)/);
   assert.match((await tool(url, "get_availability", { user_id: "UNOBODY" })).text, /no active person UNOBODY/);
   assert.match((await tool(url, "get_availability", {})).text, /user_id is a Slack user ID/);
+});
+
+test("get_user gives a person's email, phone and title only when asked", async (t) => {
+  mock(t, { "users.info": { user: { real_name: "Bob Jones", profile: { display_name: "bobby", email: "bob@example.com", phone: "+94 77 123 4567", title: "Developer" } } } });
+  const url = addressIn(await slash("mcp init"));
+  const plain = await tool(url, "get_user", { user_id: "UBOB" });
+  assert.equal(plain.data.profile, null);
+  assert.ok(!plain.text.includes("example.com") && !plain.text.includes("4567"));
+  const full = await tool(url, "get_user", { user_id: "UBOB", profile: true });
+  assert.deepEqual(full.data.profile, { email: "bob@example.com", phone: "+94 77 123 4567", title: "Developer" });
+  assert.match(full.text, /Phone: \+94 77 123 4567/);
+});
+
+// The acme project with a Google Doc, to write briefs in.
+const DOC_ID = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
+const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
+const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
+
+test("executive summaries: written to the doc, compared before and after the client call, and each thread told once", async (t) => {
+  env.PROJECTS = [{ name: "acme", tasks: "CDEV", workDoc: DOC_ID }, { name: "bare", tasks: "CBARE" }];
+  t.after(() => delete env.PROJECTS);
+  await putTask(env, "CDEV", "100.1", stored({ title: "Export reports", status: "DONE", completedAt: daysAgo(2) }));
+  await putTask(env, "CDEV", "100.2", stored({ title: "Old work", status: "DONE", completedAt: daysAgo(30) }));
+  await putTask(env, "CDEV", "100.3", stored({ title: "Upgrade Node", priority: "Medium", status: "IN_REVIEW" }));
+  await putTask(env, "CDEV", "100.4", stored({ title: "Checkout is down", priority: "Urgent", incident: true, dueDate: "Immediate" }));
+  await putTask(env, "CDEV", "100.5", stored({ title: "Invoice export", priority: "Low" }));
+  const link = "https://acme.slack.com/archives/CDEV/p1003?thread_ts=100.3&cid=CDEV";
+  let elements = [];
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" } }, (body) => ({ ok: true, url: DOC_TAB, ...(body.action === "doc.read" && { elements }) }));
+  const url = addressIn(await slash("mcp init"));
+
+  // get_tasks finds what was closed in a period, with when.
+  const closed = await tool(url, "get_tasks", { project: "acme", completed_from: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), fields: ["title", "completed_at"] });
+  assert.deepEqual(closed.data.tasks.map((task) => task.title), ["Export reports"]);
+  assert.match(closed.data.tasks[0].completed_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.match((await tool(url, "get_tasks", { completed_from: "soon" })).text, /completed_from is a day written YYYY-MM-DD/);
+
+  // No summary yet.
+  assert.match((await tool(url, "get_executive_summary", { project: "acme" })).text, /no executive summary yet/);
+  assert.match((await tool(url, "get_executive_summary", { project: "nope" })).text, /no project called "nope"/);
+  assert.match((await tool(url, "create_executive_summary", { project: "bare" })).text, /no Google Doc yet/);
+  assert.match((await tool(url, "create_executive_summary", { project: "acme", items: [{ task_id: "CDEV:999.9" }] })).text, /isn't one of acme's tasks/);
+  assert.match((await tool(url, "create_executive_summary", { project: "acme", items: [{ task_id: "CDEV:100.3", health: "FINE" }] })).text, /health is one of/);
+  assert.equal(calls.filter((call) => call.method === "google:doc.write").length, 0);
+
+  // Writing one: the first period is the past week, closed tasks included.
+  const made = await tool(url, "create_executive_summary", { project: "acme", items: [{ task_id: "CDEV:100.3", health: "AT_RISK", progress: "3/5", notes: "Waiting on QA" }, { task_id: "CDEV:100.1", included: false }] });
+  assert.equal(made.isError, false, made.text);
+  assert.deepEqual(made.data.carried_over.sort(), ["CDEV:100.4", "CDEV:100.5"]);
+  const written = calls.filter((call) => call.method === "google:doc.write");
+  assert.equal(written.length, 1);
+  assert.match(written[0].args.key, /^summary:\d+$/);
+  const texts = written[0].args.blocks.map((block) => block.text ?? block.parts.map((part) => part.text).join(""));
+  assert.ok(texts.some((text) => text.includes("Upgrade Node") && text.includes("3/5")));
+  assert.ok(!texts.some((text) => text.includes("Export reports")), "left out");
+
+  // Read back: every task as written, with no call recorded yet.
+  const first = await tool(url, "get_executive_summary", { project: "acme" });
+  const id = first.data.summary.summary_id;
+  assert.equal(first.data.summary.doc_url, DOC_TAB);
+  assert.equal(first.data.summary.call, null);
+  const item = (data, title) => data.summary.items.find((entry) => entry.title === title);
+  assert.deepEqual(item(first.data, "Upgrade Node").before, { included: true, health: "AT_RISK", progress: "3/5", notes: "Waiting on QA" });
+  assert.equal(item(first.data, "Upgrade Node").after, null);
+  assert.equal(item(first.data, "Upgrade Node").change, "pending");
+  assert.equal(item(first.data, "Export reports").kind, "COMPLETED");
+  assert.equal(item(first.data, "Export reports").before.included, false);
+  assert.equal((await tool(url, "get_executive_summary", { project: "acme", date: "2000-01-01" })).data.summary, null);
+
+  // The doc after the call, as people edited it: lines Cade wrote are told apart from the rest.
+  elements = [
+    { type: "item", level: 0, text: "Upgrade Node  ·  In review  ·  3/5", links: [link] },
+    { type: "item", level: 1, text: "Waiting on QA" },
+    { type: "item", level: 1, text: "Client wants it by Friday" },
+    { type: "item", level: 0, text: "Add SSO" },
+  ];
+  const doc = await tool(url, "get_executive_summary_doc", { project: "acme" });
+  assert.equal(doc.data.summary_id, id);
+  assert.deepEqual(doc.data.lines.filter((line) => !line.written).map((line) => line.text), ["Client wants it by Friday", "Add SSO"]);
+  assert.equal(doc.data.lines[0].task_id, "CDEV:100.3");
+
+  // Recording the call: a change, something taken out, something added.
+  assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: id, items: [{ task_id: "CDEV:999.9" }] })).text, /isn't in summary/);
+  assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: 9999 })).text, /no such summary/);
+  const call = { summary_id: id, notes: "Client call", items: [{ task_id: "CDEV:100.3", health: "DELAYED", notes: "Waiting on QA\nClient wants it by Friday" }, { task_id: "CDEV:100.5", included: false }], added: [{ title: "Add SSO", notes: "Client request" }] };
+  const recorded = await tool(url, "update_executive_summary_after_call", call);
+  assert.equal(recorded.isError, false, recorded.text);
+  assert.deepEqual(recorded.data.changed.sort(), ["CDEV:100.3", "CDEV:100.5"]);
+  assert.equal(recorded.data.added, 1);
+  const compared = await tool(url, "get_executive_summary", { project: "acme" });
+  assert.equal(compared.data.summary.call.notes, "Client call");
+  assert.equal(item(compared.data, "Upgrade Node").change, "changed");
+  assert.equal(item(compared.data, "Upgrade Node").before.health, "AT_RISK");
+  assert.equal(item(compared.data, "Upgrade Node").after.health, "DELAYED");
+  assert.equal(item(compared.data, "Invoice export").change, "removed");
+  assert.equal(item(compared.data, "Checkout is down").change, "unchanged");
+  assert.deepEqual([item(compared.data, "Add SSO").change, item(compared.data, "Add SSO").before, item(compared.data, "Add SSO").kind], ["added", null, "ADDED"]);
+
+  // Telling a thread marks it, and it is told once.
+  const told = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", executive_summary_id: id });
+  assert.equal(told.isError, false, told.text);
+  assert.match(told.text, /Marked as told for summary/);
+  assert.match(item(await tool(url, "get_executive_summary", { project: "acme" }).then((r) => r.data), "Upgrade Node").informed_at, /^\d{4}-/);
+  const again = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", executive_summary_id: id });
+  assert.equal(again.isError, true);
+  assert.match(again.text, /already told/);
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
+  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:100.4", text: "x", executive_summary_id: id })).text, /already told|no after-call entry|Posted/);
+  // Without the summary it posts as always.
+  assert.equal((await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "A normal message." })).isError, false);
+
+  // Recording the call again keeps the told mark for what didn't change, and clears it for what did.
+  await tool(url, "update_executive_summary_after_call", call);
+  assert.match(item((await tool(url, "get_executive_summary", { project: "acme" })).data, "Upgrade Node").informed_at, /^\d{4}-/);
+  await tool(url, "update_executive_summary_after_call", { ...call, items: [{ task_id: "CDEV:100.3", health: "BLOCKED" }, call.items[1]] });
+  assert.equal(item((await tool(url, "get_executive_summary", { project: "acme" })).data, "Upgrade Node").informed_at, "");
+
+  // The next summary starts after this one's period, from the agreed version.
+  const next = await tool(url, "create_executive_summary", { project: "acme", items: [] });
+  assert.equal(next.isError, false, next.text);
+  const second = (await tool(url, "get_executive_summary", { project: "acme" })).data;
+  assert.equal(second.summary.from, second.summary.to);
+  assert.equal(second.earlier[0].summary_id, id);
+  assert.equal(item(second, "Upgrade Node").before.health, "BLOCKED");
+  // The last recording replaced the earlier one, so only what it said is carried over.
+  assert.equal(item(second, "Upgrade Node").before.notes, "Waiting on QA");
 });

@@ -14,7 +14,7 @@ import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEF
 import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn } from "./slack.js";
 import { nameMap } from "./export.js";
 import { INSTRUCTIONS } from "./guardrails.js";
-import { SERVER_DESCRIPTION } from "./mcp-about.js";
+import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.js";
 import { releaseRequest } from "./commands/release.js";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.js";
 
@@ -95,8 +95,22 @@ function apiKeyOf(request) {
 
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall };
+const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
+
+// The version of the tool set: a short hash of everything a client loads when it connects, so it changes
+// with any change to a tool, its description, the instructions or the summary, and can't be forgotten.
+function hashOf(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return hash.toString(16).padStart(8, "0");
+}
+export const TOOLSET_VERSION = hashOf(JSON.stringify([TOOL_DEFS, INSTRUCTIONS, SERVER_DESCRIPTION]));
+
+// A session ID holds the tool set the session loaded (the client sends it back on every request), so the
+// server, which keeps nothing, can tell a session that is out of date.
+const sessionIdFor = () => `cade-${TOOLSET_VERSION}-${crypto.randomUUID()}`;
+const loadedVersionOf = (request) => /^cade-([0-9a-f]{8})-/.exec(request.headers.get("mcp-session-id") ?? "")?.[1] ?? "";
 
 // Thrown by a tool for what the agent should be told, as a result it can
 // read and act on, rather than a failure of the call.
@@ -119,6 +133,7 @@ export async function handleMcp(request, env) {
     "access-control-allow-origin": "*",
     "access-control-allow-headers": "content-type, accept, mcp-protocol-version, mcp-session-id, x-apikey",
     "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-expose-headers": "mcp-session-id",
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   // There is no stream to open, as MCP lets a server say.
@@ -135,16 +150,20 @@ export async function handleMcp(request, env) {
     return Response.json(failure(null, -32700, "Parse error"), { status: 400, headers });
   }
   const batch = Array.isArray(body);
-  const answers = (await Promise.all((batch ? body : [body]).map((message) => answer(env, user, message)))).filter(Boolean);
+  const messages = batch ? body : [body];
+  const loaded = loadedVersionOf(request);
+  const answers = (await Promise.all(messages.map((message) => answer(env, user, message, loaded)))).filter(Boolean);
   // Notifications and answers to us need none.
   if (!answers.length) return new Response(null, { status: 202, headers });
-  return Response.json(batch ? answers : answers[0], { headers });
+  // A session that connects is given an ID that names the tool set it loads.
+  const connecting = messages.some((message) => message?.method === "initialize");
+  return Response.json(batch ? answers : answers[0], { headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor() }) } });
 }
 
 const success = (id, result) => ({ jsonrpc: "2.0", id, result });
 const failure = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function answer(env, user, message) {
+async function answer(env, user, message, loaded) {
   if (!message || typeof message !== "object" || message.jsonrpc !== "2.0") return failure(null, -32600, "Invalid request");
   // No id: a notification, or an answer to a request of ours (there are none).
   if (message.id === undefined || message.id === null) return null;
@@ -154,7 +173,7 @@ async function answer(env, user, message) {
       return success(id, {
         protocolVersion: PROTOCOLS.includes(params?.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
         capabilities: { tools: {} },
-        serverInfo: { name: "cade", title: "Cade", version: "1.0.0", description: SERVER_DESCRIPTION },
+        serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${TOOLSET_VERSION}`, description: SERVER_DESCRIPTION },
         instructions: INSTRUCTIONS,
       });
     case "ping":
@@ -162,19 +181,27 @@ async function answer(env, user, message) {
     case "tools/list":
       return success(id, { tools: TOOLS.map(({ run, ...tool }) => tool) });
     case "tools/call":
-      return callTool(env, user, id, params);
+      return callTool(env, user, id, params, loaded);
     default:
       return failure(id, -32601, `Method not found: ${method}`);
   }
 }
 
-async function callTool(env, user, id, params) {
+// Said at the end of a tool's text while the session has an older tool set than the server (get_server_info
+// says it on its own).
+const staleNotice = (loaded) =>
+  loaded && loaded !== TOOLSET_VERSION
+    ? `\n\nCade's tools were updated after this session started (it loaded ${loaded}, the server has ${TOOLSET_VERSION}). Tell the person to disconnect and connect Cade again to load them.`
+    : "";
+
+async function callTool(env, user, id, params, loaded) {
   const tool = TOOLS.find((candidate) => candidate.name === params?.name);
   if (!tool) return failure(id, -32602, `Unknown tool: ${params?.name}`);
-  const reply = (text, isError, data) => success(id, { content: [{ type: "text", text }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
+  const notice = tool.name === "get_server_info" ? "" : staleNotice(loaded);
+  const reply = (text, isError, data) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
   try {
     // A tool gives its text, or { text, data } to pass on its data as well.
-    const result = await tool.run(env, user, params.arguments ?? {});
+    const result = await tool.run(env, user, params.arguments ?? {}, { loaded });
     if (typeof result === "string") return reply(result);
     // A result that holds user IDs carries the names of those people too, so no lookup is needed to show them.
     const named = tool.outputSchema?.properties?.user_names ? await withUserNames(env, result) : result;
@@ -216,6 +243,16 @@ async function withUserNames(env, result) {
     return user_names[id] ? `${mention ? "@" : ""}${user_names[id]} (${id})` : all;
   });
   return { text, data: { ...result.data, user_names } };
+}
+
+// Which version of the tool set this session loaded, against the one the server has now.
+async function getServerInfo(env, user, args, { loaded = "" } = {}) {
+  const status = !loaded ? "UNKNOWN" : loaded === TOOLSET_VERSION ? "CURRENT" : "OUTDATED";
+  const text = [`Cade ${SERVER_VERSION}, tool set ${TOOLSET_VERSION}.`];
+  if (status === "CURRENT") text.push("This session has the latest tools.");
+  else if (status === "OUTDATED") text.push(`This session loaded tool set ${loaded}, so it doesn't have the latest tools. Tell the person to disconnect and connect Cade again to load them.`);
+  else text.push("This client doesn't say which tool set it loaded, so I can't tell if it is the latest. Disconnecting and connecting Cade again loads the latest.");
+  return { text: text.join(" "), data: { server_version: SERVER_VERSION, toolset_version: TOOLSET_VERSION, session_toolset_version: loaded, status } };
 }
 
 // The channel and the ts of the thread a link points to (a link to a reply

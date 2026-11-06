@@ -663,6 +663,26 @@
   </div>
 </section>
 
+<section class="tool" id="get_server_info">
+  <div class="wrap">
+    <h2><code>get_server_info</code></h2>
+    <p>Gives the version of Cade's tool set the server has now and the one this session loaded, and says whether the person should disconnect and connect Cade again to load the new tools.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <p class="none">None.</p>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>server_version</code></td><td>string</td><td>yes</td><td>Cade's version</td></tr>
+<tr><td><code>toolset_version</code></td><td>string</td><td>yes</td><td>The version of the tool set the server has now: it changes whenever a tool, a description or the instructions change</td></tr>
+<tr><td><code>session_toolset_version</code></td><td>string</td><td>yes</td><td>The version of the tool set this session loaded when it connected, or empty if the client doesn't say</td></tr>
+<tr><td><code>status</code></td><td>string: CURRENT | OUTDATED | UNKNOWN</td><td>yes</td><td>CURRENT: this session has the latest tools; OUTDATED: the person should disconnect and connect again; UNKNOWN: the client doesn't say which it loaded</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
 <section class="tool" id="get_executive_summary">
   <div class="wrap">
     <h2><code>get_executive_summary</code></h2>

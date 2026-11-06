@@ -36,6 +36,7 @@ export const GUARDRAILS = [
       `Base every change and claim on what the threads and tasks show, and name the evidence; leave a field alone when nothing supports a change, say when you are unsure, and never present a guess as fact.`,
       `Call each write once, then tell the person what it did and give the link.`,
       `If a tool refuses or fails, tell the person what happened; don't work around it, and don't say it worked.`,
+      `If a result says Cade's tools were updated, tell the person to disconnect and connect Cade again to load them.`,
     ],
   },
   {

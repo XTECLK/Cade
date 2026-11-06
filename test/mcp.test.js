@@ -70,9 +70,9 @@ const addressIn = (reply) => /\*API key\*[^\n]*\n```([\w-]{43})```/.exec(reply.t
 const ENDPOINT = `${ORIGIN}/mcp`;
 
 // One JSON-RPC message to the endpoint with an API key (in the x-apikey header, if given); returns the Response.
-const rpc = (key, message, method = "POST", path = "/mcp") =>
+const rpc = (key, message, method = "POST", path = "/mcp", more = {}) =>
   worker.fetch(
-    new Request(`${ORIGIN}${path}`, { method, headers: { "content-type": "application/json", ...(key && { "x-apikey": key }) }, body: method === "POST" ? JSON.stringify({ jsonrpc: "2.0", ...message }) : undefined }),
+    new Request(`${ORIGIN}${path}`, { method, headers: { "content-type": "application/json", ...(key && { "x-apikey": key }), ...more }, body: method === "POST" ? JSON.stringify({ jsonrpc: "2.0", ...message }) : undefined }),
     env,
     { waitUntil() {} },
   );
@@ -162,10 +162,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
 });
@@ -1392,4 +1392,40 @@ test("a kept name is asked about again after a month, and kept if the person has
   // The one that has left keeps its name, and is not asked about again for another month.
   await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["owner"] });
   assert.deepEqual(asked(), ["UGONE1234", "UOLD12345"], "nobody was asked about a second time");
+});
+
+test("a session is given the version of the tool set it loads, and told when the server has a newer one", async (t) => {
+  mock(t, { "conversations.info": { channel: { name: "dev" } } });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const { TOOLSET_VERSION } = await import("../src/mcp.js");
+  assert.match(TOOLSET_VERSION, /^[0-9a-f]{8}$/);
+
+  // Connecting gives a session ID that names the tool set, and the version is in serverInfo.
+  const connected = await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } });
+  const session = connected.headers.get("mcp-session-id");
+  assert.match(session, new RegExp(`^cade-${TOOLSET_VERSION}-[0-9a-f-]{36}$`));
+  assert.equal((await connected.json()).result.serverInfo.version, `1.0.0+${TOOLSET_VERSION}`);
+  assert.equal((await rpc(url, { id: 2, method: "ping" })).headers.get("mcp-session-id"), null, "only a connection is given one");
+
+  const call = async (name, args, headers) => (await (await rpc(url, { id: 3, method: "tools/call", params: { name, arguments: args } }, "POST", "/mcp", headers)).json()).result;
+  const info = async (headers) => call("get_server_info", {}, headers);
+
+  // A session on the latest tools, one on an older set, and one that doesn't say.
+  const current = await info({ "mcp-session-id": session });
+  assert.deepEqual(current.structuredContent, { server_version: "1.0.0", toolset_version: TOOLSET_VERSION, session_toolset_version: TOOLSET_VERSION, status: "CURRENT" });
+  assert.match(current.content[0].text, /has the latest tools/);
+  const old = await info({ "mcp-session-id": "cade-00000000-1234" });
+  assert.deepEqual([old.structuredContent.session_toolset_version, old.structuredContent.status], ["00000000", "OUTDATED"]);
+  assert.match(old.content[0].text, /disconnect and connect Cade again/);
+  const unsaid = await info({});
+  assert.deepEqual([unsaid.structuredContent.session_toolset_version, unsaid.structuredContent.status], ["", "UNKNOWN"]);
+
+  // Any other tool says so too, in its text, while the session is out of date; its data is unchanged.
+  const stale = await call("get_projects", {}, { "mcp-session-id": "cade-00000000-1234" });
+  assert.match(stale.content[0].text, /Cade's tools were updated after this session started \(it loaded 00000000, the server has [0-9a-f]{8}\)\. Tell the person to disconnect and connect Cade again/);
+  assert.deepEqual(check(TOOL_DEFS.find((def) => def.name === "get_projects").outputSchema, stale.structuredContent), []);
+  assert.doesNotMatch((await call("get_projects", {}, { "mcp-session-id": session })).content[0].text, /tools were updated/);
+  assert.doesNotMatch((await call("get_projects", {}, {})).content[0].text, /tools were updated/);
+  // A session ID that isn't Cade's is no sign of anything.
+  assert.doesNotMatch((await call("get_projects", {}, { "mcp-session-id": "abc" })).content[0].text, /tools were updated/);
 });

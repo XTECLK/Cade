@@ -12,3 +12,8 @@ export const ABOUT = [
 
 // What the client is sent.
 export const SERVER_DESCRIPTION = ABOUT.join(" ");
+
+// The version of the server, for a client to show (serverInfo.version). The version of the tool set,
+// which changes with any change to the tools, their descriptions, the instructions or this summary,
+// is worked out from them in mcp.js, so it can't be forgotten.
+export const SERVER_VERSION = "1.0.0";

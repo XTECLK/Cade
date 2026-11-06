@@ -57,6 +57,9 @@ const RELEASE_STATUS_FILTER = [...RELEASE_STATUSES, "all"];
 const SENT_RELEASE_STATUSES = ["PENDING_APPROVAL", "APPROVED"]; // NOT_APPROVED ones are not kept
 const PR_STATES = ["PENDING", "PENDING_APPROVAL", "APPROVED"];
 
+// Whether a session has the latest tool set.
+const SESSION_STATUSES = ["CURRENT", "OUTDATED", "UNKNOWN"];
+
 // Where a task came from, and who is around.
 const ORIGINAL_THREAD_STATES = ["found", "none", "unknown"];
 const PRESENCES = ["active", "away", "unknown"];
@@ -703,6 +706,20 @@ export const TOOL_DEFS = [
             changed: bool("Whether a field changed (and was posted in the thread)"),
             summary_saved: bool("Whether the summary was saved on the notes page"),
             notes_link: str("A link to the notes page, or empty"),
+        }),
+    },
+    {
+        name: "get_server_info",
+        title: "Get the version of the tools",
+        annotations: READS,
+        description:
+            "Gives the version of Cade's tool set the server has now and the one this session loaded, and says whether the person should disconnect and connect Cade again to load the new tools.",
+        inputSchema: {type: "object", properties: {}},
+        outputSchema: outputOf({
+            server_version: str("Cade's version"),
+            toolset_version: str("The version of the tool set the server has now: it changes whenever a tool, a description or the instructions change"),
+            session_toolset_version: str("The version of the tool set this session loaded when it connected, or empty if the client doesn't say"),
+            status: choice("CURRENT: this session has the latest tools; OUTDATED: the person should disconnect and connect again; UNKNOWN: the client doesn't say which it loaded", SESSION_STATUSES),
         }),
     },
     {

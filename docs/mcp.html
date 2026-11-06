@@ -663,6 +663,32 @@
   </div>
 </section>
 
+<section class="tool" id="send_approval_request">
+  <div class="wrap">
+    <h2><code>send_approval_request</code></h2>
+    <p>Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Call this only with an approver the person has chosen and approved. Each call posts a new request.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>approver</code></td><td>string</td><td>yes</td><td>Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>approver</code></td><td>string</td><td>yes</td><td>Who was asked: a Slack user ID, show the name, not the ID</td></tr>
+<tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the task's thread, or empty</td></tr>
+<tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
 <section class="tool" id="get_server_info">
   <div class="wrap">
     <h2><code>get_server_info</code></h2>

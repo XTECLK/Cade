@@ -17,8 +17,9 @@ import { PRIORITIES, STATUSES, prLink, unsentPrs } from "./tasks.js";
 // own, as that message was one.
 //
 // People are only asked when there's something for them to do now (see
-// onTheirPlate): reviewers when there are PRs to review, testers when the
-// task is In testing, owners until it's Done. Those removed are only
+// onTheirPlate): owners while the task is To do or In progress, reviewers
+// while it is In review, testers while it is In testing. Someone assigned
+// earlier is asked when the task reaches their stage. Those removed are only
 // told when they would have been asked.
 //
 // Every flow and the messages it posts are on the website's
@@ -109,9 +110,10 @@ export function changeLog({ user, told, people, prs, priority, dueDate, status, 
 // What the change means for people, a note for each person, not for each
 // field: a person asked to do several things is asked once, "pick this up
 // and review web/12", and people asked the same share a note. They are:
-//   - asked: reviewers kept, about pull requests added; people added to a
-//     role, when there's something for them to do now (see onTheirPlate);
-//     testers, when the task reached In testing;
+//   - asked: reviewers, and testers, when the task reached their stage (In
+//     review, In testing), those just added too; reviewers kept, about pull
+//     requests added, while it is In review; people added to a role, when
+//     there's something for them to do now (see onTheirPlate);
 //   - told they needn't, when removed from a role they'd been asked to do,
 //     by the task as it was before the change.
 // Never `user`, who made the change, nor anyone `told` already.
@@ -123,13 +125,17 @@ export function changeRequests({ user, told, task, people, prs, status }) {
       if (!mine.some((one) => one.role === role)) asks.set(id, [...mine, { role, prs: forPrs }]);
     }
   };
+  // Someone assigned earlier is asked when the task reaches their stage, those just added too: all of
+  // the reviewers about the PRs pending, all of the testers.
+  const reviewing = onTheirPlate(task, "reviewer");
+  if (status?.to === "IN_REVIEW" && reviewing) ask(task.people.reviewer, "reviewer", reviewing);
+  // Reviewers kept are asked about the PRs just linked, while it is In review (else when it gets there).
   const reviewersAdded = people.find(({ role }) => role === "reviewer")?.added ?? [];
-  if (prs?.added.length) ask(task.people.reviewer.filter((id) => !reviewersAdded.includes(id)), "reviewer", prs.added);
+  if (prs?.added.length && onTheirPlate(task, "reviewer")) ask(task.people.reviewer.filter((id) => !reviewersAdded.includes(id)), "reviewer", prs.added);
   for (const { role, added } of people) {
     const due = onTheirPlate(task, role);
     if (due) ask(added, role, due);
   }
-  // All of the testers, those just added too.
   if (status?.to === "IN_TESTING") ask(task.people.tester, "tester");
 
   const before = {
@@ -169,21 +175,26 @@ export function changeMessage(change) {
 
 // ---- Requests ----
 
-// What `role` has to do on `task` now, as the PRs for reviewers, or null
-// when there's nothing: reviewers review the PRs not yet sent for approval,
-// testers test it once it's In testing, and owners work on it until
-// it's Done.
-function onTheirPlate(task, role) {
-  if (task.status === "DONE") return null;
-  if (role === "reviewer") return unsentPrs(task).length ? unsentPrs(task) : null;
-  if (role === "tester") return task.status === "IN_TESTING" ? [] : null;
-  return [];
+// The status a role's part is done in: owners work on a task while it is To do or In
+// progress, reviewers review it while it is In review, testers test it while it is
+// In testing. Before and after, there's nothing for them to do.
+const STAGE = { owner: ["TODO", "IN_PROGRESS"], reviewer: ["IN_REVIEW"], tester: ["IN_TESTING"] };
+
+// What `role` has to do on `task` now: null when there's nothing, else the PRs a reviewer
+// reviews (those not yet sent for approval; none listed when the task has no PRs at all), or
+// an empty list for the other roles. Once every PR is sent for approval there's nothing left
+// to review.
+export function onTheirPlate(task, role) {
+  if (!STAGE[role]?.includes(task.status)) return null;
+  if (role !== "reviewer") return [];
+  const pending = unsentPrs(task);
+  return task.prs.length && !pending.length ? null : pending;
 }
 
 // What each role is asked to do; reviewers are asked about pull requests.
 const ASKS = {
   owner: () => "pick this up",
-  reviewer: (prs) => `review ${prs.map(prLink).join(", ")}`,
+  reviewer: (prs) => (prs.length ? `review ${prs.map(prLink).join(", ")}` : "review this"),
   tester: () => "give this a test",
 };
 

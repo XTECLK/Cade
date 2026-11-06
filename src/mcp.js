@@ -13,6 +13,7 @@ import { syncNotes } from "./notes.js";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
 import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn } from "./slack.js";
 import { nameMap } from "./export.js";
+import { requestApproval } from "./commands/status.js";
 import { INSTRUCTIONS } from "./guardrails.js";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.js";
 import { releaseRequest } from "./commands/release.js";
@@ -95,7 +96,7 @@ function apiKeyOf(request) {
 
 
 // Each tool's definition is in mcp-tools.js; this adds the function that runs it.
-const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo };
+const RUNNERS = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
 const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
 
 // The version of the tool set: a short hash of everything a client loads when it connects, so it changes
@@ -243,6 +244,24 @@ async function withUserNames(env, result) {
     return user_names[id] ? `${mention ? "@" : ""}${user_names[id]} (${id})` : all;
   });
   return { text, data: { ...result.data, user_names } };
+}
+
+// Asks a person to approve a task in Client review, in its thread, with Approve and Not approve buttons only they can click.
+async function requestApprovalTool(env, user, args) {
+  const { channel, ts } = taskRef(args);
+  const task = await loadTask(env, channel, ts);
+  if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
+  const [approver] = userIds("approver", [args.approver]);
+  await requireActiveUsers(env, [approver]);
+  if (task.status !== "CLIENT_REVIEW") throw new ToolError(`This task is ${statusName(task.status)}, so there's nothing to approve. Move it to Client review with update_task first.`);
+  const problem = await requestApproval(env, channel, ts, approver, user);
+  if (problem) throw new ToolError(problem);
+  console.log("Approval requested by MCP", { channel, ts, by: user, approver });
+  return {
+    text: `Asked <@${approver}> to approve it, in the task's thread. Approving moves the task to Done; not approving sends it back to In progress.${task.link ? ` ${task.link}` : ""}`,
+    data: { task_id: `${channel}:${ts}`, approver, link: task.link ?? "" },
+  };
 }
 
 // Which version of the tool set this session loaded, against the one the server has now.
@@ -1232,8 +1251,10 @@ async function updateTask(env, user, args) {
   const told = [];
   let changed = false;
   if (Object.keys(changes).length) {
-    changed = await applyChanges(env, { channel, ts }, changes, user);
+    // The thread says it was an AI agent, and Slack shows the person no private prompt: they are not looking at it.
+    changed = await applyChanges(env, { channel, ts }, changes, user, { source: "mcp" });
     told.push(changed ? `The change is posted in the task's thread.${skipped}` : `The task already had those values.${skipped}`);
+    if (changed && changes.status === "CLIENT_REVIEW") told.push("It is in Client review now: ask the person who should approve it, then call send_approval_request.");
   }
   if (summary !== undefined) told.push(await saveSummary(env, user, channel, ts, summary));
   console.log("Task updated", { channel, ts, by: user, fields: Object.keys(changes), summary: summary?.length });

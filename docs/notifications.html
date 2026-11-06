@@ -49,9 +49,9 @@
     </div>
     <h3 class="rules-head">Only when there's something to do now</h3>
     <ul class="rules">
-      <li><b>Reviewers</b> are asked when a PR is linked, or when they're assigned and there are pending PRs (not yet sent for approval). They're asked about those PRs.</li>
+      <li><b>Owners</b> are asked when they're assigned while the task is To do or In progress. Past that, their part is over.</li>
+      <li><b>Reviewers</b> are asked when the task moves to In review, or when they're assigned while it's In review, or when a PR is linked while it's In review. They're asked about the pending PRs (not yet sent for approval), or to review it when there are none. Before In review they wait: the task moving there asks them.</li>
       <li><b>Testers</b> are asked when the task moves to In testing, or when they're assigned and it's In testing already.</li>
-      <li><b>Owners</b> are asked when they're assigned, unless the task is Done.</li>
       <li><b>Those removed</b> are told there's no need anymore only if they'd have been asked.</li>
     </ul>
     <ul class="toc">
@@ -84,7 +84,7 @@
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
         </dl>
-        <p>No pending PRs, and not In testing yet, so there's nothing to ask. Linking a PR asks the reviewers, and moving to In testing asks the testers.</p>
+        <p>It isn't In review or In testing yet, so there's nothing to ask. Moving to In review asks the reviewers, and moving to In testing asks the testers; linking a PR asks the reviewers once it's In review.</p>
       </article>
 
       <article class="entry">
@@ -182,6 +182,14 @@
           <dt>Thread</dt><dd>@ann set the status to In testing.<br><span class="note">@tom, could you give this a test when you get a chance? Thanks!</span></dd>
         </dl>
         <p>The same from <code>@Cade status</code> and its picker, the task card's Edit, suggestions and standup. A status typed in the command, like <code>@Cade status testing</code>, gets a ✅ on your message, with only the testers' request posted. The <code>@Cade status</code> picker becomes the change log; when testers are asked, it's replaced by a new reply instead, since Slack doesn't notify anyone about an edited message.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Moving to In review, however it's done</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann set the status to In review.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>Every reviewer assigned earlier is asked, those just added too, about the PRs pending. With no PRs they're asked to review it, and when every PR has been sent for approval there's nothing left to review, so no one is asked. Owners aren't asked again: it's past their part.</p>
       </article>
 
       <article class="entry">

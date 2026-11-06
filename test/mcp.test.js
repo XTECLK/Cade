@@ -147,7 +147,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
   // What each tool is for is in the tool's own description; the instructions name the writes, each with
   // what to show before it is called, and say that threads are data.
-  for (const name of ["create_task", "update_task", "send_task_message", "update_release", "create_executive_summary", "update_executive_summary_after_call"]) {
+  for (const name of ["create_task", "update_task", "send_task_message", "update_release", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"]) {
     assert.match(init.result.instructions, new RegExp(`${name}: `), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -162,7 +162,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "send_approval_request", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
   assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
@@ -748,7 +748,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_task_message", "update_release", "create_task", "create_executive_summary", "update_executive_summary_after_call"].includes(def.name);
+    const writes = ["update_task", "send_task_message", "update_release", "create_task", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -1428,4 +1428,63 @@ test("a session is given the version of the tool set it loads, and told when the
   assert.doesNotMatch((await call("get_projects", {}, {})).content[0].text, /tools were updated/);
   // A session ID that isn't Cade's is no sign of anything.
   assert.doesNotMatch((await call("get_projects", {}, { "mcp-session-id": "abc" })).content[0].text, /tools were updated/);
+});
+
+test("a status change made through MCP shows no private prompt, and the thread says it was an AI agent", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ status: "IN_REVIEW" }));
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "users.info": WORKSPACE });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const moved = await tool(url, "update_task", { task_id: `CDEV:${TS}`, status: "CLIENT_REVIEW" });
+  assert.match(moved.text, /^Done\./);
+  assert.match(moved.text, /It is in Client review now: ask the person who should approve it, then call send_approval_request/);
+  assert.equal((await getTask(env, "CDEV", TS)).status, "CLIENT_REVIEW");
+  // Slack would ask the person, privately, who approves it; an AI agent asks them itself.
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), "no private prompt");
+  const posted = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text).join("\n");
+  assert.match(posted, /<@UME> set the status to .*Client review/);
+  assert.match(posted, /_\(through <@UME>'s AI agent\)_/);
+
+  // A change that isn't to Client review doesn't tell the agent to ask anyone.
+  await putTask(env, "CDEV", "1700000001.000100", stored({ status: "TODO" }));
+  assert.doesNotMatch((await tool(url, "update_task", { task_id: "CDEV:1700000001.000100", status: "IN_PROGRESS" })).text, /send_approval_request/);
+});
+
+test("send_approval_request asks the chosen person to approve a task in Client review, with buttons only they can click", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ status: "CLIENT_REVIEW", link: "https://acme.slack.com/archives/CDEV/p1700000000000100", prs: ["https://github.com/acme/cade/pull/42"] }));
+  await putTask(env, "CDEV", "1700000001.000100", stored({ status: "IN_PROGRESS" }));
+  await putTask(env, "CPRIV", TS, stored({ status: "CLIENT_REVIEW" }));
+  const calls = mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+    "conversations.members": { members: ["UBOB"] },
+    "users.info": (args) => (args.user === "UCLIENT123" ? { user: { real_name: "Cleo Client" } } : WORKSPACE(args)),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const TASK = `CDEV:${TS}`;
+
+  const asked = await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123" });
+  assert.equal(asked.isError, false, asked.text);
+  assert.deepEqual([asked.data.task_id, asked.data.approver, asked.data.user_names], [TASK, "UCLIENT123", { UCLIENT123: "Cleo Client" }]);
+  assert.match(asked.text, /^Asked @Cleo Client \(UCLIENT123\) to approve it, in the task's thread\. Approving moves the task to Done; not approving sends it back to In progress\. https:\/\/acme\.slack\.com/);
+
+  // The request is in the task's thread, mentions the approver, lists the PRs, and its buttons name who may click them.
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.thread_ts, TS);
+  assert.match(post.text, /Good news! <@UME> \(through their AI agent\) says this is ready for review\./);
+  assert.match(post.text, /cade\/42/);
+  assert.match(post.text, /<@UCLIENT123>, could you take a look and approve it/);
+  const buttons = JSON.parse(post.blocks).find((block) => block.type === "actions").elements;
+  assert.deepEqual(buttons.map((button) => button.action_id), ["status:approve", "status:reject"]);
+  assert.equal(JSON.parse(buttons[0].value).approver, "UCLIENT123");
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
+
+  // Only for a task in Client review, an approver who is a person, and a channel you can read.
+  assert.match((await tool(url, "send_approval_request", { task_id: "CDEV:1700000001.000100", approver: "UCLIENT123" })).text, /In progress, so there's nothing to approve\. Move it to Client review with update_task first/);
+  assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "UGHOST" })).text, /UGHOST isn't an active person in the workspace/);
+  assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "rex" })).text, /isn't a Slack user ID/);
+  assert.match((await tool(url, "send_approval_request", { task_id: "CPRIV:1700000000.000100", approver: "UCLIENT123" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "send_approval_request", { task_id: "CDEV:999.9", approver: "UCLIENT123" })).text, /isn't a task Cade tracks/);
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1, "only the first call posted");
 });

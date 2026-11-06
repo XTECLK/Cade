@@ -154,10 +154,13 @@ export function setStatusFields(task, status) {
 
 // What follows saving a status change `{ from, to }` made by `user`: the
 // task is pinned or unpinned as it leaves or reaches Done, and Client review
-// asks whoever moved it, privately, who approves it (see askApprover).
-export async function afterStatusChange(env, channel, ts, { from, to }, user) {
+// asks whoever moved it, privately, who approves it (see askApprover). Not when
+// `source` is "mcp": the change was made by an AI agent, and the person isn't looking at
+// Slack, so the private prompt would only be missed; the agent asks them, and then asks the approver
+// with requestApproval.
+export async function afterStatusChange(env, channel, ts, { from, to }, user, source) {
   if ((from === "DONE") !== (to === "DONE")) await setPinned(env, channel, ts, to !== "DONE");
-  if (to === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
+  if (to === "CLIENT_REVIEW" && source !== "mcp") await askApprover(env, channel, ts, user);
 }
 
 // Saves the new status, pinning or unpinning the task as it leaves or
@@ -243,6 +246,17 @@ async function requestReview(env, origin, approver, user) {
   const ready = `Good news! <@${user}> says this is ready for review.`;
   await dismiss(responseUrl);
   await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
+}
+
+// Asks `approver` to review the task, in its thread, for `user`, who asked through their AI agent:
+// the same request, with the Approve and Not approve buttons, as the form in Slack gives. Returns
+// a problem to tell them, or null once it is posted.
+export async function requestApproval(env, channel, ts, approver, user) {
+  const task = await loadTask(env, channel, ts);
+  if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
+  const ready = `Good news! <@${user}> (through their AI agent) says this is ready for review.`;
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
+  return null;
 }
 
 // The request with the task's linked pull requests (only those not sent

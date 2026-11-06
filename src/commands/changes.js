@@ -27,10 +27,13 @@ export function prsAfter(task, changes) {
 //
 // `told` lists who the message a suggestion came from mentioned: it
 // notified them already, so they aren't asked again; the change log still
-// mentions them.
+// mentions them. `source` is "mcp" for a change made through someone's AI agent,
+// by their MCP key: the thread says so, and no private prompt is shown to the
+// person (see afterStatusChange), since they are not looking at Slack. A change made in Slack
+// has no source.
 export async function applyChanges(env, where, changes, user, options) {
   const change = await changeTask(env, where, changes, user, options);
-  const text = change && changeMessage(change);
+  const text = change && [changeMessage(change), options?.source === "mcp" && `_(through <@${user}>'s AI agent)_`].filter(Boolean).join("\n");
   if (text) await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, text });
   return Boolean(text);
 }
@@ -42,7 +45,7 @@ export async function applyChanges(env, where, changes, user, options) {
 // that it has. The priority and due date of an incident never change, and
 // the status is left alone when the task has moved on from `from` since a
 // suggestion was made. Telling the thread is left to the caller.
-export async function changeTask(env, { channel, ts }, changes, user, { from, told: mentioned = [] } = {}) {
+export async function changeTask(env, { channel, ts }, changes, user, { from, told: mentioned = [], source } = {}) {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
@@ -86,7 +89,7 @@ export async function changeTask(env, { channel, ts }, changes, user, { from, to
 
   if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status && !change.subtasks) return null;
   await saveTask(env, channel, ts, task);
-  if (change.status) await afterStatusChange(env, channel, ts, change.status, user);
+  if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source);
   return change;
 }
 

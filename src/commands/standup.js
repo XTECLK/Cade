@@ -1,7 +1,7 @@
 import { projects, findProject } from "../channels.js";
 import { userNames } from "../format.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
-import { assigned, request } from "../notify.js";
+import { assigned, onTheirPlate, request } from "../notify.js";
 import { STATUSES, loadTask, saveTask } from "../tasks.js";
 import { setStatus, statusOption } from "./status.js";
 import { OPEN, byUrgency, groupTasks, line } from "./tasks.js";
@@ -105,8 +105,8 @@ async function assignOwner(payload, env) {
     task.people.owner = [...task.people.owner, owner];
     await saveTask(env, channel, ts, task);
     const user = payload.user.id;
-    // Picking yourself needs no request.
-    const asked = owner !== user && request([owner], "owner");
+    // Picking yourself needs no request, nor does a task past To do and In progress.
+    const asked = owner !== user && onTheirPlate(task, "owner") && request([owner], "owner");
     const text = [assigned(user, [owner], "owner"), asked].filter(Boolean).join("\n");
     await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }

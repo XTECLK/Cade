@@ -48,6 +48,7 @@ export const GUARDRAILS = [
       `update_task: the task, then each field as old -> new (status, priority, due date, owner, reviewer, tester, pull requests, summary) with the reason, and nothing you leave unchanged.`,
       `send_task_message: the task and the whole message as it will be posted.`,
       `update_release: the release and its pull requests and note, as they are now and as they will be.`,
+      `send_approval_request: the task and who will be asked to approve it.`,
       `create_executive_summary: the project, the period, and each task's line (health, progress, notes, or left out), with the active tasks carried over from the last summary named.`,
       `update_executive_summary_after_call: the summary, each task the call changed or took out as before -> after, what the call added, and the notes on the call.`,
     ],

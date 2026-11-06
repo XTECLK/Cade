@@ -190,13 +190,13 @@ const submission = (values, origin = { channel: "CDEV" }) => ({
 });
 
 // The task at CDEV/100.1 as stored. Each role lists its people's user IDs.
-const storedTask = ({ owners = [], reviewers = [], testers = [] } = {}) => ({
+const storedTask = ({ owners = [], reviewers = [], testers = [], status = "TODO" } = {}) => ({
   channel: "CDEV",
   ts: "100.1",
   task: {
     title: "Fix login",
     priority: "High",
-    status: "TODO",
+    status,
     dueDate: "31/10/2026",
     people: { owner: owners, reviewer: reviewers, tester: testers },
     prs: [],
@@ -1546,7 +1546,7 @@ test("pull requests on GitHub, GitLab and Bitbucket are read as reponame/number"
 });
 
 test("linking a PR asks the task's reviewers to review it", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA", "UREX"] })] });
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA", "UREX"], status: "IN_REVIEW" })] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(calls[1].args.name, "white_check_mark");
   assert.equal(
@@ -1554,6 +1554,19 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
     `<@URIA>, <@UREX>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(calls[2].args.blocks, undefined, "no picker");
+});
+
+test("linking a PR before In review asks no reviewer yet, and moving to In review asks them", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" })] });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
+  assert.equal(calls[1].args.name, "white_check_mark");
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage" && /could you review/.test(call.args.text)), "nobody is asked while it is In progress");
+
+  // Reaching In review asks the reviewers assigned earlier, about what is pending.
+  const moved = mockSlack(t, { stored: [{ ...storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" }), task: { ...storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" }).task, prs: [PR] } }] });
+  await send("/slack/events", threadEvent("<@UBOT> status in review"));
+  const asked = moved.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text).join("\n");
+  assert.match(asked, new RegExp(`<@URIA>, <@UREX>, could you review <${PR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\|cade/42> when you get a chance`));
 });
 
 test("linking a PR with no reviewer asks who should review it", async (t) => {
@@ -1569,7 +1582,7 @@ test("linking a PR with no reviewer asks who should review it", async (t) => {
 });
 
 test("choosing reviewers assigns them and asks them to review, in a new reply", async (t) => {
-  const root = storedTask();
+  const root = storedTask({ status: "IN_REVIEW" });
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send(
@@ -1624,7 +1637,7 @@ test("choosing reviewers on a picker with nothing before its question removes it
 });
 
 test("assigning a reviewer once a PR is linked asks them to review it", async (t) => {
-  const root = storedTask();
+  const root = storedTask({ status: "IN_REVIEW" });
   root.task.prs = [PR, MR];
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA>"));
@@ -1711,7 +1724,7 @@ test("a PR pasted with a mention proposes the person as reviewer in the same pri
 });
 
 test("a question posted with the old reviewer picker is still answered", async (t) => {
-  const linking = mockSlack(t, { stored: [storedTask()] });
+  const linking = mockSlack(t, { stored: [storedTask({ status: "IN_REVIEW" })] });
   const sent = recordResponses(t);
   const click = JSON.parse(new URLSearchParams(suggestionClick("pr:suggest-link", [PR])).get("payload"));
   click.actions[0].value = JSON.stringify({ channel: "CDEV", ts: "100.1", mentioned: ["UREX"], urls: [PR], reviewers: ["UREX"] });
@@ -1865,7 +1878,7 @@ test("@Cade pr add is a command, not a suggestion", async (t) => {
 });
 
 test("Link PRs links them, posts only what is new and removes the question", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" })] });
   const sent = recordResponses(t);
   const response = await send("/slack/interactions", suggestionClick("pr:suggest-link", [PR]));
   assert.equal(response.status, 200);
@@ -1950,7 +1963,7 @@ test("mentions without a PR link are not offered as reviewers", async (t) => {
 });
 
 test("Link and add reviewer asks only the reviewers the message did not mention", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" })] });
   const sent = recordResponses(t);
   await send("/slack/interactions", clickSuggestion(suggestionValue({ mentioned: ["UREX"], urls: [PR], reviewers: ["UREX"] })));
 
@@ -2205,7 +2218,7 @@ test("@Cade unassign of someone not assigned changes nothing", async (t) => {
 });
 
 test("removed reviewers are told they no longer need to review", async (t) => {
-  const root = storedTask({ reviewers: ["URIA"] });
+  const root = storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" });
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
@@ -4199,7 +4212,7 @@ test("callSlack and respondLater report Slack's failures", async (t) => {
 });
 
 test("choosing reviewers whose PR list didn't fit asks about all the task's PRs", async (t) => {
-  const root = storedTask();
+  const root = storedTask({ status: "IN_REVIEW" });
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send(
@@ -5171,8 +5184,8 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
-  // A PR linked with the status left alone keeps it, and the reviewer is
-  // asked; a tester is added too.
+  // A PR linked with the status left alone keeps it, and the reviewer, with
+  // nothing to review yet as it is To do, isn't asked; a tester is added too.
   const values = {
     owner: { value: { selected_users: ["UREX"] } },
     reviewer: { value: { selected_users: ["UMIA"] } },
@@ -5191,7 +5204,7 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.equal(posts.length, 1);
   assert.match(posts[0].args.text, /^<@UACTOR> linked /);
   assert.match(posts[0].args.text, /<@UACTOR> assigned <@UTESS> as tester\./);
-  assert.match(posts[0].args.text, /<@UMIA>, could you review/);
+  assert.doesNotMatch(posts[0].args.text, /could you review/);
 
   // A link that isn't a PR is refused in the form.
   const refused = await submit({ ...values, prs: { value: { value: "not a link" } } });
@@ -5273,16 +5286,16 @@ test("Edit saves a new status and a tester who is the person saving, in one upda
   assert.equal(post.args.text, "<@UACTOR> assigned themselves as tester.\n<@UACTOR> set the status to :test_tube: In testing.");
 });
 
-test("someone removed from several roles at once is told once", async (t) => {
+test("someone removed from several roles at once is told only for the roles they had been asked in", async (t) => {
   const root = storedTask({ owners: ["UALICE"], reviewers: ["UALICE"] });
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
   const posts = calls.filter((call) => call.method === "chat.postMessage");
-  assert.deepEqual(posts.map((call) => call.args.text), ["<@UALICE>, there's no need to work on this or review this anymore. Thanks!"]);
+  assert.deepEqual(posts.map((call) => call.args.text), ["<@UALICE>, there's no need to work on this anymore. Thanks!"]);
 });
 
-test("someone asked in several roles at once is asked once, and people asked alike share a note", async (t) => {
+test("people assigned in several roles are asked only for the one the task is at, and people asked alike share a note", async (t) => {
   const root = storedTask();
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
@@ -5308,10 +5321,8 @@ test("someone asked in several roles at once is asked once, and people asked ali
   );
   const post = calls.find((call) => call.method === "chat.postMessage").args.text;
   const notes = post.split("\n").filter((line) => line.includes("could you"));
-  assert.deepEqual(notes, [
-    `<@UBOB>, could you pick this up and review <${PR}|cade/42> when you get a chance? Thanks!`,
-    "<@UREX>, could you pick this up when you get a chance? Thanks!",
-  ]);
+  // It is To do: owners are asked, and the reviewer waits for In review.
+  assert.deepEqual(notes, ["<@UBOB>, <@UREX>, could you pick this up when you get a chance? Thanks!"]);
 });
 
 // ---- The update engine: what actually changed ----
@@ -5430,35 +5441,53 @@ test("the change log has a line for each thing that changed, in order", () => {
   assert.deepEqual(changeLog(changed()), []);
 });
 
-test("a person is asked once, for everything they are asked to do", () => {
-  const notes = changeRequests(
+test("a person assigned in two roles is asked only for the one the task is at", () => {
+  const change = (status) =>
     changed({
       people: [
         { role: "owner", added: ["UBOB", "UREX"], removed: [] },
         { role: "reviewer", added: ["UBOB"], removed: [] },
       ],
       prs: { added: [PR], removed: [] },
-      task: { people: team(["UBOB", "UREX"], ["UBOB"]) },
-    }),
-  );
-  assert.deepEqual(notes, [
-    `<@UBOB>, could you pick this up and review <${PR}|cade/42> when you get a chance? Thanks!`,
-    "<@UREX>, could you pick this up when you get a chance? Thanks!",
-  ]);
+      task: { status, people: team(["UBOB", "UREX"], ["UBOB"]) },
+    });
+  // Owners work on it while it is To do or In progress, and reviewers review it while it is In review.
+  assert.deepEqual(changeRequests(change("IN_PROGRESS")), ["<@UBOB>, <@UREX>, could you pick this up when you get a chance? Thanks!"]);
+  assert.deepEqual(changeRequests(change("IN_REVIEW")), [`<@UBOB>, could you review <${PR}|cade/42> when you get a chance? Thanks!`]);
+  assert.deepEqual(changeRequests(change("IN_TESTING")), []);
 });
 
-test("people asked alike share a note, and reviewers kept are asked about the new pull requests", () => {
-  const notes = changeRequests(
+test("people asked alike share a note, and reviewers kept are asked about new pull requests only while it is In review", () => {
+  const change = (status) =>
     changed({
       people: [{ role: "owner", added: ["UBOB", "UREX"], removed: [] }],
       prs: { added: [PR], removed: [] },
-      task: { people: team(["UBOB", "UREX"], ["UMIA", "UZOE"]) },
-    }),
-  );
-  assert.deepEqual(notes, [
-    `<@UMIA>, <@UZOE>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
-    "<@UBOB>, <@UREX>, could you pick this up when you get a chance? Thanks!",
-  ]);
+      task: { status, people: team(["UBOB", "UREX"], ["UMIA", "UZOE"]) },
+    });
+  assert.deepEqual(changeRequests(change("IN_REVIEW")), [`<@UMIA>, <@UZOE>, could you review <${PR}|cade/42> when you get a chance? Thanks!`]);
+  // Before it, the reviewers wait: they are asked when it gets to In review.
+  assert.deepEqual(changeRequests(change("IN_PROGRESS")), ["<@UBOB>, <@UREX>, could you pick this up when you get a chance? Thanks!"]);
+});
+
+test("moving to In review asks every reviewer once, those just added too, about the pull requests pending", () => {
+  const pending = changed({
+    people: [{ role: "reviewer", added: ["UMIA"], removed: [] }],
+    status: { from: "IN_PROGRESS", to: "IN_REVIEW" },
+    task: { prs: [PR, MR], people: team([], ["UZOE", "UMIA", "UACTOR"]) },
+  });
+  assert.deepEqual(changeRequests(pending), [`<@UZOE>, <@UMIA>, could you review <${PR}|cade/42>, <${MR}|web-app/118> when you get a chance? Thanks!`]);
+  // With no pull requests there is nothing to list: they are asked to review it.
+  const none = changed({ status: { from: "IN_PROGRESS", to: "IN_REVIEW" }, task: { people: team([], ["UZOE"]) } });
+  assert.deepEqual(changeRequests(none), ["<@UZOE>, could you review this when you get a chance? Thanks!"]);
+  // Pull requests all sent for approval leave nothing to review.
+  const sent = changed({ status: { from: "IN_PROGRESS", to: "IN_REVIEW" }, task: { prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }], people: team([], ["UZOE"]) } });
+  assert.deepEqual(changeRequests(sent), []);
+});
+
+test("an owner is asked only while the task is To do or In progress", () => {
+  const owner = (status) => changed({ people: [{ role: "owner", added: ["UBOB"], removed: [] }], task: { status, people: team(["UBOB"]) } });
+  for (const status of ["TODO", "IN_PROGRESS"]) assert.deepEqual(changeRequests(owner(status)), ["<@UBOB>, could you pick this up when you get a chance? Thanks!"], status);
+  for (const status of ["IN_REVIEW", "IN_TESTING", "CLIENT_REVIEW", "DONE"]) assert.deepEqual(changeRequests(owner(status)), [], status);
 });
 
 test("no one is asked who made the change, was told already, or has nothing to do yet", () => {
@@ -5466,12 +5495,12 @@ test("no one is asked who made the change, was told already, or has nothing to d
   // Made the change, or told by the message the suggestion came from.
   assert.deepEqual(changeRequests(changed({ people: people("owner", "UACTOR"), task: { people: team(["UACTOR"]) } })), []);
   assert.deepEqual(changeRequests(changed({ people: people("owner", "UBOB"), told: { UBOB: null }, task: { people: team(["UBOB"]) } })), []);
-  // A reviewer with no pull requests to review, a tester before In testing, an owner once Done.
-  assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: { people: team([], ["UMIA"]) } })), []);
+  // A reviewer before In review, a tester before In testing, an owner once Done.
+  assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: { prs: [PR], people: team([], ["UMIA"]) } })), []);
   assert.deepEqual(changeRequests(changed({ people: people("tester", "UTOM"), task: { people: team([], [], ["UTOM"]) } })), []);
   assert.deepEqual(changeRequests(changed({ people: people("owner", "UBOB"), task: { status: "DONE", people: team(["UBOB"]) } })), []);
   // Pull requests all sent for approval are not for reviewers to review.
-  const sent = { people: team([], ["UMIA"]), prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }] };
+  const sent = { status: "IN_REVIEW", people: team([], ["UMIA"]), prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }] };
   assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: sent })), []);
 });
 
@@ -5487,15 +5516,17 @@ test("moving to In testing asks every tester once, those just added too", () => 
 });
 
 test("people removed are told only if they had been asked, and once", () => {
-  // Removed from two roles they were asked in: one note.
-  const both = changed({
-    people: [
-      { role: "owner", added: [], removed: ["UALICE"] },
-      { role: "reviewer", added: [], removed: ["UALICE"] },
-    ],
-    task: { prs: [PR] },
-  });
-  assert.deepEqual(changeRequests(both), ["<@UALICE>, there's no need to work on this or review this anymore. Thanks!"]);
+  // Removed from two roles: told only for the one they had been asked in, by the stage it was at.
+  const both = (status) =>
+    changed({
+      people: [
+        { role: "owner", added: [], removed: ["UALICE"] },
+        { role: "reviewer", added: [], removed: ["UALICE"] },
+      ],
+      task: { status, prs: [PR] },
+    });
+  assert.deepEqual(changeRequests(both("IN_PROGRESS")), ["<@UALICE>, there's no need to work on this anymore. Thanks!"]);
+  assert.deepEqual(changeRequests(both("IN_REVIEW")), ["<@UALICE>, there's no need to review this anymore. Thanks!"]);
 
   // A tester removed as it moves to In testing was never asked to test it.
   const testing = changed({

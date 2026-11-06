@@ -709,6 +709,26 @@ export const TOOL_DEFS = [
         }),
     },
     {
+        name: "send_approval_request",
+        title: "Ask someone to approve a task",
+        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
+        description:
+            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Call this only with an approver the person has chosen and approved. Each call posts a new request.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                approver: str("Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it"),
+            },
+            required: ["task_id", "approver"],
+        },
+        outputSchema: outputWithNames({
+            task_id: str("The task's ID, for the other tools"),
+            approver: str("Who was asked: a Slack user ID, show the name, not the ID"),
+            link: str("A link to the task's thread, or empty"),
+        }),
+    },
+    {
         name: "get_server_info",
         title: "Get the version of the tools",
         annotations: READS,

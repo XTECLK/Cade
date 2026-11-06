@@ -1,4 +1,4 @@
-import { assigned, request, toAsk } from "../notify.js";
+import { assigned, onTheirPlate, request, toAsk } from "../notify.js";
 import { acknowledged, changeTask } from "./changes.js";
 import { acknowledge, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
@@ -132,7 +132,8 @@ async function acceptSuggestion(payload, env) {
     const lines = [];
     // Not those the message mentioned, nor whoever wrote it.
     const unasked = toAsk(task.people.reviewer, user, Object.fromEntries(mentioned.map((id) => [id, null])));
-    if (linked && unasked.length) lines.push(request(unasked, "reviewer", linked.added));
+    // They are asked while it is In review; otherwise when it gets there.
+    if (linked && unasked.length && onTheirPlate(task, "reviewer")) lines.push(request(unasked, "reviewer", linked.added));
     if (linked && !task.people.reviewer.length) reply = reviewerPicker(lines.join("\n"), linked.added);
     else if (lines.length) reply = lines.join("\n");
   }
@@ -201,7 +202,9 @@ async function chooseReviewers(payload, env) {
   else await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
   // Whoever picked themselves isn't asked.
   const others = chosen.filter((id) => id !== payload.user.id);
-  const text = [assigned(payload.user.id, chosen, "reviewer"), others.length && request(others, "reviewer", urls)].filter(Boolean).join("\n");
+  // Asked while it is In review; otherwise when it gets there.
+  const asked = others.length && onTheirPlate(task, "reviewer") && request(others, "reviewer", urls);
+  const text = [assigned(payload.user.id, chosen, "reviewer"), asked].filter(Boolean).join("\n");
   await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
 }
 

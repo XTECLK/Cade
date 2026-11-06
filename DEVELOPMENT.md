@@ -27,7 +27,7 @@ npm run setup       # Cloudflare login, the Worker, the Slack app, your first gr
 
 `npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and sets up a first group (a dev channel)
 in your workspace. Name the Worker something of your own (such as `cade-dev`) when it asks. The Google Doc step is optional; skip
-it unless you're working on the brief tools. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
+it unless you're working on the executive summary tools. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
 ### 3. Change, deploy, try

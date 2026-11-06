@@ -226,7 +226,7 @@ export const TOOL_DEFS = [
     description:
       "Lists Cade tasks, most urgent first, each with its priority, title, status, due date, people, its task ID and a link. Open tasks (not done) by default. Filter with the arguments, all optional and combinable: " +
       "mine (only tasks you are on, from any project; role does the same for one role), assignee (only tasks a person is on, by user ID from find_user_by_name), unassigned (only tasks with no owner, reviewer or tester), status (open, all or one status), " +
-      "project (only one project's tasks, by name from get_projects), completed_from and completed_to (only tasks marked Done in those days, UTC; status defaults to DONE, and completed_at is a field to ask for), fields (which fields to give for each task, to keep the result small, or to add summary and notes), and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
+      "project (only one project's tasks, by name from get_projects), completed_from and completed_to (only tasks marked Done in those days, UTC; status defaults to DONE, and completed_at is a field to ask for), include_open (with completed_from or completed_to: also every task not done, listed first, in one call, such as for an executive summary), fields (which fields to give for each task, to keep the result small, or to add summary and notes), and limit (20 by default, at most 100). Without mine or role it lists every project's tasks in channels you can read. The task ID is for the other tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -238,6 +238,7 @@ export const TOOL_DEFS = [
         project: { type: "string", description: "Only this project's tasks, by the name get_projects gives" },
         completed_from: { type: "string", description: "Only tasks marked Done on or after this day, YYYY-MM-DD (status defaults to DONE then)" },
         completed_to: { type: "string", description: "Only tasks marked Done on or before this day, YYYY-MM-DD" },
+        include_open: { type: "boolean", description: "With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status" },
         fields: { type: "array", items: { type: "string", enum: TASK_FIELDS }, description: `The fields to give for each task, besides task_id which is always there. Default: all but ${Object.keys(EXTRA_FIELDS).join(", ")}. Add summary or notes to get them for every task listed` },
         limit: { type: "integer", minimum: 1, maximum: MAX_TASKS, description: `How many tasks to return, most urgent first. Default ${DEFAULT_TASKS}` },
       },

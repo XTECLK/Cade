@@ -632,7 +632,16 @@ async function getTasks(env, user, args = {}) {
   if (args.completed_from !== undefined || args.completed_to !== undefined) {
     const day = (value, name) => (value === undefined ? undefined : dayOf(value, name));
     const [first, last] = [day(args.completed_from, "completed_from"), day(args.completed_to, "completed_to")];
-    args = { ...args, status: args.status ?? "DONE", completed: ({ completedAt }) => Boolean(completedAt) && (!first || completedAt.slice(0, 10) >= first) && (!last || completedAt.slice(0, 10) <= last) };
+    const inRange = ({ completedAt }) => Boolean(completedAt) && (!first || completedAt.slice(0, 10) >= first) && (!last || completedAt.slice(0, 10) <= last);
+    if (args.include_open) {
+      if (args.status !== undefined && args.status !== "all") throw new ToolError("include_open can't be combined with status. It gives the tasks not done, and those done in the days.");
+      // Open tasks as well as those done in the days; the open ones come first.
+      args = { ...args, status: "all", completed: (task) => OPEN.includes(task.status) || inRange(task), openFirst: true };
+    } else {
+      args = { ...args, status: args.status ?? "DONE", completed: inRange };
+    }
+  } else if (args.include_open) {
+    throw new ToolError("include_open goes with completed_from or completed_to. Without them, open tasks are listed anyway.");
   }
   if (mine || role) {
     if (assignee !== undefined && assignee !== user) throw new ToolError("mine and assignee name different people. Use one of them.");
@@ -641,15 +650,19 @@ async function getTasks(env, user, args = {}) {
   return getAllTasks(env, user, args);
 }
 
+// Orders tasks not done before those done (the sort is stable, so urgency holds within each).
+const byOpenFirst = (a, b) => Number(!OPEN.includes(a.task.status)) - Number(!OPEN.includes(b.task.status));
+
 // The tasks `user` has a role in.
-async function getMyTasks(env, user, { role, status, limit, channel, fields, completed } = {}) {
+async function getMyTasks(env, user, { role, status, limit, channel, fields, completed, openFirst } = {}) {
   if (role !== undefined && !ROLES[role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
   const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : Object.keys(ROLES), statuses }))
     .filter((entry) => !channel || entry.channel === channel)
     .filter((entry) => !completed || completed(entry.task))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
-    .sort(byUrgency);
+    .sort(byUrgency)
+    .sort(openFirst ? byOpenFirst : () => 0);
   if (!found.length) return { text: `You have no ${wanted === "open" ? "open " : ""}tasks${role ? ` as ${role}` : ""}${statuses.length === 1 ? ` in ${statusName(wanted)}` : ""}.`, data: { total: 0, tasks: [] } };
   const shown = found.slice(0, limit ?? MAX_TASKS);
   const yours = ({ task }) => `you: ${Object.keys(ROLES).filter((key) => task.people[key].includes(user)).join(", ")}`;
@@ -659,7 +672,7 @@ async function getMyTasks(env, user, { role, status, limit, channel, fields, com
 }
 
 // Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel, fields, completed } = {}) {
+async function getAllTasks(env, user, { limit, status, assignee, unassigned, channel, fields, completed, openFirst } = {}) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task) => Object.keys(ROLES).flatMap((role) => task.people[role]);
@@ -668,7 +681,8 @@ async function getAllTasks(env, user, { limit, status, assignee, unassigned, cha
     .filter(({ task }) => !completed || completed(task))
     .filter(({ task }) => (assignee === undefined || everyone(task).includes(assignee)) && (!unassigned || !everyone(task).length))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
-    .sort(byUrgency);
+    .sort(byUrgency)
+    .sort(openFirst ? byOpenFirst : () => 0);
 
   // A channel's tasks are for those who can read it, so each is asked about once, as the tasks come.
   const readable = new Map();

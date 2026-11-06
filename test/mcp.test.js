@@ -1131,6 +1131,15 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.match(closed.data.tasks[0].completed_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   assert.match((await tool(url, "get_tasks", { completed_from: "soon" })).text, /completed_from is a day written YYYY-MM-DD/);
 
+  // include_open adds every task not done, listed first, to those done in the days.
+  const week = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const both = await tool(url, "get_tasks", { project: "acme", completed_from: week, include_open: true, fields: ["title", "status"] });
+  assert.equal(both.data.total, 4);
+  assert.equal(both.data.tasks.at(-1).title, "Export reports");
+  assert.ok(!both.data.tasks.some((task) => task.title === "Old work"));
+  assert.match((await tool(url, "get_tasks", { include_open: true })).text, /include_open goes with completed_from or completed_to/);
+  assert.match((await tool(url, "get_tasks", { completed_from: week, include_open: true, status: "TODO" })).text, /include_open can't be combined with status/);
+
   // No summary yet.
   assert.match((await tool(url, "get_executive_summary", { project: "acme" })).text, /no executive summary yet/);
   assert.match((await tool(url, "get_executive_summary", { project: "nope" })).text, /no project called "nope"/);

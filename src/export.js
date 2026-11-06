@@ -29,14 +29,21 @@ async function readThread(env, channel, ts) {
   return messages;
 }
 
+// How long a kept name is trusted before Slack is asked again, in case the person was renamed.
+export const NAME_REFRESH_DAYS = 30;
+
 // Display names for the Slack user IDs, as a Map: the ones kept from an earlier
-// look-up, and the rest looked up once each (and kept). For an ID that can't be
-// (no users:read scope, or one Slack doesn't know) the ID itself stands in.
+// look-up, and the rest looked up once each (and kept). A kept name older than
+// NAME_REFRESH_DAYS is looked up again; if that fails (the person has left Slack)
+// the name stays, and is not asked about again for another NAME_REFRESH_DAYS.
+// For an ID that can't be named (no users:read scope, or one Slack doesn't know)
+// the ID itself stands in.
 export async function nameMap(env, ids) {
-  const names = await keptNames(env, ids);
+  const kept = await keptNames(env, ids, NAME_REFRESH_DAYS);
+  const names = new Map([...kept].map(([id, { name }]) => [id, name]));
   await Promise.all(
     [...ids]
-      .filter((id) => !names.has(id))
+      .filter((id) => !kept.has(id) || kept.get(id).stale)
       .map(async (id) => {
         try {
           const { user } = await callSlack(env, "users.info", { user: id });
@@ -45,7 +52,8 @@ export async function nameMap(env, ids) {
           await keepName(env, id, name);
         } catch (error) {
           console.warn("Could not look up user", { id, error: error.message });
-          names.set(id, id);
+          if (kept.has(id)) await keepName(env, id, kept.get(id).name);
+          else names.set(id, id);
         }
       }),
   );

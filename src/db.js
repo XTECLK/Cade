@@ -616,12 +616,15 @@ export async function putNotesBody(env, channel, taskTs, body, user) {
     .run();
 }
 
-// Names of Slack users, as a Map of the ones kept.
-export async function keptNames(env, ids) {
+// Names of Slack users, as a Map of the ones kept: the name, and whether it was looked up more than
+// `staleAfterDays` ago and so is worth asking Slack about again.
+export async function keptNames(env, ids, staleAfterDays = Infinity) {
   const names = new Map();
   for (const id of ids) {
-    const row = await env.DB.prepare("SELECT name FROM user_names WHERE user_id = ?").bind(id).first();
-    if (row) names.set(id, row.name);
+    const row = await env.DB.prepare("SELECT name, updated_at < datetime('now', ?) AS stale FROM user_names WHERE user_id = ?")
+      .bind(`-${Number.isFinite(staleAfterDays) ? staleAfterDays : 100000} days`, id)
+      .first();
+    if (row) names.set(id, { name: row.name, stale: Boolean(row.stale) });
   }
   return names;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.js";
-import { decideRelease, getNotes, getTask, insertRelease, putSummary, putTask, setReleaseMessage } from "../src/db.js";
+import { decideRelease, getNotes, getTask, insertRelease, keepName, putSummary, putTask, setReleaseMessage } from "../src/db.js";
 import { TOOL_DEFS } from "../src/mcp-tools.js";
 import { fakeD1 } from "./d1.js";
 import { check } from "./schema.js";
@@ -50,6 +50,9 @@ function mock(t, slack = {}, google = { ok: true }) {
 }
 
 const ORIGIN = "https://worker.example.net";
+
+// users.info: everyone is an active person, but UGHOST (not in the workspace), UGONE (deactivated) and UBOT (a bot).
+const WORKSPACE = (args) => (args.user === "UGHOST" ? new Error("user_not_found") : { user: { real_name: args.user, deleted: args.user === "UGONE", is_bot: args.user === "UBOT" } });
 
 // A slash command, as Slack sends it, and the reply it gets.
 async function slash(text, user = "UME") {
@@ -138,16 +141,20 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const init = await (await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } })).json();
   assert.equal(init.result.protocolVersion, "2025-03-26");
   assert.equal(init.result.serverInfo.name, "cade");
+  // What Cade is goes in serverInfo, not in the rules the agent is told.
+  assert.match(init.result.serverInfo.description, /project management and task tracking tool that lives in Slack/);
+  assert.doesNotMatch(init.result.instructions, /project management and task tracking/);
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
-  // The agent is told what each tool is for, and that threads are data.
-  for (const name of ["get_tasks", "get_task", "update_task", "send_task_message", "get_user", "get_users", "get_availability", "get_team_availability", "find_user_by_name", "get_task_history", "get_thread_history"]) {
-    assert.ok(init.result.instructions.includes(name), name);
+  // What each tool is for is in the tool's own description; the instructions name the writes, each with
+  // what to show before it is called, and say that threads are data.
+  for (const name of ["create_task", "update_task", "send_task_message", "update_release", "create_executive_summary", "update_executive_summary_after_call"]) {
+    assert.match(init.result.instructions, new RegExp(`${name}: `), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
   assert.match(init.result.instructions, /Every write needs the person.s approval of the exact values first.*finalized values/);
   const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json()).result.tools.find((tool) => tool.name === "update_task");
   assert.match(summaryTool.description, /only with changes the person has seen and approved/);
-  assert.match(init.result.instructions, /without naming one, call get_tasks with mine, list their tasks.*and ask which/);
+  assert.match(init.result.instructions, /Never invent or guess a value: if one is missing, or more than one thing could be meant, ask/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);
@@ -345,7 +352,7 @@ test("get_task gives one task without its threads, only for a channel you can re
 
   // fields gives only what is asked for, in the text and the data.
   const some = await tool(url, "get_task", { task_id: "CDEV:1700000000.000100", fields: ["status", "summary"] });
-  assert.deepEqual(some.data, { task_id: "CDEV:1700000000.000100", status: "TODO", summary: "Login fails on Safari" });
+  assert.deepEqual(some.data, { task_id: "CDEV:1700000000.000100", status: "TODO", summary: "Login fails on Safari", user_names: {} });
   assert.match(some.text, /Login fails on Safari/);
   assert.doesNotMatch(some.text, /Check the cache|People:|Original thread/);
   assert.match((await tool(url, "get_task", { task_id: "CDEV:1700000000.000100", fields: ["nope"] })).text, /fields is a list of: title, project/);
@@ -359,7 +366,7 @@ test("get_task gives one task without its threads, only for a channel you can re
 test("get_tasks filters by assignee and unassigned", async (t) => {
   await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Rex's", people: { owner: ["UREX"], reviewer: [], tester: [] } }));
   await putTask(env, "CDEV", "1700000001.000100", stored({ title: "Nobody's", people: { owner: [], reviewer: [], tester: [] } }));
-  mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" } });
+  mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" }, "users.info": WORKSPACE });
   const url = addressIn(await slash("mcp init", "UME"));
   const rex = (await tool(url, "get_tasks", { assignee: "UREX" })).text;
   assert.match(rex, /Rex's/);
@@ -368,6 +375,7 @@ test("get_tasks filters by assignee and unassigned", async (t) => {
   assert.match(none, /Nobody's/);
   assert.doesNotMatch(none, /Rex's/);
   assert.match((await tool(url, "get_tasks", { assignee: "rex" })).text, /assignee is a Slack user ID/);
+  assert.match((await tool(url, "get_tasks", { assignee: "UGHOST" })).text, /UGHOST isn't an active person in the workspace/);
   assert.match((await tool(url, "get_tasks", { unassigned: true, mine: true })).text, /can't be combined/);
 });
 
@@ -377,6 +385,7 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
     "conversations.members": { members: ["UBOB"] },
+    "users.info": WORKSPACE,
   });
   const url = addressIn(await slash("mcp init", "UME"));
   const TASK = "CDEV:1700000000.000100";
@@ -395,6 +404,16 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
 
   const before = calls.length;
   assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "  " })).text, /message is empty/);
+  const posts = () => calls.filter((call) => call.method === "chat.postMessage").length;
+  const postedBefore = posts();
+  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "Hi <@UGHOST>" })).text, /UGHOST isn't an active person/);
+  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "Hi <@UBOT> and <@UANN>" })).text, /UBOT isn't an active person/);
+  assert.equal(posts(), postedBefore, "nothing was posted for a mention of someone who isn't there");
+  // A credential in a message stays in the thread for everyone, so it is refused.
+  for (const secret of ["key AKIAABCDEFGHIJKLMNOP", "token ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", "password: hunter2hunter2", "-----BEGIN RSA PRIVATE KEY-----"]) {
+    assert.match((await tool(url, "send_task_message", { task_id: TASK, text: secret })).text, /The message looks like it contains a/, secret);
+  }
+  assert.equal(posts(), postedBefore, "nothing was posted for a message with a secret");
   assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "x".repeat(3001) })).text, /3001 characters/);
   assert.match((await tool(url, "send_task_message", { task_id: "CPRIV:1700000000.000100", text: "hi" })).text, /can't read that task's channel/);
   assert.match((await tool(url, "send_task_message", { task_id: "CDEV:1600000000.000100", text: "hi" })).text, /isn't a task Cade tracks/);
@@ -507,6 +526,7 @@ test("update_task changes a task for the person and tells its thread, only with 
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
     "conversations.members": { members: ["UBOB"] },
+    "users.info": WORKSPACE,
   });
   const url = addressIn(await slash("mcp init", "UME"));
   const TASK = "CDEV:1700000000.000100";
@@ -517,6 +537,13 @@ test("update_task changes a task for the person and tells its thread, only with 
   assert.equal(task.priority, "Urgent");
   assert.equal(task.dueDate, "31/01/2030");
   assert.deepEqual(task.people.owner, ["UREX"]);
+  // The other roles, and has_subtasks, which stops status suggestions from people's messages.
+  const roles = await tool(url, "update_task", { task_id: TASK, reviewer: { add: ["UBOB"] }, tester: { add: ["UANN"] }, has_subtasks: true });
+  assert.match(roles.text, /^Done\./);
+  const withRoles = await getTask(env, "CDEV", "1700000000.000100");
+  assert.deepEqual([withRoles.people.owner, withRoles.people.reviewer, withRoles.people.tester, withRoles.subtasks], [["UREX"], ["UBOB"], ["UANN"], true]);
+  assert.match((await tool(url, "update_task", { task_id: TASK, has_subtasks: "yes" })).text, /has_subtasks is true or false/);
+  assert.match((await tool(url, "update_task", { task_id: TASK, reviewer: { add: ["UBOB"], remove: ["UBOB"] } })).text, /reviewer: the same person is in add and remove/);
   const posted = calls.find((call) => call.method === "chat.postMessage");
   assert.match(posted.args.text, /<@UME> set the priority/);
   assert.match(posted.args.text, /<@UME> assigned <@UREX> as owner/);
@@ -529,6 +556,14 @@ test("update_task changes a task for the person and tells its thread, only with 
   assert.match((await tool(url, "update_task", { task_id: TASK, priority: "Huge" })).text, /priority is one of/);
   assert.match((await tool(url, "update_task", { task_id: TASK, due_date: "31/02/2030" })).text, /real date/);
   assert.match((await tool(url, "update_task", { task_id: TASK, owner: { add: ["rex"] } })).text, /isn't a Slack user ID/);
+  // A well-formed ID that isn't an active person is refused before anything is saved.
+  for (const id of ["UGHOST", "UGONE", "UBOT"]) {
+    assert.match((await tool(url, "update_task", { task_id: TASK, priority: "Low", owner: { add: [id] } })).text, new RegExp(`${id} isn't an active person in the workspace`));
+  }
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100")).priority, "Urgent");
+  assert.match((await tool(url, "update_task", { task_id: TASK, summary: "Login fails. Use AKIAABCDEFGHIJKLMNOP to reproduce." })).text, /The summary looks like it contains a AWS access key/);
+  // Taking someone off needs no check: they may have left.
+  assert.match((await tool(url, "update_task", { task_id: TASK, owner: { remove: ["UGHOST"] } })).text, /^(Done|Nothing changed)/);
   assert.match((await tool(url, "update_task", { task_id: TASK, owner: { add: ["UREX"], remove: ["UREX"] } })).text, /add and remove/);
   assert.match((await tool(url, "update_task", { task_id: TASK })).text, /Nothing to change/);
   // Fields and a summary go in one call: the fields are told to the thread, the summary is saved.
@@ -694,7 +729,7 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   assert.match((await tool(url, "get_tasks", { fields: ["nope"] })).text, /fields is a list of: title, project/);
   const listed = (await tool(url, "get_projects", {})).data;
   assert.equal(listed.total, 2);
-  assert.deepEqual(listed.projects, [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }]);
+  assert.deepEqual(listed.projects, [{ name: "acme", channel_id: "CDEV" }, { name: "bare", channel_id: "CBARE" }]);
 
   for (const limit of [0, 101, 2.5, "5"]) assert.match((await tool(url, "get_tasks", { limit })).text, /limit is a whole number from 1 to 100/);
   assert.match((await tool(url, "get_tasks", { status: "soon" })).text, /status is open, all or one of/);
@@ -821,8 +856,8 @@ test("get_task and get_tasks give a task's pull requests with where each is and 
   const url = addressIn(await slash("mcp init", "UME"));
 
   const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs", "releases"] });
-  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.id ?? null]), [["web/1", "PENDING_APPROVAL", sent], ["web/2", "APPROVED", approved], ["api/3", "PENDING", null]]);
-  assert.deepEqual(view.data.releases.map((release) => [release.id, release.status, release.sent_by, release.decided_by]), [[sent, "PENDING_APPROVAL", "UBOB", ""], [approved, "APPROVED", "UBOB", "UCLIENT"]]);
+  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.release_id ?? null]), [["web/1", "PENDING_APPROVAL", sent], ["web/2", "APPROVED", approved], ["api/3", "PENDING", null]]);
+  assert.deepEqual(view.data.releases.map((release) => [release.release_id, release.status, release.sent_by, release.decided_by]), [[sent, "PENDING_APPROVAL", "UBOB", ""], [approved, "APPROVED", "UBOB", "UCLIENT"]]);
   assert.match(view.text, /- web\/1 \(pending approval\): https:\/\/github\.com\/acme\/web\/pull\/1/);
   assert.match(view.text, /Release \d+ \(approved\), sent by UBOB, decided by UCLIENT: Sign-up/);
 
@@ -851,10 +886,12 @@ test("get_releases lists releases waiting for approval, or approved or turned do
   const waiting = await tool(url, "get_releases", {});
   assert.equal(waiting.isError, false, waiting.text);
   assert.equal(waiting.data.total, 1);
-  assert.deepEqual(waiting.data.releases.map((r) => [r.id, r.task_id, r.task_title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "PENDING_APPROVAL", "Login done", ["web/1"]]]);
+  assert.deepEqual(waiting.data.releases.map((r) => [r.release_id, r.task_id, r.title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "PENDING_APPROVAL", "Login done", ["web/1"]]]);
   assert.match(waiting.text, /^1 release, oldest first:\n1\. acme: Login \(CDEV:1000000000\.000100\) — pending approval, sent by UBOB/);
-  assert.deepEqual((await tool(url, "get_releases", { status: "NOT_APPROVED" })).data.releases.map((r) => [r.id, r.decided_by]), [[b, "UCLIENT"]]);
+  assert.deepEqual((await tool(url, "get_releases", { status: "NOT_APPROVED" })).data.releases.map((r) => [r.release_id, r.decided_by]), [[b, "UCLIENT"]]);
   assert.equal((await tool(url, "get_releases", { status: "all" })).data.total, 2);
+  assert.equal((await tool(url, "get_releases", { status: "all", limit: 1 })).data.releases.length, 1, "limit keeps the first");
+  assert.match((await tool(url, "get_releases", { limit: 0 })).text, /limit is a whole number from 1 to 100/);
   assert.equal((await tool(url, "get_releases", { task_id: "CDEV:1000000000.000100", status: "all" })).data.total, 2);
   assert.equal((await tool(url, "get_releases", { project: "bare", status: "all" })).data.total, 0);
   assert.match((await tool(url, "get_releases", { status: "APPROVED" })).text, /^There are no releases approved to show\./);
@@ -1018,6 +1055,9 @@ test("create_task makes a task or incident from a thread or from scratch, moves 
   assert.match((await tool(url, "create_task", { title: "x" })).text, /Say which project to make it in with project: acme, bare/);
   assert.match((await tool(url, "create_task", { title: "x", project: "nope" })).text, /no project called "nope"/);
   assert.match((await tool(url, "create_task", { title: "x", project: "acme", priority: "Soon" })).text, /priority is one of/);
+  // One from scratch isn't made twice: the project has an open task with that title.
+  assert.match((await tool(url, "create_task", { title: "fix safari  CHECKOUT", project: "acme" })).text, /acme already has an open task called "Fix Safari checkout" \(CDEV:100\.1\)/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", summary: "ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123" })).text, /The summary looks like it contains a GitHub token/);
   assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: "CDEV:1.1", link: "https://a.slack.com/archives/CDEV/p1000000" })).text, /not both/);
 });
 
@@ -1067,6 +1107,8 @@ test("get_team_availability ranks people by open workload and shows their status
   assert.equal(calls.filter((call) => call.method === "users.getPresence").length, 0);
   assert.match((await tool(url, "get_team_availability", { fields: ["email"] })).text, /fields is a list of: /);
   assert.deepEqual((await tool(url, "get_team_availability", { users: ["UBOB"] })).data.people.map((person) => person.user_id), ["UBOB"]);
+  assert.deepEqual((await tool(url, "get_team_availability", { limit: 1 })).data.people.map((person) => person.user_id), ["UANN"], "limit keeps the least loaded");
+  assert.match((await tool(url, "get_team_availability", { limit: 0 })).text, /limit is a whole number from 1 to 200/);
   assert.match((await tool(url, "get_team_availability", { users: ["bob"] })).text, /users is a list of Slack user IDs/);
 });
 
@@ -1130,6 +1172,10 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.deepEqual(closed.data.tasks.map((task) => task.title), ["Export reports"]);
   assert.match(closed.data.tasks[0].completed_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   assert.match((await tool(url, "get_tasks", { completed_from: "soon" })).text, /completed_from is a day written YYYY-MM-DD/);
+  // completed_to is the other end: of what was closed up to a week ago, only the old task.
+  const upTo = await tool(url, "get_tasks", { project: "acme", completed_to: daysAgo(7).slice(0, 10), fields: ["title"] });
+  assert.deepEqual(upTo.data.tasks.map((task) => task.title), ["Old work"]);
+  assert.match((await tool(url, "get_tasks", { completed_to: "soon" })).text, /completed_to is a day written YYYY-MM-DD/);
 
   // include_open adds every task not done, listed first, to those done in the days.
   const week = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
@@ -1149,8 +1195,15 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.equal(calls.filter((call) => call.method === "google:doc.write").length, 0);
 
   // Writing one: the first period is the past week, closed tasks included.
-  const made = await tool(url, "create_executive_summary", { project: "acme", items: [{ task_id: "CDEV:100.3", health: "AT_RISK", progress: "3/5", notes: "Waiting on QA" }, { task_id: "CDEV:100.1", included: false }] });
+  // The period must be days, in order; and a list can only be so long.
+  assert.match((await tool(url, "create_executive_summary", { project: "acme", from: "2030-02-01", to: "2030-01-01" })).text, /starts 2030-02-01, after it ends 2030-01-01/);
+  assert.match((await tool(url, "create_executive_summary", { project: "acme", from: "soon" })).text, /from is a day written YYYY-MM-DD/);
+  assert.match((await tool(url, "create_executive_summary", { project: "acme", items: Array.from({ length: 301 }, () => ({ task_id: "CDEV:100.3" })) })).text, /items has 301 entries; give at most 300/);
+  const week7 = daysAgo(7).slice(0, 10);
+  const today = daysAgo(0).slice(0, 10);
+  const made = await tool(url, "create_executive_summary", { project: "acme", from: week7, to: today, items: [{ task_id: "CDEV:100.3", health: "AT_RISK", progress: "3/5", notes: "Waiting on QA" }, { task_id: "CDEV:100.1", included: false }] });
   assert.equal(made.isError, false, made.text);
+  assert.deepEqual([made.data.from, made.data.to], [week7, today], "the period that was asked for");
   assert.deepEqual(made.data.carried_over.sort(), ["CDEV:100.4", "CDEV:100.5"]);
   const written = calls.filter((call) => call.method === "google:doc.write");
   assert.equal(written.length, 1);
@@ -1181,12 +1234,16 @@ test("executive summaries: written to the doc, compared before and after the cli
   ];
   const doc = await tool(url, "get_executive_summary_doc", { project: "acme" });
   assert.equal(doc.data.summary_id, id);
+  assert.equal((await tool(url, "get_executive_summary_doc", { project: "acme", summary_id: id })).data.summary_id, id, "by its number");
+  assert.match((await tool(url, "get_executive_summary_doc", { project: "acme", summary_id: 9999 })).text, /has no summary #9999/);
   assert.deepEqual(doc.data.lines.filter((line) => !line.written).map((line) => line.text), ["Client wants it by Friday", "Add SSO"]);
   assert.equal(doc.data.lines[0].task_id, "CDEV:100.3");
 
   // Recording the call: a change, something taken out, something added.
   assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: id, items: [{ task_id: "CDEV:999.9" }] })).text, /isn't in summary/);
   assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: 9999 })).text, /no such summary/);
+  assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: id, items: Array.from({ length: 301 }, () => ({ task_id: "CDEV:100.3" })) })).text, /items has 301 entries; give at most 300/);
+  assert.match((await tool(url, "update_executive_summary_after_call", { summary_id: id, added: Array.from({ length: 51 }, (_, i) => ({ title: `Item ${i}` })) })).text, /added has 51 entries; give at most 50/);
   const call = { summary_id: id, notes: "Client call", items: [{ task_id: "CDEV:100.3", health: "DELAYED", notes: "Waiting on QA\nClient wants it by Friday" }, { task_id: "CDEV:100.5", included: false }], added: [{ title: "Add SSO", notes: "Client request" }] };
   const recorded = await tool(url, "update_executive_summary_after_call", call);
   assert.equal(recorded.isError, false, recorded.text);
@@ -1202,15 +1259,15 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.deepEqual([item(compared.data, "Add SSO").change, item(compared.data, "Add SSO").before, item(compared.data, "Add SSO").kind], ["added", null, "ADDED"]);
 
   // Telling a thread marks it, and it is told once.
-  const told = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", executive_summary_id: id });
+  const told = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
   assert.equal(told.isError, false, told.text);
   assert.match(told.text, /Marked as told for summary/);
   assert.match(item(await tool(url, "get_executive_summary", { project: "acme" }).then((r) => r.data), "Upgrade Node").informed_at, /^\d{4}-/);
-  const again = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", executive_summary_id: id });
+  const again = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
   assert.equal(again.isError, true);
   assert.match(again.text, /already told/);
   assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
-  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:100.4", text: "x", executive_summary_id: id })).text, /already told|no after-call entry|Posted/);
+  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:100.4", text: "x", summary_id: id })).text, /already told|no after-call entry|Posted/);
   // Without the summary it posts as always.
   assert.equal((await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "A normal message." })).isError, false);
 
@@ -1229,4 +1286,110 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.equal(item(second, "Upgrade Node").before.health, "BLOCKED");
   // The last recording replaced the earlier one, so only what it said is carried over.
   assert.equal(item(second, "Upgrade Node").before.notes, "Waiting on QA");
+});
+
+test("every argument and result field, and every object inside a result, has a description", () => {
+  const bare = [];
+  const isObject = (schema) => schema.type === "object" || (Array.isArray(schema.type) && schema.type.includes("object"));
+  // The two root objects of a tool say nothing of themselves: the tool's own description does.
+  const walk = (schema, path, root = false) => {
+    if (!schema || typeof schema !== "object") return;
+    if (!root && isObject(schema) && !schema.description) bare.push(path);
+    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+      if (!property.description) bare.push(`${path}.${name}`);
+      walk(property, `${path}.${name}`);
+    }
+    if (schema.items) walk(schema.items, `${path}[]`);
+  };
+  for (const def of TOOL_DEFS) {
+    walk(def.inputSchema, `${def.name} input`, true);
+    walk(def.outputSchema, `${def.name} output`, true);
+  }
+  assert.deepEqual([...new Set(bare)], []);
+});
+
+test("update_task leaves a task in Client review to the client's approver", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored({ status: "CLIENT_REVIEW" }));
+  mock(t, { "conversations.info": { channel: { name: "dev" } }, "users.info": WORKSPACE });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const TASK = "CDEV:1700000000.000100";
+  for (const status of ["DONE", "IN_PROGRESS"]) {
+    assert.match((await tool(url, "update_task", { task_id: TASK, status })).text, /in Client review: it waits for the client's approver/);
+  }
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100")).status, "CLIENT_REVIEW");
+  // Its other fields still change.
+  assert.match((await tool(url, "update_task", { task_id: TASK, priority: "Low" })).text, /^Done\./);
+});
+
+test("a result that holds user IDs names those people, in its data and its text, with the IDs kept", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ link: "https://acme.slack.com/archives/CDEV/p1700000000000100", people: { owner: ["UREX12345"], reviewer: ["UANN12345"], tester: [] }, createdBy: "UBOB12345" }));
+  await DB.prepare("INSERT INTO task_notes (channel, task_ts, summary, summary_by, body) VALUES ('CDEV', ?, 'Raised by <@UBOB12345>', 'UANN12345', '')").bind(TS).run();
+  const NAMES = { UREX12345: "Rex Roe", UANN12345: "Ann Lee", UBOB12345: "Bob Jones" };
+  const calls = mock(t, {
+    "conversations.info": { channel: { name: "dev" } },
+    "conversations.replies": { messages: [{ ts: TS, user: "UBOB12345", text: "Hi <@UANN12345>, and <@UGHOST123>" }] },
+    "users.info": (args) => (NAMES[args.user] ? { user: { real_name: NAMES[args.user] } } : new Error("user_not_found")),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  // The IDs in the fields, the mention in the summary, and who wrote it: each named once.
+  const view = await tool(url, "get_task", { task_id: `CDEV:${TS}` });
+  assert.deepEqual(view.data.user_names, NAMES);
+  assert.deepEqual([view.data.owner, view.data.created_by, view.data.summary_by], [["UREX12345"], "UBOB12345", "UANN12345"], "the IDs are still there");
+  assert.match(view.text, /owner: Rex Roe \(UREX12345\)/);
+  assert.match(view.text, /raised by Bob Jones \(UBOB12345\)/);
+  assert.match(view.text, /written by Ann Lee \(UANN12345\)/);
+  assert.match(view.text, /Raised by @Bob Jones \(UBOB12345\)/);
+  assert.equal(calls.filter((call) => call.method === "users.info" && call.args.user === "UREX12345").length, 1);
+
+  // A mention in a thread is named too; one Slack doesn't know is left as it was.
+  const thread = await tool(url, "get_thread_history", { thread_id: `CDEV:${TS}` });
+  assert.deepEqual(thread.data.user_names, { UBOB12345: "Bob Jones", UANN12345: "Ann Lee" });
+  assert.match(thread.text, /Bob Jones \(UBOB12345\): Hi @Ann Lee \(UANN12345\), and <@UGHOST123>/);
+  assert.deepEqual(thread.data.messages[0].text, "Hi <@UANN12345>, and <@UGHOST123>", "the data keeps the text as it was");
+
+  // The names are kept in the database, so the next result asks Slack for no one it has asked about.
+  const asked = calls.filter((call) => call.method === "users.info").length;
+  await tool(url, "get_task", { task_id: `CDEV:${TS}` });
+  assert.equal(calls.filter((call) => call.method === "users.info").length, asked);
+
+  // What it learned is kept in the database (the user_names table), for the next call and the next restart.
+  assert.equal((await DB.prepare("SELECT name FROM user_names WHERE user_id = ?").bind("UREX12345").first()).name, "Rex Roe");
+  assert.equal(await DB.prepare("SELECT name FROM user_names WHERE user_id = ?").bind("UGHOST123").first(), null, "an ID Slack doesn't know is not kept as a name");
+
+  // A name already kept is used without asking Slack.
+  await keepName(env, "UKEPT1234", "Kim Kept");
+  await putTask(env, "CDEV", "1700000001.000100", stored({ people: { owner: ["UKEPT1234"], reviewer: [], tester: [] } }));
+  const kept = await tool(url, "get_task", { task_id: "CDEV:1700000001.000100", fields: ["owner"] });
+  assert.deepEqual(kept.data.user_names, { UKEPT1234: "Kim Kept" });
+  assert.equal(calls.filter((call) => call.method === "users.info" && call.args.user === "UKEPT1234").length, 0);
+
+  // Every tool that says it names people gives the map, even when nobody is in the result.
+  const none = await tool(url, "get_tasks", { status: "DONE" });
+  assert.deepEqual(none.data.user_names, {});
+});
+
+test("a kept name is asked about again after a month, and kept if the person has left Slack", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ people: { owner: ["UOLD12345", "UGONE1234", "UFRESH123"], reviewer: [], tester: [] } }));
+  const keptAt = (id, days) => DB.prepare("INSERT INTO user_names (user_id, name, updated_at) VALUES (?, ?, datetime('now', ?))").bind(id, `Old ${id}`, `-${days} days`).run();
+  await keptAt("UOLD12345", 40); // renamed since
+  await keptAt("UGONE1234", 40); // gone from Slack
+  await keptAt("UFRESH123", 5); // looked up recently
+  const calls = mock(t, {
+    "conversations.info": { channel: { name: "dev" } },
+    "users.info": (args) => (args.user === "UOLD12345" ? { user: { real_name: "Renamed Olu" } } : new Error("user_not_found")),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const asked = () => calls.filter((call) => call.method === "users.info").map((call) => call.args.user).sort();
+
+  const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["owner"] });
+  assert.deepEqual(view.data.user_names, { UOLD12345: "Renamed Olu", UGONE1234: "Old UGONE1234", UFRESH123: "Old UFRESH123" });
+  assert.deepEqual(asked(), ["UGONE1234", "UOLD12345"], "only the two old names were asked about");
+  assert.equal((await DB.prepare("SELECT name FROM user_names WHERE user_id = ?").bind("UOLD12345").first()).name, "Renamed Olu");
+
+  // The one that has left keeps its name, and is not asked about again for another month.
+  await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["owner"] });
+  assert.deepEqual(asked(), ["UGONE1234", "UOLD12345"], "nobody was asked about a second time");
 });

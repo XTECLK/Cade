@@ -10,9 +10,11 @@ import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.js";
 import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.js";
 import { publicUrl } from "./links.js";
 import { syncNotes } from "./notes.js";
-import { DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, AVAILABILITY_FIELDS, MAX_MESSAGE, MAX_PRESENCE, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
+import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.js";
 import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn } from "./slack.js";
+import { nameMap } from "./export.js";
 import { INSTRUCTIONS } from "./guardrails.js";
+import { SERVER_DESCRIPTION } from "./mcp-about.js";
 import { releaseRequest } from "./commands/release.js";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.js";
 
@@ -152,7 +154,7 @@ async function answer(env, user, message) {
       return success(id, {
         protocolVersion: PROTOCOLS.includes(params?.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
         capabilities: { tools: {} },
-        serverInfo: { name: "cade", title: "Cade", version: "1.0.0" },
+        serverInfo: { name: "cade", title: "Cade", version: "1.0.0", description: SERVER_DESCRIPTION },
         instructions: INSTRUCTIONS,
       });
     case "ping":
@@ -173,12 +175,47 @@ async function callTool(env, user, id, params) {
   try {
     // A tool gives its text, or { text, data } to pass on its data as well.
     const result = await tool.run(env, user, params.arguments ?? {});
-    return typeof result === "string" ? reply(result) : reply(result.text, false, result.data);
+    if (typeof result === "string") return reply(result);
+    // A result that holds user IDs carries the names of those people too, so no lookup is needed to show them.
+    const named = tool.outputSchema?.properties?.user_names ? await withUserNames(env, result) : result;
+    return reply(named.text, false, named.data);
   } catch (error) {
     if (error instanceof ToolError) return reply(error.message, true);
     console.error("MCP tool failed", { tool: tool.name, error: error.message });
     return reply(`Something went wrong in ${tool.name}: ${error.message}`, true);
   }
+}
+
+// A user ID as a whole value, or a <@…> mention in any text.
+const USER_ID_VALUE = /^[UW][A-Z0-9]{8,}$/;
+const USER_MENTION = /<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>/g;
+
+// Every user ID in `value`: the fields that hold one, and the mentions in what people wrote.
+function userIdsIn(value, found = new Set()) {
+  if (typeof value === "string") {
+    if (USER_ID_VALUE.test(value)) found.add(value);
+    for (const mention of value.matchAll(USER_MENTION)) found.add(mention[1]);
+  } else if (Array.isArray(value)) {
+    for (const item of value) userIdsIn(item, found);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value)) userIdsIn(item, found);
+  }
+  return found;
+}
+
+// `result` with `user_names` in its data (at most MAX_NAMES people), and each of those people in its text
+// as "Name (ID)", or "@Name (ID)" for a mention. The IDs stay: the other tools take them.
+async function withUserNames(env, result) {
+  const ids = [...userIdsIn(result.data)].slice(0, MAX_NAMES);
+  // The names kept in the database; Slack is asked only for a person not seen before. An ID with no name
+  // (not a person Slack knows) stands in for itself there, and is left out here.
+  const kept = await nameMap(env, ids);
+  const user_names = Object.fromEntries(ids.filter((id) => kept.get(id) && kept.get(id) !== id).map((id) => [id, kept.get(id)]));
+  const text = result.text.replace(/<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>|\b([UW][A-Z0-9]{8,})\b/g, (all, mention, bare) => {
+    const id = mention ?? bare;
+    return user_names[id] ? `${mention ? "@" : ""}${user_names[id]} (${id})` : all;
+  });
+  return { text, data: { ...result.data, user_names } };
 }
 
 // The channel and the ts of the thread a link points to (a link to a reply
@@ -307,7 +344,7 @@ function taskData(env, channel, ts, task, link) {
     task_id: `${channel}:${ts}`,
     title: task.title,
     project: name,
-    channel,
+    channel_id: channel,
     status: task.status,
     priority: task.priority,
     due_date: task.dueDate || "",
@@ -322,7 +359,7 @@ function taskData(env, channel, ts, task, link) {
 
 // A release as data, with its time as YYYY-MM-DD HH:MM in UTC.
 const releaseData = (release) => ({
-  id: release.id,
+  release_id: release.id,
   prs: release.prs,
   note: release.note,
   status: release.status,
@@ -346,7 +383,7 @@ function prData(task, releases = task.releases ?? []) {
       url,
       label: pr ? `${pr.repo}/${pr.number}` : url,
       state: task.status === "DONE" || approved ? "APPROVED" : release ? "PENDING_APPROVAL" : "PENDING",
-      release: release ? { id: release.id, note: release.note, status: release.status } : null,
+      release: release ? { release_id: release.id, note: release.note, status: release.status } : null,
     };
   });
   return { prs, releases: releases.map(releaseData) };
@@ -398,7 +435,7 @@ async function getTaskView(env, user, args) {
   if (want("prs", "releases")) {
     const { prs, releases } = prData(task);
     lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.toLowerCase().replace("_", " ")}): ${pr.url}`) : ["(none linked)"]));
-    for (const release of releases) lines.push(`Release ${release.id} (${release.status.toLowerCase().replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
+    for (const release of releases) lines.push(`Release ${release.release_id} (${release.status.toLowerCase().replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
   }
   if (want("original_thread", "original_thread_state")) {
     lines.push(
@@ -455,13 +492,13 @@ async function getReleases(env, user, { status, task_id: taskId, project, limit 
       ...releaseData(release),
       prs: release.prs.map((url) => ({ url, label: (({ repo, number } = {}) => (repo ? `${repo}/${number}` : url))(parsePullRequest(url) ?? {}) })),
       task_id: `${c}:${ts}`,
-      task_title: title,
+      title,
       project,
     };
   });
   const label = wanted.toLowerCase().replace("_", " ");
   if (!releases.length) return { text: `There are no releases ${wanted === "all" ? "" : `${label} `}to show.`.replace("  ", " "), data: { total: 0, releases: [] } };
-  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.task_title} (${r.task_id}) — ${r.status.toLowerCase().replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
+  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.title} (${r.task_id}) — ${r.status.toLowerCase().replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
   const more = visible.length > shown.length ? `\n…and ${visible.length - shown.length} more; raise limit (up to ${MAX_TASKS}).` : "";
   return { text: [`${visible.length} release${visible.length === 1 ? "" : "s"}, oldest first:`, ...lines].join("\n") + more, data: { total: visible.length, releases } };
 }
@@ -540,7 +577,7 @@ async function getChannelThreads(env, user, { channel_id: channel, days, with_re
     thread_id: `${channel}:${message.ts}`,
     time: utc(message.ts),
     user_id: message.user,
-    text: (message.text ?? "").slice(0, 300),
+    text: (message.text ?? "").slice(0, MAX_PREVIEW),
     files: (message.files ?? []).map((file) => file.name),
     reply_count: Number(message.reply_count) || 0,
     last_reply: message.latest_reply && Number(message.reply_count) > 0 ? utc(message.latest_reply) : "",
@@ -567,6 +604,7 @@ async function createTaskTool(env, user, args) {
     summary = String(args.summary).trim();
     if (!summary) throw new ToolError("The summary is empty.");
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
+    refuseSecrets(summary, "The summary");
   }
 
   // The thread to move into the task: one the person can read, that isn't a task or moved already.
@@ -589,6 +627,10 @@ async function createTaskTool(env, user, args) {
   }
   if ((await readableName(env, project.channel, user)) === null) throw new ToolError("You can't read that project's channel, so I can't make a task there for you.");
 
+  if (!source) {
+    const same = (await tasksWithStatuses(env, OPEN)).find((entry) => entry.channel === project.channel && entry.task.title.trim().toLowerCase() === title.toLowerCase());
+    if (same) throw new ToolError(`${project.name} already has an open ${same.task.incident ? "incident" : "task"} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
+  }
   const task = { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: args.priority ?? "Medium", dueDate }), people: noPeople(), createdBy: user };
   const ts = await createTask(env, task, { channel: project.channel, move: source });
   if (!ts) throw new ToolError(`Slack wouldn't take the ${incident ? "incident" : "task"} just now. Cade tries again in a few minutes, but without the summary, so check ${project.name}'s channel before trying again.`);
@@ -607,9 +649,9 @@ async function createTaskTool(env, user, args) {
 async function getProjects(env, user) {
   const seen = [];
   for (const project of projects(env)) {
-    if ((await readableName(env, project.channel, user)) !== null) seen.push({ name: project.name, channel: project.channel });
+    if ((await readableName(env, project.channel, user)) !== null) seen.push({ name: project.name, channel_id: project.channel });
   }
-  const lines = seen.map((project) => `- ${project.name}: <#${project.channel}> (${project.channel})`);
+  const lines = seen.map((project) => `- ${project.name}: <#${project.channel_id}> (${project.channel_id})`);
   const text = lines.length ? [`${lines.length} project${lines.length === 1 ? "" : "s"}:`, ...lines].join("\n") : "There are no projects whose channel you can read.";
   return { text, data: { total: seen.length, projects: seen } };
 }
@@ -627,6 +669,7 @@ async function getTasks(env, user, args = {}) {
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_FIELDS.join(", ")}.`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
   if (assignee !== undefined && !/^[UW][A-Z0-9]{2,}$/.test(String(assignee))) throw new ToolError("assignee is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
+  if (assignee !== undefined) await requireActiveUsers(env, [String(assignee)]);
   if (unassigned && (mine || role || assignee)) throw new ToolError("unassigned can't be combined with mine, role or assignee.");
   if (project !== undefined) args = { ...args, channel: projectChannel(env, project) };
   if (args.completed_from !== undefined || args.completed_to !== undefined) {
@@ -818,7 +861,7 @@ async function findUser(env, user, { name, fields }) {
   checkUserFields(fields);
   const wanted = String(name ?? "").trim().toLowerCase().replace(/^@/, "");
   if (wanted.length < 2) throw new ToolError("Give at least two letters of the person's name.");
-  const { lines, users, total } = await workspacePeople(env, (names) => names.some((candidate) => candidate.toLowerCase().includes(wanted)), 10, fields);
+  const { lines, users, total } = await workspacePeople(env, (names) => names.some((candidate) => candidate.toLowerCase().includes(wanted)), MAX_MATCHES, fields);
   if (!total) return { text: `No one in the workspace matches "${name}".`, data: { total: 0, users: [] } };
   return { text: [`${total} match${total === 1 ? "" : "es"}${total > lines.length ? `, showing ${lines.length}` : ""}:`, ...lines].join("\n"), data: { total, users } };
 }
@@ -959,12 +1002,14 @@ async function sendTaskMessage(env, user, args) {
   if (!message) throw new ToolError("The message is empty.");
   if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
   // A message telling the thread what a client call decided is sent once, and marks the task as told.
-  const summaryId = args.executive_summary_id;
+  const summaryId = args.summary_id;
   if (summaryId !== undefined) {
     const item = Number.isInteger(summaryId) ? (await summaryItems(env, summaryId)).after.find((entry) => entry.channel === channel && entry.ts === ts) : undefined;
-    if (!item) throw new ToolError(`Summary #${summaryId} has no after-call entry for that task. Record the call first with update_executive_summary_after_call, or send without executive_summary_id.`);
-    if (item.informedAt) throw new ToolError(`That task's thread was already told about summary #${summaryId} on ${timeOf(item.informedAt)} UTC, so I haven't sent it again. Send without executive_summary_id to post anyway.`);
+    if (!item) throw new ToolError(`Summary #${summaryId} has no after-call entry for that task. Record the call first with update_executive_summary_after_call, or send without summary_id.`);
+    if (item.informedAt) throw new ToolError(`That task's thread was already told about summary #${summaryId} on ${timeOf(item.informedAt)} UTC, so I haven't sent it again. Send without summary_id to post anyway.`);
   }
+  refuseSecrets(message, "The message");
+  await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]));
   const body = plainMessage(message);
   const from = `Sent by <@${user}>`;
   await callSlack(env, "chat.postMessage", {
@@ -1005,6 +1050,38 @@ function userIds(role, list) {
   return [...new Set(ids)];
 }
 
+// A ToolError unless every ID is an active person of the workspace: not a made-up ID, a bot or a
+// deactivated account, which would be saved on a task or mentioned and notify no one.
+async function requireActiveUsers(env, ids) {
+  await Promise.all([...new Set(ids)].map(async (id) => {
+    const found = await callSlack(env, "users.info", { user: id }).catch((error) => {
+      if (!/user_not_found/.test(error.message)) throw new ToolError(`I couldn't check ${id} (${error.message}).`);
+      return null;
+    });
+    if (!found?.user || found.user.deleted || found.user.is_bot) throw new ToolError(`${id} isn't an active person in the workspace. find_user_by_name gives the IDs.`);
+  }));
+}
+
+// What a credential looks like, by the name it is refused under.
+const SECRETS = [
+  ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  ["Slack token", /\bxox[abposr]-[A-Za-z0-9-]{10,}/],
+  ["GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/],
+  ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  ["Google API key", /\bAIza[0-9A-Za-z_-]{35}\b/],
+  ["Stripe key", /\b[sr]k_live_[0-9A-Za-z]{16,}/],
+  ["JSON web token", /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
+  ["bearer token", /\bBearer\s+[A-Za-z0-9._~+/-]{24,}/],
+  ["password", /\b(?:password|passwd|pwd|secret|api[_-]?key|token)\s*[:=]\s*["']?[^\s"']{8,}/i],
+];
+
+// A ToolError if `text` looks like it holds a credential: what is written to a task or thread is read
+// by everyone who can read it, and stays there.
+function refuseSecrets(text, where) {
+  const found = SECRETS.find(([, pattern]) => pattern.test(String(text ?? "")));
+  if (found) throw new ToolError(`${where} looks like it contains a ${found[0]}. Leave secrets out and send it again.`);
+}
+
 // The pull request addresses in a list of links, without duplicates, or a ToolError.
 function prLinksOf(list, name) {
   if (list === undefined) return [];
@@ -1042,7 +1119,7 @@ async function updateRelease(env, user, { release_id: id, prs, note } = {}) {
   if (note !== undefined) {
     text = String(note).trim();
     if (!text) throw new ToolError("The note is empty.");
-    if (text.length > 300) throw new ToolError(`The note is ${text.length} characters; keep it to 300 or fewer.`);
+    if (text.length > MAX_RELEASE_NOTE) throw new ToolError(`The note is ${text.length} characters; keep it to ${MAX_RELEASE_NOTE} or fewer.`);
   }
   const next = [...release.prs.filter((url) => !remove.includes(url)), ...add.filter((url) => !release.prs.includes(url))];
   if (!next.length) throw new ToolError("A release needs at least one pull request. To take it back, tell the person to settle it in the task's thread.");
@@ -1075,6 +1152,7 @@ async function updateTask(env, user, args) {
   if (args.status !== undefined) {
     const status = parseStatus(String(args.status));
     if (!status) throw new ToolError(`status is one of ${Object.keys(STATUSES).join(", ")}.`);
+    if (task.status === "CLIENT_REVIEW" && status !== task.status) throw new ToolError("This task is in Client review: it waits for the client's approver, who approves it or sends it back in the task's thread in Slack. Tell the person, and don't change its status here.");
     changes.status = status;
   }
   if (args.priority !== undefined) {
@@ -1093,6 +1171,7 @@ async function updateTask(env, user, args) {
     if (add.some((id) => remove.includes(id))) throw new ToolError(`${role}: the same person is in add and remove.`);
     changes.people = { ...changes.people, [role]: { add, remove } };
   }
+  await requireActiveUsers(env, Object.values(changes.people ?? {}).flatMap(({ add }) => add));
   if (args.prs !== undefined) {
     const links = (name) => prLinksOf(args.prs[name], `prs.${name}`);
     const add = links("add");
@@ -1108,6 +1187,7 @@ async function updateTask(env, user, args) {
     summary = String(args.summary).trim();
     if (!summary) throw new ToolError("The summary is empty.");
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
+    refuseSecrets(summary, "The summary");
   }
   if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, has_subtasks, owner, reviewer, tester, prs or summary.");
 
@@ -1174,7 +1254,7 @@ const said = (version) => (version ? `${version.included ? "" : "left out · "}$
 async function getExecutiveSummary(env, user, { project, date } = {}) {
   const group = await readableProject(env, user, project);
   const found = date === undefined ? await lastSummary(env, group.name) : (await summariesOf(env, group.name, { onOrBefore: dayBoundary(env, dayOf(date, "date"), { end: true }), limit: 1 }))[0];
-  const others = (await summariesOf(env, group.name, { limit: 11 })).filter((other) => other.id !== found?.id).slice(0, 10);
+  const others = (await summariesOf(env, group.name, { limit: MAX_EARLIER_SUMMARIES + 1 })).filter((other) => other.id !== found?.id).slice(0, MAX_EARLIER_SUMMARIES);
   const earlier = others.map((other) => ({ summary_id: other.id, created_at: timeOf(other.createdAt), from: period(env, other).from, to: period(env, other).to }));
   if (!found) {
     const text = date === undefined ? `${group.name} has no executive summary yet. Write one with create_executive_summary.` : `${group.name} has no executive summary written on or before ${date}.`;
@@ -1210,12 +1290,13 @@ async function getExecutiveSummaryDoc(env, user, { project, summary_id: id } = {
 
 // The health, progress and notes an agent gave a task, checked, with only what it gave.
 function choiceOf(item) {
+  refuseSecrets(`${item.progress ?? ""}\n${item.notes ?? ""}`, "The progress or notes");
   if (item.health !== undefined && !HEALTH[item.health]) throw new ToolError(`health is one of ${Object.keys(HEALTH).join(", ")}.`);
   return {
     ...(item.included !== undefined && { included: Boolean(item.included) }),
     ...(item.health !== undefined && { health: item.health }),
-    ...(item.progress !== undefined && { progress: String(item.progress).trim().slice(0, 200) }),
-    ...(item.notes !== undefined && { notes: String(item.notes).trim().slice(0, 1000) }),
+    ...(item.progress !== undefined && { progress: String(item.progress).trim().slice(0, MAX_PROGRESS) }),
+    ...(item.notes !== undefined && { notes: String(item.notes).trim().slice(0, MAX_ITEM_NOTES) }),
   };
 }
 
@@ -1224,6 +1305,7 @@ async function createExecutiveSummary(env, user, { project, from, to, items = []
   const group = await readableProject(env, user, project);
   docError(env, group);
   if (!Array.isArray(items)) throw new ToolError("items is a list of { task_id, included?, health?, progress?, notes? }.");
+  if (items.length > MAX_SUMMARY_ITEMS) throw new ToolError(`items has ${items.length} entries; give at most ${MAX_SUMMARY_ITEMS}. A task not listed keeps what the last summary said.`);
   const base = await defaultPeriod(env, group);
   const days = { from: from === undefined ? base.from : dayOf(from, "from"), to: to === undefined ? base.to : dayOf(to, "to") };
   if (days.from > days.to) throw new ToolError(`The period starts ${days.from}, after it ends ${days.to}. Give from and to, YYYY-MM-DD, with from first.`);
@@ -1252,6 +1334,8 @@ async function updateAfterCall(env, user, { summary_id: id, items = [], added = 
   const group = projects(env).find((pair) => pair.name === summary.project);
   if (!group || (await readableName(env, group.channel, user)) === null) throw new ToolError("You can't read that summary's project.");
   if (!Array.isArray(items) || !Array.isArray(added)) throw new ToolError("items and added are lists.");
+  if (items.length > MAX_SUMMARY_ITEMS) throw new ToolError(`items has ${items.length} entries; give at most ${MAX_SUMMARY_ITEMS}.`);
+  if (added.length > MAX_ADDED_ITEMS) throw new ToolError(`added has ${added.length} entries; give at most ${MAX_ADDED_ITEMS}.`);
 
   const { before } = await summaryItems(env, id);
   const overrides = new Map(items.map((item) => {
@@ -1261,7 +1345,7 @@ async function updateAfterCall(env, user, { summary_id: id, items = [], added = 
   }));
   const after = before.map((was) => ({ ...was, ...overrides.get(`${was.channel}:${was.ts}`), informedAt: undefined, informedBy: undefined }));
   for (const item of added) {
-    const title = String(item.title ?? "").trim().slice(0, 200);
+    const title = String(item.title ?? "").trim().slice(0, MAX_ITEM_TITLE);
     if (!title) throw new ToolError("Each item in added needs a title.");
     let task = {};
     if (item.task_id !== undefined) {
@@ -1273,7 +1357,8 @@ async function updateAfterCall(env, user, { summary_id: id, items = [], added = 
     }
     after.push({ kind: "ADDED", title, included: true, health: "ON_TRACK", progress: "", notes: "", ...task, ...choiceOf(item) });
   }
-  await putSummaryAfter(env, id, after, { notes: String(notes ?? "").trim().slice(0, 2000), user });
+  refuseSecrets(notes, "The notes on the call");
+  await putSummaryAfter(env, id, after, { notes: String(notes ?? "").trim().slice(0, MAX_CALL_NOTES), user });
 
   const rows = compareVersions(await summaryItems(env, id));
   const changed = rows.filter((row) => ["changed", "removed"].includes(row.change)).map(taskIdOf).filter(Boolean);

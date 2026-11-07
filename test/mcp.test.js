@@ -16,7 +16,7 @@ const env = {
   SLACK_BOT_TOKEN: "xoxb-test",
   GOOGLE_URL,
   GOOGLE_SECRET: "g",
-  CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV" }, { name: "bare", tasks: "CBARE" }],
+  PROJECTS: [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }],
 };
 
 async function sign(body) {
@@ -832,10 +832,10 @@ test("the prompt isn't offered for a task not made from a message, from a DM, or
   const dm = { channel: "D0BOB", ts: "500.1", link: "https://acme.slack.com/archives/D0BOB/p5001" };
   assert.deepEqual(await submitTrack({ channel: "CDEV", move: dm }), { response_action: "clear" });
 
-  const off = { ...env, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", aiAgentSummary: false }] };
-  const original = env.CHANNEL_PAIRS;
-  env.CHANNEL_PAIRS = off.CHANNEL_PAIRS;
-  t.after(() => (env.CHANNEL_PAIRS = original));
+  const off = { ...env, PROJECTS: [{ name: "acme", channel: "CDEV", aiAgentSummary: false }] };
+  const original = env.PROJECTS;
+  env.PROJECTS = off.PROJECTS;
+  t.after(() => (env.PROJECTS = original));
   const move = { channel: "CGEN", ts: "500.1", link: "https://acme.slack.com/archives/CGEN/p5001" };
   assert.deepEqual(await submitTrack({ channel: "CDEV", move }), { response_action: "clear" });
 });
@@ -1155,7 +1155,7 @@ const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
 const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
 
 test("executive summaries: written to the doc, compared before and after the client call, and each thread told once", async (t) => {
-  env.PROJECTS = [{ name: "acme", tasks: "CDEV", workDoc: DOC_ID }, { name: "bare", tasks: "CBARE" }];
+  env.PROJECTS = [{ name: "acme", channel: "CDEV", workDoc: DOC_ID }, { name: "bare", channel: "CBARE" }];
   t.after(() => delete env.PROJECTS);
   await putTask(env, "CDEV", "100.1", stored({ title: "Export reports", status: "DONE", completedAt: daysAgo(2) }));
   await putTask(env, "CDEV", "100.2", stored({ title: "Old work", status: "DONE", completedAt: daysAgo(30) }));

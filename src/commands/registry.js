@@ -34,7 +34,7 @@ import web from "./web.js";
 //     aliases?: other names that run the same handler,
 //     admin?: true for tidying-up commands, which help lists apart,
 //     channel?: "channel", or [] for any channel: the channels in
-//               CHANNEL_PAIRS it works in,
+//               PROJECTS it works in,
 //     slashChannel?: like `channel`, for `/cade name` when it differs,
 //     inThread?: true if it must be run from a thread reply,
 //     run?(command, context) -> reply | undefined, for `@Cade name`,

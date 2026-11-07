@@ -60,8 +60,8 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | `name` | **Required** | The project's name, as the project picker and your agent's `get_projects` show it. |
 | `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). `npm run group` makes or finds it for you. |
 | `workDoc` | Optional | The address of the project's Google Doc, where your agent's `create_executive_summary` tool writes its executive summaries. People edit it: share it as **Editor**. Without one, `create_executive_summary` and `get_executive_summary_doc` say so. |
-| `taskStatusChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
-| `newMessageTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskStatusChangeDetection`. |
+| `taskChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
+| `newTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskChangeDetection`. |
 | `activeTasksPinning` | Optional (`false`) | Whether open tasks are pinned in the channel (and unpinned when done, archived or moved). `true` to pin them (needs the `pins:write` permission); with `false`, pins are left alone, and tasks already pinned stay pinned. |
 | `summaryCanvas` | Optional (`false`) | Whether the channel has a summary canvas of its tasks, kept up to date. `true` to keep one; with `false`, none is written and `/cade resync summary` says it is off, and a canvas already made stays as it is. |
 
@@ -273,7 +273,7 @@ npm run group
    Doc. Cade makes it.
 6. What it will do (admins included), to confirm. It then does it, saves the group in
    `cade.config.json` (git ignores it) and uploads it as the Worker secrets
-   `CHANNEL_PAIRS` and `TIMEZONE`.
+   `PROJECTS` and `TIMEZONE`.
 
 **Expect:** "Done", with the channel's link. Then share the group's work Doc
 as **Editor** with whoever goes through its summaries and notes, and its

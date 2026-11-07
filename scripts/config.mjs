@@ -23,11 +23,11 @@
 //   name, channel (an ID) required
 //   workDoc       the project's Google Doc, for executive summaries (an
 //                 address; without it create_executive_summary can't be used)
-//   taskStatusChangeDetection
+//   taskChangeDetection
 //                 the proactive agent: Cade reading messages in the threads
 //                 it manages and offering changes (optional, on): true, or
 //                 false for commands only
-//   newMessageTaskDetection
+//   newTaskDetection
 //                 whether Cade asks about a message posted on its own in the
 //                 channel: track it as a task, report it as an incident or
 //                 move it to a task (optional, on); false to leave such
@@ -41,9 +41,7 @@
 //                 whether open tasks are pinned in the channel (optional, off)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
 //                 (optional, off)
-// `npm run group` adds or changes a project here (see group.mjs). Older files
-// with `channels`, each with its channel as `tasks`, and `suggestions` for
-// taskStatusChangeDetection, are still read.
+// `npm run group` adds or changes a project here (see group.mjs).
 //
 // The real secrets (the bot token, the signing secret and GOOGLE_SECRET,
 // which the web app's address is useless without) are set once with
@@ -69,42 +67,24 @@ export function readConfig(json) {
     throw new Error("cade.config.json is not valid JSON.");
   }
   const known = ["projects", "timezone", "googleUrl", "mcp", "admins", "aiModel"];
-  // `channels` is the old name for `projects`.
-  const unknown = Object.keys(config).find((key) => !known.includes(key) && key !== "channels");
+  const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (PROJECT_SETTINGS.includes(unknown)) {
     throw new Error(`cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`);
   }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
   // None is allowed when the projects are kept in the database (`/cade project init`).
-  const list = projects({ PROJECTS: config.projects ?? config.channels ?? [] });
+  const list = projects({ PROJECTS: config.projects ?? [] });
   const ids = list.map((project) => project.channel);
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one project.`);
-  for (const project of list) {
-    // The Doc was once `doc`, then `exportDoc`; tasks and threads are kept in
-    // the database now, so a Sheet and the other Doc are dropped.
-    project.workDoc ??= project.exportDoc ?? project.doc;
-    if (project.workDoc === undefined) delete project.workDoc;
-    for (const old of ["doc", "exportDoc", "sheet", "taskSheet"]) delete project[old];
-  }
   const badWorkDoc = list.find((project) => project.workDoc !== undefined && !docId(project.workDoc));
   if (badWorkDoc) throw new Error(`${badWorkDoc.name}'s workDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
 
   for (const project of list) {
     try {
-      // `suggestions` is the old name of taskStatusChangeDetection.
-      if (project.suggestions !== undefined) {
-        project.taskStatusChangeDetection ??= project.suggestions;
-        delete project.suggestions;
-      }
-      // AI is how messages are read now, so there is nothing to switch: taskStatusChangeDetection turns
-      // suggestions off. The model is `aiModel`, once at the top of the file.
-      for (const removed of ["ai", "aiSuggestions"]) {
-        if (project[removed] !== undefined) throw new Error(`${removed} is gone: messages are always read with AI. Use taskStatusChangeDetection: false to turn suggestions off.`);
-      }
       if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
@@ -137,9 +117,9 @@ export function readConfig(json) {
 }
 
 // Features with `true` or `false`, set on each project: activeTasksPinning and summaryCanvas
-// are off unless turned on; taskStatusChangeDetection and
-// newMessageTaskDetection and aiAgentSummary are on unless turned off.
-const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection", "aiAgentSummary"];
+// are off unless turned on; taskChangeDetection and
+// newTaskDetection and aiAgentSummary are on unless turned off.
+const SWITCHES = ["taskChangeDetection", "activeTasksPinning", "summaryCanvas", "newTaskDetection", "aiAgentSummary"];
 
 // What a project can set, which used to be allowed at the top of the file.
 const PROJECT_SETTINGS = SWITCHES;
@@ -176,7 +156,7 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskStatusChangeDetection", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskChangeDetection", "newTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
     const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
     console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }

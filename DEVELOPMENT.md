@@ -78,7 +78,7 @@ Other scripts:
 | --- | --- |
 | `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, Google, then your first group |
 | `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, can make its Doc, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--exportDoc new] [--workDoc new] [--taskSheet new]` it takes them at once |
-| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`, `MCP`) |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `GOOGLE_URL`, `MCP`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
@@ -181,7 +181,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/db.js` | Reading and writing tasks in D1 |
 | `src/retry.js` | The cron's job: posting tasks Slack refused |
 | `src/tasks.js` | The task message: layout, saving, pins |
-| `src/channels.js` | `CHANNEL_PAIRS`: each group's dev channel |
+| `src/channels.js` | `PROJECTS`: each group's dev channel |
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/google.js` | Calling the Google web app |

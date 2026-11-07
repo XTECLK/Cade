@@ -24,7 +24,7 @@ export const SECRETS = [
 ];
 
 // The .env file Wrangler reads: values in single quotes, so JSON such as
-// CHANNEL_PAIRS is taken as it is.
+// PROJECTS is taken as it is.
 export function envFile(settings) {
   return Object.entries(settings)
     .filter(([, value]) => value)

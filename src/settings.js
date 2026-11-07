@@ -6,8 +6,8 @@ import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting 
 // A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS = [
-  { key: "taskStatusChangeDetection", label: "Task status change detection", about: "Cade reads messages in task threads with AI and offers, privately, to link a PR, assign someone, move the status or mark it blocked." },
-  { key: "newMessageTaskDetection", label: "New message task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
+  { key: "taskChangeDetection", label: "Task change detection", about: "Cade reads messages in task threads with AI and offers, privately, to link a PR, assign someone, move the status or mark it blocked." },
+  { key: "newTaskDetection", label: "New task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
   { key: "activeTasksPinning", label: "Active tasks pinning", about: "A message listing the open tasks is pinned in the channel until they're done." },
   { key: "summaryCanvas", label: "Summary canvas", about: "Each task's summary is kept in a Slack canvas as well." },
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
@@ -50,7 +50,7 @@ export async function withSettings(env) {
       ...project,
       ...Object.fromEntries(rows.filter((row) => row.channel === project.channel && keys.includes(row.key)).map((row) => [row.key, JSON.parse(row.value)])),
     }));
-    return { ...env, PROJECTS_BASE: env.PROJECTS ?? env.CHANNEL_PAIRS, PROJECTS: merged };
+    return { ...env, PROJECTS_BASE: env.PROJECTS, PROJECTS: merged };
   } catch (error) {
     console.error("Could not read the project settings", { error: error.message });
     return env;
@@ -69,22 +69,22 @@ export function isAdmin(env, user) {
 }
 
 // Whether `key` is on for the project with `channel`: true, false, or "some" when
-// taskStatusChangeDetection names only some kinds of suggestion.
+// taskChangeDetection names only some kinds of suggestion.
 export function settingOn(env, channel, key) {
   switch (key) {
-    case "taskStatusChangeDetection": {
+    case "taskChangeDetection": {
       let kinds = groupSetting(env, channel, key);
       if (kinds === undefined) {
         try {
-          kinds = env.TASK_STATUS_CHANGE_DETECTION === undefined ? true : JSON.parse(env.TASK_STATUS_CHANGE_DETECTION);
+          kinds = env.TASK_CHANGE_DETECTION === undefined ? true : JSON.parse(env.TASK_CHANGE_DETECTION);
         } catch {
           return true;
         }
       }
       return kinds === true ? true : Array.isArray(kinds) && kinds.length ? "some" : false;
     }
-    case "newMessageTaskDetection":
-      return !groupDisabled(env, channel, key, "NEW_MESSAGE_TASK_DETECTION");
+    case "newTaskDetection":
+      return !groupDisabled(env, channel, key, "NEW_TASK_DETECTION");
     case "aiAgentSummary":
       return !groupDisabled(env, channel, key, "AI_AGENT_SUMMARY");
     case "activeTasksPinning":
@@ -97,7 +97,7 @@ export function settingOn(env, channel, key) {
 }
 
 // The env as the config alone has it, without the added projects and the settings changed here.
-export const configEnv = (env) => ("PROJECTS_BASE" in env ? { ...env, PROJECTS: env.PROJECTS_BASE, CHANNEL_PAIRS: undefined } : env);
+export const configEnv = (env) => ("PROJECTS_BASE" in env ? { ...env, PROJECTS: env.PROJECTS_BASE } : env);
 
 // The choice made for each setting of the project with `channel` now: "config", "on" or "off".
 export async function choicesOf(env, channel) {

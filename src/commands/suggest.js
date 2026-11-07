@@ -19,7 +19,7 @@ import { soundsLikeProgress } from "./status.js";
 // Phrases decide only which messages are worth sending to the model (see MIGHT_CHANGE); they
 // suggest nothing themselves. Without AI, or when it fails, only a pasted pull request link is
 // suggested, as it comes from the text. Each kind can be turned off with
-// `taskStatusChangeDetection` in cade.config.json:
+// `taskChangeDetection` in cade.config.json:
 //   pr-links   a pull request link: link it, and ask the people it mentions
 //              to review it
 //   hand-offs  a request to develop, review or test it, or saying so oneself

@@ -20,7 +20,7 @@ by side work well):
 | Reviewer | **Mia** | `#acme-dev` |
 | QA | **Tom** | `#acme-dev` |
 
-**Channels:** `#acme-dev` is the group's dev channel in `CHANNEL_PAIRS`,
+**Channels:** `#acme-dev` is the group's dev channel in ``cade.config.json``,
 where tasks and incidents live. `#acme-client` is any channel you share
 with the client; Cade doesn't need to be in it.
 
@@ -32,7 +32,7 @@ with the client; Cade doesn't need to be in it.
 - `#acme-dev`: a top-level message posted **before** the demo, then click
   **Not now** on Cade's prompt (used for `@Cade task` in Act 5):
   > Flaky test: `booking.spec.ts` times out on CI about 1 run in 5.
-- A second group (say `test`) in `CHANNEL_PAIRS`, so the **Project** picker
+- A second group (say `test`) in ``cade.config.json``, so the **Project** picker
   shows; with one group, the shortcuts skip it.
 - In `cade.config.json`: `"pinning": true` and `"canvas": true` (both off by
   default; the pinned card and the summary canvas only show with them), and

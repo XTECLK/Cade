@@ -4,7 +4,7 @@ import { PRIORITIES, STATUSES, cleanReason } from "./tasks.js";
 // Workers AI: who should develop, review or test it, and its status,
 // priority and due date, and whether it is blocked. It needs the Workers AI binding `AI` (see
 // wrangler.toml); without it, or if the model fails, only pull request links are suggested (see
-// suggest.js). Suggestions as a whole are turned off with `taskStatusChangeDetection`.
+// suggest.js). Suggestions as a whole are turned off with `taskChangeDetection`.
 //
 // The model only proposes: everything it returns is checked against the
 // message and the task here (see checkChanges), and nothing changes until

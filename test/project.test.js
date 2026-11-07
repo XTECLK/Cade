@@ -134,7 +134,7 @@ test("/cade project settings opens a form with the channel's project, its name a
   const picker = view.blocks[0].accessory;
   assert.deepEqual(picker.options.map((option) => option.text.text), ["acme"]);
   assert.equal(picker.initial_option.value, "CDEV");
-  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["members", "s_taskStatusChangeDetection", "s_newMessageTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
+  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["members", "s_taskChangeDetection", "s_newTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
@@ -148,7 +148,7 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
   const setting = async (key) => groupSetting(await withSettings(env), "CDEV", key);
   assert.equal(await setting("summaryCanvas"), true);
 
-  assert.equal(await interact(submitted("CDEV", { summaryCanvas: "off", activeTasksPinning: "on", taskStatusChangeDetection: "config" })), JSON.stringify({ response_action: "clear" }));
+  assert.equal(await interact(submitted("CDEV", { summaryCanvas: "off", activeTasksPinning: "on", taskChangeDetection: "config" })), JSON.stringify({ response_action: "clear" }));
   assert.equal(await setting("summaryCanvas"), false);
   assert.equal(await setting("activeTasksPinning"), true);
   assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /Saved 2 settings for the project \*acme\*/);

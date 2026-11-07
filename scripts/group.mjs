@@ -53,8 +53,7 @@ const USAGE =
 // settings, a value of "none" removing one. A new group needs `channel`.
 export function withGroup(configJson, name, fields) {
   const config = JSON.parse(configJson);
-  // `channels`, each with its channel as `tasks`, is how projects were kept.
-  const channels = (config.projects ?? config.channels ?? []).map(({ tasks, ...old }) => ({ ...old, channel: old.channel ?? tasks }));
+  const channels = config.projects ?? [];
   const at = channels.findIndex((group) => group.name === name);
   const group = { ...(at === -1 ? { name } : channels[at]) };
   for (const [field, value] of Object.entries(fields)) {
@@ -62,17 +61,12 @@ export function withGroup(configJson, name, fields) {
     else group[field] = value;
   }
   if (!group.channel) throw new Error(`${name} needs a --channel.`);
-  // Projects have only their channel now, so an old client or incidents
-  // channel goes.
-  delete group.external;
-  delete group.incidents;
   // Settings in a steady order, as the file shows them, then those set by
-  // hand, such as `taskStatusChangeDetection`.
+  // hand, such as `taskChangeDetection`.
   const ordered = Object.fromEntries(["name", ...FIELDS].filter((field) => group[field]).map((field) => [field, group[field]]));
   for (const [field, value] of Object.entries(group)) if (!(field in ordered) && !FIELDS.includes(field)) ordered[field] = value;
   const next = at === -1 ? [...channels, ordered] : channels.map((other, i) => (i === at ? ordered : other));
-  const { channels: old, ...rest } = config;
-  return `${JSON.stringify({ ...rest, projects: next }, null, 2)}\n`;
+  return `${JSON.stringify({ ...config, projects: next }, null, 2)}\n`;
 }
 
 // A file's address, from `value`: `new` makes one through the web app. The
@@ -108,9 +102,9 @@ async function createFile(kind, url, title) {
   return result.id;
 }
 
-// The projects in a parsed config, under the old `channels` name too.
+// The projects in a parsed config.
 function projectsIn(config) {
-  return config.projects ?? config.channels ?? [];
+  return config.projects ?? [];
 }
 
 // The config file as it is, or an empty one.

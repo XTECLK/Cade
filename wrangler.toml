@@ -17,7 +17,6 @@ head_sampling_rate = 1
 binding = "DB"
 migrations_dir = "migrations"
 
-# Workers AI, for reading messages when `ai` is on in cade.config.json (see
-# src/ai.js).
+# Workers AI, for reading messages in task threads (see src/ai.js).
 [ai]
 binding = "AI"

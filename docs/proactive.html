@@ -98,7 +98,7 @@
     <div class="eyebrow">Proactive agent</div>
     <h2>Plain words Cade picks up in its threads</h2>
     <p class="lede">With the proactive agent on, Cade reads messages in the task and incident threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
-    <p class="lede"><b>On by default.</b> Set <code>"taskStatusChangeDetection": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="commands.html#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"taskChangeDetection": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="commands.html#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -141,7 +141,7 @@
     <div class="eyebrow">AI suggestions</div>
     <h2>One message, every change, read with AI</h2>
     <p class="lede">The proactive agent reads messages in task threads with a small model on Cloudflare Workers AI. That catches many ways of saying things, and several changes in one message.</p>
-    <p class="lede"><b>On by default.</b> It needs the <code>AI</code> binding in <code>wrangler.toml</code>, and the proactive agent on: with <code>"taskStatusChangeDetection": false</code>, nothing is read. Name another Workers AI model with <code>"aiModel"</code> at the top of <code>cade.config.json</code>.</p>
+    <p class="lede"><b>On by default.</b> It needs the <code>AI</code> binding in <code>wrangler.toml</code>, and the proactive agent on: with <code>"taskChangeDetection": false</code>, nothing is read. Name another Workers AI model with <code>"aiModel"</code> at the top of <code>cade.config.json</code>.</p>
     <div class="entries">
 
       <article class="entry">

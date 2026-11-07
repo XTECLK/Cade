@@ -113,7 +113,7 @@ export default {
       name: "new-thread",
       order: 50,
       // Not a suggestion kind: messages posted on their own are asked about
-      // even with `taskStatusChangeDetection` off, unless `newMessageTaskDetection` is false.
+      // even with `taskChangeDetection` off, unless `newTaskDetection` is false.
       match: (message) => !message.inThread,
       handle: (message, { env }) => offerThread(env, message),
     }),
@@ -380,7 +380,7 @@ function startQuestion(kind, value) {
 // Move to existing is there if there's anything open to move it to.
 async function offerThread(env, message) {
   if (roleOf(env, message.channel) !== "channel") return;
-  if (groupDisabled(env, message.channel, "newMessageTaskDetection", "NEW_MESSAGE_TASK_DETECTION")) return;
+  if (groupDisabled(env, message.channel, "newTaskDetection", "NEW_TASK_DETECTION")) return;
   const value = JSON.stringify({ channel: message.channel, ts: message.ts, title: firstLine(message.text) });
   const button = (action_id, text, style) => ({ type: "button", action_id, text: plainText(text), value, style });
   const open = await openTasks(env, message.channel);

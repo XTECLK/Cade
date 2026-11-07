@@ -1192,7 +1192,7 @@ async function updateRelease(env, user, { release_id: id, prs, note } = {}) {
     await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
     // The request the approver sees, with its buttons; and a reply, since mentions in an edit notify no one.
     await callSlack(env, "chat.update", { channel, ts: release.messageTs, ...releaseRequest({ channel, ts, id, approver: release.approver, sentBy: release.sentBy, prs: next, note: text }) });
-    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release (through their AI agent). It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}`;
+    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release. It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}\n_(via AI agent)_`;
     await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: reply, blocks: [{ type: "section", text: mrkdwn(reply) }] });
     console.log("Release changed", { channel, ts, id, by: user, prs: next.length });
   }

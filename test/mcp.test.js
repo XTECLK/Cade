@@ -968,7 +968,7 @@ test("update_release changes the PRs of a release waiting for approval, never de
   assert.deepEqual(JSON.parse(request.args.blocks).at(-1).elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
   assert.match(JSON.parse(JSON.parse(request.args.blocks).at(-1).elements[0].value).approver, /UCLIENT/);
   assert.ok(calls.some((call) => call.method === "chat.update" && call.args.ts === TS), "the task card is redrawn");
-  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release \(through their AI agent\)\. It now has .*web\/1/);
+  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release\. It now has [\s\S]*web\/1[\s\S]*_\(via AI agent\)_/);
   // PR2 is pending again; adding it back works, and a no-op says so.
   assert.equal((await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } })).data.release.prs.length, 2);
   const same = await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } });
@@ -1490,7 +1490,7 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   // The request is in the task's thread, mentions the approver, lists the PRs, and its buttons name who may click them.
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, TS);
-  assert.match(post.text, /Good news! <@UME> \(through their AI agent\) says this is ready for review\./);
+  assert.match(post.text, /<@UME> says this is ready for review\.\n_\(via AI agent\)_/);
   assert.match(post.text, /cade\/42/);
   assert.match(post.text, /<@UCLIENT123>, could you take a look and approve it/);
   const buttons = JSON.parse(post.blocks).find((block) => block.type === "actions").elements;

@@ -5,7 +5,7 @@ import { PRIORITIES, STATUSES, prLink, unsentPrs } from "./tasks.js";
 // status change, in one place so they read alike. Each change is one
 // message: the record of what changed and who changed it, "<@ann> assigned
 // <@rex> as owner.", then on the next line what it means for those it
-// names, "<@rex>, could you pick this up when you get a chance? Thanks!".
+// names, "<@rex>, could you pick this up?".
 // The record keeps a log of every change in the thread, and the record's
 // mention notifies them anyway, so the request comes with it, in the same
 // message, rather than as a ping of its own.
@@ -155,8 +155,8 @@ export function changeRequests({ user, told, task, people, prs, status }) {
   }
 
   return [
-    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)]), (who, what) => `${who}, could you ${what} when you get a chance? Thanks!`),
-    ...grouped([...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]), (who, what) => `${who}, there's no need to ${what} anymore. Thanks!`),
+    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)]), (who, what) => `${who}, could you ${what}?`),
+    ...grouped([...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]), (who, what) => `${who}, there's no need to ${what} anymore.`),
   ];
 }
 
@@ -205,7 +205,7 @@ const ASKS = {
 
 // Asks `people` to do `role`'s part; `prs` are what reviewers review.
 export function request(people, role, prs = []) {
-  return `${mentions(people)}, could you ${ASKS[role](prs)} when you get a chance? Thanks!`;
+  return `${mentions(people)}, could you ${ASKS[role](prs)}?`;
 }
 
 // What each role does, for questions about a hand-off and for telling people

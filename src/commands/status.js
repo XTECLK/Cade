@@ -243,7 +243,7 @@ async function requestReview(env, origin, approver, user) {
     await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user, text: notInReview(task) });
     return;
   }
-  const ready = `Good news! <@${user}> says this is ready for review.`;
+  const ready = `<@${user}> says this is ready for review.`;
   await dismiss(responseUrl);
   await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
 }
@@ -254,7 +254,7 @@ async function requestReview(env, origin, approver, user) {
 export async function requestApproval(env, channel, ts, approver, user) {
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
-  const ready = `Good news! <@${user}> (through their AI agent) says this is ready for review.`;
+  const ready = `<@${user}> says this is ready for review.\n_(via AI agent)_`;
   await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
   return null;
 }
@@ -316,7 +316,7 @@ async function review(payload, env, approved) {
     const status = approved ? "DONE" : "IN_PROGRESS";
     await applyStatus(env, request.channel, request.ts, task, status);
     const text = approved
-      ? `<@${user}> approved this, so it's now ${STATUSES.DONE}. Nice work!`
+      ? `<@${user}> approved this, so it's now ${STATUSES.DONE}.`
       : `<@${user}> didn't approve this, so it's back to ${STATUSES.IN_PROGRESS}. Have a look at the thread for what needs to change.`;
     await callSlack(env, "chat.postMessage", {
       channel: request.channel,
@@ -324,8 +324,8 @@ async function review(payload, env, approved) {
       ...asMessage(text),
     });
     outcome = approved
-      ? `<@${user}> approved it. Thanks!`
-      : `<@${user}> didn't approve it, so the team will pick it up again. Thanks for letting us know!`;
+      ? `<@${user}> approved it.`
+      : `<@${user}> didn't approve it, so the team will pick it up again.`;
   }
   await callSlack(env, "chat.update", {
     channel: payload.channel.id,

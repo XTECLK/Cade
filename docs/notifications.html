@@ -44,7 +44,7 @@
       </div>
       <div class="box">
         <h3>Then, what it means for them</h3>
-        <p>A line each: “@rex, @bob, could you pick this up when you get a chance? Thanks!” or “@tom, there's no need to test this anymore. Thanks!” One note for each person, not each change: someone added as owner and reviewer is asked “@rex, could you pick this up and review web/12 …”, and people asked the same share a note.</p>
+        <p>A line each: “@rex, @bob, could you pick this up?” or “@tom, there's no need to test this anymore.” One note for each person, not each change: someone added as owner and reviewer is asked “@rex, could you pick this up and review web/12 …”, and people asked the same share a note.</p>
       </div>
     </div>
     <h3 class="rules-head">Only when there's something to do now</h3>
@@ -74,9 +74,9 @@
         <h3><code>@Cade assign owner @rex</code></h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up?</span></dd>
         </dl>
-        <p>The task card shows who is on it, so a typed command gets a ✅ rather than a change log. A reviewer is asked about the pending PRs: “@mia, could you review web/12 when you get a chance? Thanks!” A tester is asked to “give this a test” once the task is In testing.</p>
+        <p>The task card shows who is on it, so a typed command gets a ✅ rather than a change log. A reviewer is asked about the pending PRs: “@mia, could you review web/12?” A tester is asked to “give this a test” once the task is In testing.</p>
       </article>
 
       <article class="entry">
@@ -90,7 +90,7 @@
       <article class="entry">
         <h3>Task card ⋯ → Edit, or a role's button</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex, @bob as owner.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up when you get a chance? Thanks!</span><br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex, @bob as owner.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up?</span><br><span class="note">@mia, could you review web/12?</span></dd>
         </dl>
         <p>However many people, roles and fields you change, it's one message: a line per change, then what it means for them. Here @tom isn't told, as the task wasn't In testing.</p>
       </article>
@@ -99,7 +99,7 @@
         <h3>Said in your own words: “@tess can you test this?”</h3>
         <dl class="flow">
           <dt>Private</dt><dd>Should I update the task? From your message:<br>Testers: @tess (Add) · Status: In review → In testing <span class="btns"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></span></dd>
-          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test?</span></dd>
         </dl>
         <p>As the Edit form, with the status change in the log. Moving to In testing asks every tester at once. The same summary, read with AI.</p>
       </article>
@@ -107,7 +107,7 @@
       <article class="entry">
         <h3><code>/cade standup -unassigned</code>, picking an owner</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up?</span></dd>
         </dl>
       </article>
 
@@ -115,7 +115,7 @@
         <h3><code>@Cade unassign owner @rex</code></h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
+          <dt>Thread</dt><dd><span class="note">@rex, there's no need to work on this anymore.</span></dd>
         </dl>
         <p>Only if they'd have been asked: removing a tester before In testing gets just the ✅. Without a role, they're removed from every role.</p>
       </article>
@@ -134,7 +134,7 @@
         <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with reviewers</h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd><span class="note">@mia, could you review web/12?</span></dd>
         </dl>
         <p>The task card shows the link, so a ✅ on your message is the acknowledgement. <code>@Cade pr remove</code> gets only the ✅.</p>
       </article>
@@ -144,7 +144,7 @@
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
           <dt>Thread</dt><dd>There's no reviewer yet. Who should review web/12? <span class="btns"><span>Choose reviewers ▾</span></span></dd>
-          <dt>Picked</dt><dd>The picker goes, and a new reply follows:<br>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Picked</dt><dd>The picker goes, and a new reply follows:<br>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review web/12?</span></dd>
         </dl>
         <p>A new reply, because Slack doesn't notify anyone about an edited message.</p>
       </article>
@@ -153,7 +153,7 @@
         <h3>A PR pasted into the thread</h3>
         <dl class="flow">
           <dt>Private</dt><dd>Should I update the task? From your message:<br>PRs: web/12 (Add)<br>Status: To do → In review <span class="btns"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></span><br><span class="if-note">people mentioned are added as reviewers</span></dd>
-          <dt>Thread</dt><dd>@ann moved the task to In review.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann moved the task to In review.<br><span class="note">@mia, could you review web/12?</span></dd>
         </dl>
         <p>Your message already posted the link, so it isn't repeated. Reviewers your message mentioned aren't asked again.</p>
       </article>
@@ -161,7 +161,7 @@
       <article class="entry">
         <h3>Task card ⋯ → Edit, pull requests</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann linked web/12.<br>@ann unlinked web/11.<br>@ann assigned @rex as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span><br><span class="note">@rex, could you review web/10, web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann linked web/12.<br>@ann unlinked web/11.<br>@ann assigned @rex as reviewer.<br><span class="note">@mia, could you review web/12?</span><br><span class="note">@rex, could you review web/10, web/12?</span></dd>
         </dl>
         <p>Reviewers already on the task are asked about the new PRs. New reviewers are asked about every pending PR.</p>
       </article>
@@ -179,7 +179,7 @@
       <article class="entry">
         <h3>Moving to In testing, however it's done</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann set the status to In testing.<br><span class="note">@tom, could you give this a test when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann set the status to In testing.<br><span class="note">@tom, could you give this a test?</span></dd>
         </dl>
         <p>The same from <code>@Cade status</code> and its picker, the task card's Edit, suggestions and standup. A status typed in the command, like <code>@Cade status testing</code>, gets a ✅ on your message, with only the testers' request posted. The <code>@Cade status</code> picker becomes the change log; when testers are asked, it's replaced by a new reply instead, since Slack doesn't notify anyone about an edited message.</p>
       </article>
@@ -187,7 +187,7 @@
       <article class="entry">
         <h3>Moving to In review, however it's done</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann set the status to In review.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann set the status to In review.<br><span class="note">@mia, could you review web/12?</span></dd>
         </dl>
         <p>Every reviewer assigned earlier is asked, those just added too, about the PRs pending. With no PRs they're asked to review it, and when every PR has been sent for approval there's nothing left to review, so no one is asked. Owners aren't asked again: it's past their part.</p>
       </article>

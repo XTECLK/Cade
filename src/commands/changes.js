@@ -33,7 +33,7 @@ export function prsAfter(task, changes) {
 // has no source.
 export async function applyChanges(env, where, changes, user, options) {
   const change = await changeTask(env, where, changes, user, options);
-  const text = change && [changeMessage(change), options?.source === "mcp" && `_(through <@${user}>'s AI agent)_`].filter(Boolean).join("\n");
+  const text = change && [changeMessage(change), options?.source === "mcp" && "_(via AI agent)_"].filter(Boolean).join("\n");
   if (text) await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, text });
   return Boolean(text);
 }

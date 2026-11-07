@@ -1050,7 +1050,7 @@ function plainMessage(text) {
   return escapeSlack(text).replace(/&lt;@([UW][A-Z0-9]{2,})&gt;/g, "<@$1>");
 }
 
-// Posts the person's message in a task's thread, as Cade, saying who it is from.
+// Posts the person's message in a task's thread, as Cade, led by who sent it and ending with (via AI agent).
 async function sendTaskMessage(env, user, args) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
@@ -1069,14 +1069,15 @@ async function sendTaskMessage(env, user, args) {
   refuseSecrets(message, "The message");
   await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]));
   const body = plainMessage(message);
-  const from = `Sent by <@${user}>`;
+  const from = `<@${user}> sent:`;
+  const via = "_(via AI agent)_";
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
-    text: `${body}\n_${from}_`,
+    text: `${from}\n${body}\n${via}`,
     blocks: [
-      { type: "section", text: mrkdwn(body) },
-      { type: "context", elements: [mrkdwn(from)] },
+      { type: "section", text: mrkdwn(`${from}\n${body}`) },
+      { type: "context", elements: [mrkdwn(via)] },
     ],
   });
   if (summaryId !== undefined) await markSummaryInformed(env, summaryId, channel, ts, user);

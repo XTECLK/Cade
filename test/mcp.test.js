@@ -416,9 +416,9 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   assert.equal(post.thread_ts, "1700000000.000100");
   const blocks = JSON.parse(post.blocks);
   // Only a person's mention is kept; @channel and links are shown as typed.
-  assert.equal(blocks[0].text.text, "Hi <@UANN> &amp; &lt;!channel&gt;, see &lt;https://evil.example|this&gt;.");
-  assert.equal(blocks[1].elements[0].text, "Sent by <@UME>");
-  assert.match(post.text, /Sent by <@UME>/);
+  assert.equal(blocks[0].text.text, "<@UME> sent:\nHi <@UANN> &amp; &lt;!channel&gt;, see &lt;https://evil.example|this&gt;.");
+  assert.equal(blocks[1].elements[0].text, "_(via AI agent)_");
+  assert.match(post.text, /^<@UME> sent:\n/);
 
   const before = calls.length;
   assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "  " })).text, /message is empty/);
@@ -1462,7 +1462,7 @@ test("a status change made through MCP shows no private prompt, and the thread s
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), "no private prompt");
   const posted = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text).join("\n");
   assert.match(posted, /<@UME> set the status to .*Client review/);
-  assert.match(posted, /_\(through <@UME>'s AI agent\)_/);
+  assert.match(posted, /_\(via AI agent\)_/);
 
   // A change that isn't to Client review doesn't tell the agent to ask anyone.
   await putTask(env, "CDEV", "1700000001.000100", stored({ status: "TODO" }));

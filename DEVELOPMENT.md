@@ -56,6 +56,10 @@ JSON that comes back in is checked against a JSON Schema at runtime (`src/valida
   back from a message an older Cade posted: one that no longer fits is answered with a private "out of date" note
   instead of failing (see `handleInteraction` in `src/index.ts`). A schema asks only for what its reader uses, so older
   messages that still work keep working. When you change what a button carries, change its schema with it.
+- `cade.config.json` is checked by `npm run config` before anything is uploaded: first the checks in
+  `scripts/config.mjs` for the common mistakes, which say how to fix them, then its schema in `src/config-schema.ts`
+  for everything else, so a misspelt or retired setting is refused rather than uploaded to do nothing. A new setting
+  goes in both the schema and `readConfig`.
 
 Then use it in Slack. A deploy takes a few seconds. Changes to the Slack app itself (commands, scopes, events) go in
 `slack/manifest.json`, and `npm run slack:update` applies them.

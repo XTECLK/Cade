@@ -5417,3 +5417,25 @@ test("a form whose metadata no longer fits says so in its window, and changes no
   assert.match(answer.view.blocks[0].text.text, OUTDATED);
   assert.deepEqual(calls, []);
 });
+
+test("npm run config refuses what cade.config.json can't say, such as a misspelt setting, which would do nothing", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const acme = { name: "acme", channel: "C0000000002" };
+  for (const [config, problem] of [
+    // A setting on a project the Worker doesn't read, misspelt or from an older format.
+    [{ projects: [{ ...acme, summaryCanvass: true }] }, /project acme: summaryCanvass isn't something this takes; it takes name, channel, workDoc, members, /],
+    [{ projects: [{ ...acme, sheet: "https://docs.google.com/spreadsheets/d/x/edit" }] }, /project acme: sheet isn't something this takes/],
+    // The people who work on a project are Slack user IDs.
+    [{ projects: [{ ...acme, members: "UANN" }] }, /project acme: members is a list\./],
+    [{ projects: [{ ...acme, members: ["UANN", "bob"] }] }, /project acme: members\[1\] "bob" isn't a Slack user ID, such as U0123ABCD\./],
+    [{ projects: [{ ...acme, name: 7 }] }, /must list \{ name, channel \}|project 7: name is text\./],
+    // The top of the file.
+    [{ projects: [acme], timezone: 5 }, /timezone|isn't a time zone/],
+    [{ projects: [acme], aiModel: 42 }, /aiModel is a Workers AI/],
+  ]) {
+    assert.throws(() => readConfig(JSON.stringify(config)), problem, JSON.stringify(config));
+  }
+  // What it does take is uploaded as it was.
+  const members = { ...acme, members: ["UANN", "UBOB"], workDoc: "https://docs.google.com/document/d/abcdefghijklmnopqrstuvwxyz/edit", summaryCanvas: true };
+  assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects: [members], mcp: true })).PROJECTS), [members]);
+});

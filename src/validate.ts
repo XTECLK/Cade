@@ -1,6 +1,6 @@
 // Checks JSON against a JSON Schema with @cfworker/json-schema: the MCP tools' arguments against their
 // inputSchema (see mcp.ts), and what Cade's own buttons and forms carry when they come back (see
-// payloads.ts). The first problem is given as a sentence for whoever sent it, in the tools' own words
+// payloads.ts), and cade.config.json (config-schema.ts). The first problem is given as a sentence for whoever sent it, in the tools' own words
 // ("limit is a whole number from 1 to 100", "Give task_id.", "stauts isn't something this takes"), or
 // null when there is none. An object takes only the properties it lists when its schema says
 // additionalProperties: false (see strict in mcp-tools.ts).
@@ -22,6 +22,8 @@ export interface Schema {
   maximum?: number;
   maxLength?: number;
   maxItems?: number;
+  // A regular expression the text must match; `description` then says what is expected.
+  pattern?: string;
 }
 
 // One Validator per schema, made the first time it is used.
@@ -60,6 +62,8 @@ function explain(root: Schema, errors: OutputUnit[], value: unknown) {
       return `Give ${schema.anyOf!.map((option: Schema) => (option.required ?? []).map(named).join(" and ")).join(" or ")}.`;
     case "maxLength":
       return `${path} is ${[...String(valueAt(value, error))].length} characters; keep it to ${schema.maxLength} or fewer.`;
+    case "pattern":
+      return `${path || "The value"} ${JSON.stringify(valueAt(value, error))} isn't ${schema.description ?? "in the right form"}.`;
     case "maxItems":
       return `${path} has ${(valueAt(value, error) as unknown[]).length} entries; give at most ${schema.maxItems}.`;
     default: {

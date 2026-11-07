@@ -52,7 +52,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projects } from "../src/channels.ts";
+import { CONFIG_SCHEMA, PROJECT_SCHEMA } from "../src/config-schema.ts";
 import { docId } from "../src/doc.ts";
+import { validate } from "../src/validate.ts";
 import "./cloudflare.mjs";
 import { HOME, ROOT } from "./paths.mjs";
 
@@ -113,6 +115,15 @@ export function readConfig(json) {
     }
     secrets.GOOGLE_URL = config.googleUrl;
   }
+
+  // Then the schema, for the rest of what the file and each project may say, and nothing else: a
+  // misspelt setting would otherwise be uploaded and do nothing.
+  for (const project of list) {
+    const problem = validate(PROJECT_SCHEMA, project);
+    if (problem) throw new Error(`In cade.config.json, project ${project.name}: ${problem}`);
+  }
+  const problem = validate(CONFIG_SCHEMA, config);
+  if (problem) throw new Error(`In cade.config.json: ${problem}`);
   return secrets;
 }
 

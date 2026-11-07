@@ -3,25 +3,43 @@
 // serving every group. It runs as whoever deployed it, so they must be able to
 // edit each group's doc.
 //
-// Each request is { secret, action, … }. `secret` must match SECRET, defined
-// in Secret.gs next to this file, which `npm run google:create` makes along
-// with the Worker's GOOGLE_SECRET. The actions:
+// Each request is { secret, action, … }. `secret` must match the script's
+// SECRET property, which `npm run google:create` makes along with the Worker's
+// GOOGLE_SECRET. A script made before that still has Secret.gs defining SECRET;
+// its first request moves it into the property, after which Secret.gs can go
+// (`npm run google:update` removes it). The actions:
 //   doc.write     { docId, tab, key, blocks }      → { url }, a section of the
 //                                                    doc's tab (Doc.gs)
 //   doc.read      { docId, tab, key }              → { elements }, a section
 //                                                    as it now reads
 //   doc.create    { title }                        → { id }, a new doc
+//   secret.status {}                               → { stored: true }, once
+//                                                    the secret is the property
 // New docs are for `npm run group`, and are yours.
 
 const ACTIONS = {
   "doc.write": (body) => ({ url: write(body.docId, body.tab, body.key, body.blocks) }),
   "doc.read": (body) => ({ elements: read(body.docId, body.tab, body.key) }),
   "doc.create": (body) => ({ id: createDoc(body.title) }),
+  "secret.status": () => ({ stored: true }),
 };
+
+// The secret requests are checked against: the SECRET property, filled from
+// Secret.gs's SECRET the first time if that is all there is.
+function storedSecret() {
+  const properties = PropertiesService.getScriptProperties();
+  let secret = properties.getProperty("SECRET");
+  if (!secret && typeof SECRET !== "undefined" && SECRET) {
+    secret = SECRET;
+    properties.setProperty("SECRET", secret);
+  }
+  return secret;
+}
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
-  if (typeof SECRET === "undefined" || !SECRET || body.secret !== SECRET) {
+  const secret = storedSecret();
+  if (!secret || body.secret !== secret) {
     return reply({ ok: false, error: "unauthorized" });
   }
   const action = ACTIONS[body.action];

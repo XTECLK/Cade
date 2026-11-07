@@ -193,7 +193,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/settings.js`, `src/commands/project.js` | the Add project button to add a project, the Project settings button in Configure (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
 | `src/web.js`, `src/access.js` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Configure → Web pages, and who may read a channel |
 | `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
-| `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
+| `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and `Secret.gs`, uncommitted, which only a new web app is pushed with |
 | `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |

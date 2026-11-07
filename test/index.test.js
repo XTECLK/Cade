@@ -2619,13 +2619,14 @@ test("the Google web app checks SECRET from Secret.gs, and each action has its f
   const { readFile } = await import("node:fs/promises");
   const read = (file) => readFile(new URL(`../google/${file}`, import.meta.url), "utf8");
   const code = await read("Code.gs");
-  assert.match(code, /body\.secret !== SECRET/);
+  assert.match(code, /body\.secret !== secret/);
   assert.match(code, /function authorize\(\)/);
   const all = [code, await read("Doc.gs")].join("\n");
-  assert.ok(!all.includes("getScriptProperties"), "no script properties left to set by hand");
+  // The secret is checked from the SECRET property, which Secret.gs's SECRET fills on the first request.
+  assert.match(code, /getProperty\("SECRET"\)[\s\S]*typeof SECRET !== "undefined"[\s\S]*setProperty\("SECRET"/);
   // Each action calls a function one of the files defines.
   const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["doc.write", "doc.read", "doc.create"]);
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["doc.write", "doc.read", "doc.create", "secret.status"]);
   for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
     assert.match(all, new RegExp(`function ${name}\\(`), name);
   }
@@ -5449,4 +5450,22 @@ test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout 
   const alone = show({});
   assert.equal(alone.HOME, alone.ROOT);
   assert.equal(show({ CADE_DEPLOY_DIR: "/tmp/acme-deploy" }).HOME, "/tmp/acme-deploy/");
+});
+
+test("callWebApp follows Apps Script's redirect, and secretIn reads Secret.gs", async () => {
+  const { callWebApp, secretIn } = await import("../scripts/google-call.mjs");
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, body: init?.body && JSON.parse(init.body) });
+    return url === "https://script.google.com/exec"
+      ? { status: 302, headers: { get: () => "https://script.googleusercontent.com/echo" } }
+      : { status: 200, json: async () => ({ ok: true, stored: true }) };
+  };
+  assert.deepEqual(await callWebApp("https://script.google.com/exec", "ab12", "secret.status", {}, fetchImpl), { ok: true, stored: true });
+  assert.deepEqual(calls[0].body, { secret: "ab12", action: "secret.status" });
+  assert.equal(calls[1].url, "https://script.googleusercontent.com/echo");
+  const html = async () => ({ status: 401, json: async () => { throw new Error("not json"); } });
+  assert.deepEqual(await callWebApp("https://x", "s", "a", {}, html), { ok: false, error: "HTTP 401" });
+  assert.equal(secretIn('// x\nconst SECRET = "abc123";\n'), "abc123");
+  assert.equal(secretIn(""), undefined);
 });

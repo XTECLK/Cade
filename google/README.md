@@ -52,8 +52,8 @@ section's heading as it is: it's how Cade finds the section again (through a nam
 2. **Turn on the Apps Script API (person, once per Google account)** at
    <https://script.google.com/home/usersettings>.
 3. **Create the web app:** `npm run google:create`. It creates the
-   standalone script "Cade_<your Slack workspace>", generates a random secret into `Secret.gs`
-   (not committed), deploys it as a web app (running as you, reachable by
+   standalone script "Cade_<your Slack workspace>", generates a random secret (kept in `Secret.gs`, not committed, for
+   `npm run group`; the script moves it into its own properties on its first request), deploys it as a web app (running as you, reachable by
    anyone: the secret is what protects it), then gives the Worker its
    address (`googleUrl` in `cade.config.json`, uploaded with `npm run
    config`) and the secret (`GOOGLE_SECRET`). Its IDs are saved to
@@ -74,7 +74,7 @@ and the notes and thread tabs, which Cade no longer uses.
 The Worker logs `Could not add the executive summary to the doc` with the
 reason in `npx wrangler tail`:
 
-- `unauthorized`: `GOOGLE_SECRET` doesn't match `SECRET` in `Secret.gs`.
+- `unauthorized`: `GOOGLE_SECRET` doesn't match the script's `SECRET` property (Apps Script → Project Settings → Script Properties).
 - `HTTP 401/403`: the web app's access isn't set to **Anyone**.
 - `You do not have permission`, or a file that can't be found: the group's
   `workDoc` address is wrong, or you (who deployed the script) can't edit it.

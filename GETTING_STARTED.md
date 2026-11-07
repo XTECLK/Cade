@@ -101,7 +101,7 @@ uploads the file, as `npm run config` does.
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
-| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 7), which also puts it in `google/Secret.gs` for the script. |
+| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 7), which also keeps it in `google/Secret.gs` for `npm run group`; the script stores its own copy in its properties, so `npm run google:update` never touches it. |
 
 ### Used once during setup, never stored
 

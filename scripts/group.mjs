@@ -16,6 +16,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { callSlack } from "../src/slack.js";
 import { checkZone, readConfig, uploadConfig } from "./config.mjs";
+import { callWebApp, secretIn } from "./google-call.mjs";
 import { HOME } from "./paths.mjs";
 import { ask, askHidden, choose, chooseMany, confirm } from "./prompt.mjs";
 
@@ -83,21 +84,10 @@ async function fileAddress(kind, value, name, config) {
 // the page it redirects to.
 async function createFile(kind, url, title) {
   if (!url) throw new Error("The Google web app isn't set up yet: run npm run google:create first.");
-  let secret;
-  try {
-    [, secret] = /const SECRET = "([0-9a-f]+)"/.exec(await readFile(SECRET_FILE, "utf8"));
-  } catch {
-    throw new Error("google/Secret.gs is missing, so I can't call the Google web app.");
-  }
+  const secret = secretIn(await readFile(SECRET_FILE, "utf8").catch(() => ""));
+  if (!secret) throw new Error("google/Secret.gs is missing, so I can't call the Google web app.");
   console.log(`Making the ${KINDS[kind].noun} "${title}"…`);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret, action: `${KINDS[kind].action ?? kind}.create`, title }),
-    redirect: "manual",
-  });
-  const reply = response.status === 302 ? await fetch(response.headers.get("location")) : response;
-  const result = await reply.json().catch(() => ({ ok: false, error: `HTTP ${reply.status}` }));
+  const result = await callWebApp(url, secret, `${KINDS[kind].action ?? kind}.create`, { title });
   if (!result.ok) throw new Error(`The Google web app couldn't make it: ${result.error}. Has its script been approved (authorize)?`);
   return result.id;
 }

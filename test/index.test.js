@@ -9,7 +9,7 @@ import { editForm } from "../src/commands/edit.js";
 import { changeLog, changeRequests } from "../src/notify.js";
 import { formatDueDate } from "../src/tasks.js";
 import { writeSummary } from "../src/summary.js";
-import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
+import { todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
@@ -119,10 +119,11 @@ const savedTask = (channel = "CDEV", ts = "100.1") => getTask(env, channel, ts);
 // settings are recorded as `previews` rather than with the arguments. Requests to the
 // Google web app are recorded with their JSON body, as "doc",
 // answered by `responses.doc`.
+let lastCalls = [];
 function mockSlack(t, { stored = [], ...responses } = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
-  const calls = [];
+  const calls = (lastCalls = []);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     // Answers through a click's or command's response_url, unless a test
@@ -546,11 +547,11 @@ test("@Cade status accepts every status name", async (t) => {
   }
 });
 
-test("@Cade delete and @Cade remove point to /cade remove", async (t) => {
-  for (const name of ["delete", "remove"]) {
+test("admin commands have no @Cade form: delete, remove, replace, resync, retry and project are unknown", async (t) => {
+  for (const name of ["delete", "remove", "replace", "resync", "retry", "project"]) {
     const calls = mockSlack(t, { stored: [ownTask()] });
     await send("/slack/events", threadEvent(`<@UBOT> ${name}`));
-    assert.equal(calls.at(-1).args.text, "That one's a slash command: try `/cade remove <link>`.", name);
+    assert.equal(calls.at(-1).args.text, "Send `/cade help` to see what I can do.", name);
     assert.ok(await savedTask(), name);
   }
 });
@@ -783,12 +784,11 @@ test("/cade help and unknown slash commands list the commands privately", async 
     assert.deepEqual(reply.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade home` · `/cade web login` · `/cade web logout` · `/cade mcp init` · `/cade mcp status` · `/cade mcp revoke` · `/cade tasks` · `/cade standup`",
+      "`/cade task` · `/cade incident` · `/cade standup`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move <link>`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
       "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
-      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary` · `/cade retry <link>` · `/cade project init` · `/cade project settings`",
       "Send `/cade help` any time to see this again.",
     ]);
     for (const usage of ["/cade task", "/cade incident", "@Cade task", "@Cade priority high", "@Cade due 31/12/2026"]) {
@@ -1017,21 +1017,28 @@ test("a reply is stored at once, only from a tracked task's thread, and not twic
   assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
-// Signs in the way a person does (as the slash command's user): `/cade web login`, then the link it gives. Returns the cookie.
+// Presses a button in Cade's web pages modal (see commands/configure.js) as `user`, with the calls of the last
+// mockSlack. Resolves to the text of the modal Cade drew in answer.
+async function pressWeb(actionId, user = "UACTOR") {
+  const before = lastCalls.length;
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, trigger_id: "T1", view: { id: "V1" }, actions: [{ action_id: actionId, value: "" }] }));
+  const view = lastCalls.slice(before).find((call) => call.method === "views.update" || call.method === "views.open").args.view;
+  return view.blocks.map((block) => block.text?.text ?? "").join("\n");
+}
+
+// Signs in the way a person does: the Get a sign-in link button, then the link it gives. Returns the cookie.
 async function signIn() {
-  const { now } = await runTasksCommand("web login", "CDEV");
-  const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(JSON.parse(now).text)[1];
+  const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(await pressWeb("home:web:login"))[1];
   const response = await worker.fetch(new Request(link), env, { waitUntil() {} });
   assert.equal(response.status, 200);
   return response.headers.get("set-cookie").split(";")[0];
 }
 const get = (path, cookie, init = {}) => worker.fetch(new Request(`${SITE}${path}`, { ...init, headers: { ...(cookie && { cookie }), ...init.headers } }), env, { waitUntil() {} });
 
-test("/cade web login gives a link that signs you in once, for the thread and notes pages", async (t) => {
+test("the web pages modal's sign-in link signs you in once, for the thread and notes pages", async (t) => {
   mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "users.info": ({ user }) => ({ user: NAMES[user] }) });
   await seeded;
-  const { now } = await runTasksCommand("web login", "CDEV");
-  const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(JSON.parse(now).text)[1];
+  const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(await pressWeb("home:web:login"))[1];
   const first = await get(new URL(link).pathname);
   assert.equal(first.status, 200);
   assert.match(first.headers.get("set-cookie"), /^cade_session=[\w-]{43}; Max-Age=2592000; Path=\/; HttpOnly; Secure; SameSite=Lax$/);
@@ -1049,7 +1056,7 @@ test("the thread page shows the stored messages with names and the notes page ke
   // Not signed in: told how.
   const anonymous = await get(`/t/CDEV/${RESYNC_TS}`);
   assert.equal(anonymous.status, 401);
-  assert.match(await anonymous.text(), /\/cade web login/);
+  assert.match(await anonymous.text(), /Web pages/);
 
   const thread = await get(`/t/CDEV/${RESYNC_TS}`, cookie);
   assert.equal(thread.status, 200);
@@ -1283,10 +1290,6 @@ const historyTask = (ts, { owners = [], reviewers = [], testers = [], ...fields 
 // An incident's task at `ts`, as historyTask.
 const incidentHistoryTask = (ts, fields) => historyTask(ts, { priority: "Urgent", dueDate: "Immediate", incident: true, ...fields });
 
-// What `/cade tasks` says it takes, after saying what was wrong.
-const TASKS_USAGE =
-  "Try `/cade tasks` for your open tasks, with any of: `owned`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no owner; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
-
 // A response_url's answer: like the API, it refuses a message whose blocks
 // reuse an action_id, with an OK status and { ok: false }.
 function respondAsSlack(body) {
@@ -1325,133 +1328,6 @@ async function runTasksCommand(text, channel, environment = env) {
   globalThis.fetch = fakeFetch;
   return { now: await response.text(), later };
 }
-
-test("/cade tasks in a group's channel shows its open tasks by role, only to you", async (t) => {
-  const { now, calls, later } = await tasksCommand(t, "tasks", "CDEV", ({
-    CDEV: [
-      historyTask("100.1", { title: "Low task", priority: "Low", owners: ["UACTOR"] }),
-      historyTask("100.2", { title: "High task", priority: "High", dueDate: "05/11/2026", owners: ["UACTOR", "UBOB"] }),
-      historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", owners: ["UACTOR"] }),
-      historyTask("100.4", { title: "Done task", status: "DONE", owners: ["UACTOR"] }),
-      historyTask("100.5", { title: "Not mine", owners: ["UBOB"] }),
-      historyTask("100.6", { title: "Review me", reviewers: ["UACTOR"], status: "IN_REVIEW" }),
-      incidentHistoryTask("100.8", { title: "Checkout is down", owners: ["UACTOR"] }),
-    ],
-    // Another group's task is left out.
-    CTESTDEV: [historyTask("100.9", { title: "Test task", owners: ["UACTOR"] })],
-  }), env);
-
-  // Slack is answered at once; the list follows, only to you.
-  assert.equal(now, "");
-  assert.equal(later.response_type, "ephemeral");
-  // The tasks come from the database: Slack is only asked for the
-  // workspace's address, for the links.
-  assert.deepEqual(calls.map((call) => call.method), ["auth.test"]);
-
-  assert.equal(later.text, "You have 5 open acme tasks.");
-  const [header, developing, reviewing, testing] = later.blocks;
-  assert.equal(header.text.text, "Your acme tasks");
-  // Each link opens the task's thread.
-  const thread = (channel, ts) =>
-    `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
-  assert.equal(
-    developing.text.text,
-    [
-      "*Owned (4)*",
-      `• *Incident:* <${thread("CDEV", "100.8")}|Checkout is down>  ·  :memo: To do  ·  :red_circle: Urgent  ·  Due Immediate`,
-      `• <${thread("CDEV", "100.3")}|High, sooner>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 01/11/2026`,
-      `• <${thread("CDEV", "100.2")}|High task>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 05/11/2026`,
-      `• <${thread("CDEV", "100.1")}|Low task>  ·  :memo: To do  ·  :large_green_circle: Low  ·  Due 31/10/2026`,
-    ].join("\n"),
-  );
-  assert.equal(
-    reviewing.text.text,
-    `*Reviewing (1)*\n• <${thread("CDEV", "100.6")}|Review me>  ·  :eyes: In review  ·  :large_orange_circle: High  ·  Due 31/10/2026`,
-  );
-  assert.equal(testing.text.text, "*Testing*\n_Nothing assigned._");
-});
-
-test("/cade tasks outside every group shows each group in turn", async (t) => {
-  const { later } = await tasksCommand(t, "tasks", "CRANDOM", ({
-    CDEV: [historyTask("100.1", { owners: ["UACTOR"] })],
-    CTESTDEV: [historyTask("100.2", { testers: ["UACTOR"] }), historyTask("100.3", { testers: ["UACTOR"] })],
-  }));
-  assert.equal(later.text, "You have 1 open acme task. You have 2 open test tasks.");
-  assert.deepEqual(
-    later.blocks.map((block) => (block.type === "header" ? block.text.text : block.type)),
-    ["Your acme tasks", "section", "section", "section", "divider", "Your test tasks", "section", "section", "section"],
-  );
-});
-
-test("/cade tasks with a role shows only that role", async (t) => {
-  const pins = ({
-    CDEV: [
-      historyTask("100.1", { title: "Build it", owners: ["UACTOR"] }),
-      historyTask("100.2", { title: "Review it", reviewers: ["UACTOR"] }),
-      historyTask("100.3", { title: "Both", owners: ["UACTOR"], testers: ["UACTOR"] }),
-    ],
-  });
-  for (const [word, heading, text, lines] of [
-    ["development", "Owned", "You have 2 open acme owned tasks.", 2],
-    ["dev", "Owned", "You have 2 open acme owned tasks.", 2],
-    ["Review", "Reviewing", "You have 1 open acme reviewing task.", 1],
-    ["testing", "Testing", "You have 1 open acme testing task.", 1],
-    ["test", "Testing", "You have 1 open acme testing task.", 1],
-  ]) {
-    const { later } = await tasksCommand(t, `tasks ${word}`, "CDEV", pins);
-    assert.equal(later.text, text, word);
-    assert.equal(later.blocks[0].text.text, `Your acme tasks: ${heading}`, word);
-    // Just the one role's section.
-    assert.equal(later.blocks.length, 2, word);
-    assert.equal(later.blocks[1].text.text.split("\n").length, lines + 1, word);
-    assert.match(later.blocks[1].text.text, new RegExp(`^\\*${heading} \\(${lines}\\)\\*`), word);
-  }
-});
-
-test("/cade tasks with a role and no such tasks says so", async (t) => {
-  const { later } = await tasksCommand(t, "tasks review", "CDEV", ({
-    CDEV: [historyTask("100.1", { owners: ["UACTOR"] })],
-  }));
-  assert.equal(later.text, "You have no open acme reviewing tasks.");
-  assert.equal(later.blocks[0].text.text, "Your acme tasks: Reviewing");
-});
-
-test("/cade tasks with anything else says what it takes", async (t) => {
-  // Group names are not taken any more: the channel picks the group.
-  for (const word of ["mars", "acme"]) {
-    const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", {});
-    assert.deepEqual(JSON.parse(now), {
-      response_type: "ephemeral",
-      text: `I don't know "${word}" as a role. ${TASKS_USAGE}`,
-    });
-    assert.equal(calls.length, 0);
-    assert.equal(later, undefined);
-  }
-});
-test("someone with no open tasks in the group is told so", async (t) => {
-  const { later } = await tasksCommand(t, "tasks", "CDEV", ({
-    CDEV: [historyTask("100.1", { owners: ["UBOB"] })],
-  }));
-  assert.equal(later.text, "You have no open acme tasks.");
-  assert.equal(later.blocks[1].text.text, "You have no open tasks.");
-});
-
-test("/cade tasks leaves out deleted tasks", async (t) => {
-  const { later } = await tasksCommand(t, "tasks", "CDEV", {
-    CDEV: [historyTask("100.1", { owners: ["UACTOR"] }), historyTask("100.2", { owners: ["UACTOR"] })],
-  });
-  assert.equal(later.text, "You have 2 open acme tasks.");
-
-  await markTaskDeleted(env, "CDEV", "100.1");
-  const again = await runTasksCommand("tasks", "CDEV");
-  assert.equal(again.later.text, "You have 1 open acme task.");
-});
-
-test("@Cade tasks points to /cade tasks", async (t) => {
-  const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> tasks"));
-  assert.equal(calls[0].args.text, "That one's a slash command: try `/cade tasks`.");
-});
 
 const PR = "https://github.com/acme/cade/pull/42";
 const MR = "https://gitlab.com/acme/web/web-app/-/merge_requests/118";
@@ -2374,14 +2250,14 @@ test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, 
   const unassigned = await view("home:tab:unassigned");
   assert.match(unassigned.text, /Nobody's/);
   assert.doesNotMatch(unassigned.text, /Mine|Theirs/);
-  assert.deepEqual(unassigned.primary, ["Unassigned"]);
+  assert.deepEqual(unassigned.primary, ["Home", "Unassigned"]);
   const all = await view("home:tab:all");
   assert.match(all.text, /Mine[^]*Nobody's[^]*Theirs|Mine[^]*Theirs[^]*Nobody's/);
   assert.doesNotMatch(all.text, /Assign to me/);
-  assert.deepEqual(all.primary, ["All Tasks"]);
+  assert.deepEqual(all.primary, ["Home", "All Tasks"]);
   const refreshed = await view("home:refresh", "unassigned");
-  assert.deepEqual(refreshed.primary, ["Unassigned"]);
-  assert.deepEqual((await view("home:tab:mine")).primary, ["My Tasks"]);
+  assert.deepEqual(refreshed.primary, ["Home", "Unassigned"]);
+  assert.deepEqual((await view("home:tab:mine")).primary, ["Home", "My Tasks"]);
 });
 
 test("Assign to me on the Home tab's Unassigned view makes the person the owner, unless someone took it", async (t) => {
@@ -2436,10 +2312,14 @@ test("the Home tab's project picker keeps the person's project for next time", a
   await send("/slack/events", JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "app_home_opened", user: "UME", tab: "home" } }));
   assert.doesNotMatch(textOf(publishOf(calls)), /In acme/);
 
+  // With none chosen, or one that is gone, the first project is shown, and the picker has no "all".
   calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
-  await interact({ action_id: "home:project", selected_option: { value: "all" } });
+  await interact({ action_id: "home:project", selected_option: { value: "gone" } });
   view = publishOf(calls);
-  assert.match(textOf(view), /In acme[^]*In test|In test[^]*In acme/);
+  assert.match(textOf(view), /In acme/);
+  assert.doesNotMatch(textOf(view), /In test/);
+  const options = view.blocks.flatMap((block) => block.elements ?? []).find((element) => element.action_id === "home:project").options;
+  assert.deepEqual(options.map((option) => option.value), ["acme", "test"]);
   // The tab is remembered too: it opens on Unassigned after that was last used.
   calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
   await interact({ action_id: "home:tab:unassigned" });
@@ -2859,136 +2739,6 @@ const dueIn = (days) => {
   return date.toISOString().slice(0, 10).split("-").reverse().join("/");
 };
 
-test("/cade tasks @person shows their tasks, headed with their name", async (t) => {
-  const { calls, later } = await tasksCommand(t, "tasks <@UBOB|bob>", "CDEV", {
-    CDEV: [
-      historyTask("100.1", { title: "Bob's", owners: ["UBOB"] }),
-      historyTask("100.2", { title: "Mine", owners: ["UACTOR"] }),
-      historyTask("100.3", { title: "Both", reviewers: ["UBOB", "UACTOR"] }),
-    ],
-  });
-  assert.deepEqual(calls.map((call) => call.method).sort(), ["auth.test", "users.info"]);
-  assert.equal(later.text, "<@UBOB> has 2 open acme tasks.");
-  assert.equal(later.blocks[0].text.text, "Bob's acme tasks");
-  assert.match(later.blocks[1].text.text, /^\*Owned \(1\)\*\n• <[^|]+\|Bob's>/);
-  assert.match(later.blocks[2].text.text, /^\*Reviewing \(1\)\*\n• <[^|]+\|Both>/);
-
-  // Naming yourself is the same as naming no one.
-  const mine = await tasksCommand(t, "tasks <@UACTOR>", "CDEV", { CDEV: [historyTask("100.1", { owners: ["UACTOR"] })] });
-  assert.equal(mine.later.text, "You have 1 open acme task.");
-
-  const none = await tasksCommand(t, "tasks review <@UBOB>", "CDEV", { CDEV: [historyTask("100.1", { owners: ["UBOB"] })] });
-  assert.equal(none.later.text, "<@UBOB> has no open acme reviewing tasks.");
-  assert.equal(none.later.blocks[1].text.text, "<@UBOB> has no open tasks.");
-});
-
-test("/cade tasks -all shows everyone's tasks by status, with who works on them", async (t) => {
-  const { later } = await tasksCommand(t, "tasks -all", "CDEV", {
-    CDEV: [
-      historyTask("100.1", { title: "Unassigned" }),
-      historyTask("100.2", { title: "Shared", owners: ["UALICE"], testers: ["UBOB", "UALICE"], status: "IN_TESTING" }),
-      historyTask("100.3", { title: "Finished", owners: ["UALICE"], status: "DONE" }),
-    ],
-  });
-  assert.equal(later.text, "There are 2 open acme tasks.");
-  // Links left out, as other tests check them.
-  assert.deepEqual(
-    later.blocks.map((block) => block.text.text.replace(/<https:[^|]+\|/g, "<")),
-    [
-      "All acme tasks",
-      "*To do (1)*\n• <Unassigned>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  _Unassigned_",
-      "*In testing (1)*\n• <Shared>  ·  :test_tube: In testing  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  <@UALICE>, <@UBOB>",
-    ],
-  );
-});
-
-test("/cade tasks -status shows only those statuses, Done included when named", async (t) => {
-  const stored = {
-    CDEV: [
-      historyTask("100.1", { title: "Started", owners: ["UACTOR"], status: "IN_PROGRESS" }),
-      historyTask("100.2", { title: "Waiting", owners: ["UACTOR"] }),
-      historyTask("100.3", { title: "Finished", owners: ["UACTOR"], status: "DONE" }),
-    ],
-  };
-  const progress = await tasksCommand(t, "tasks -status=in-progress", "CDEV", stored);
-  assert.equal(progress.later.text, "You have 1 acme task: In progress.");
-  // The filter is shown under the header.
-  assert.equal(progress.later.blocks[1].elements[0].text, "In progress");
-  assert.match(progress.later.blocks[2].text.text, /\|Started>/);
-
-  const several = await tasksCommand(t, "tasks -status=done,to-do", "CDEV", stored);
-  assert.equal(several.later.text, "You have 2 acme tasks: Done, To do.");
-
-  const none = await tasksCommand(t, "tasks -status=client-review", "CDEV", stored);
-  assert.equal(none.later.text, "You have no acme tasks: Client review.");
-  assert.equal(none.later.blocks[2].text.text, "You have no matching tasks.");
-});
-
-test("/cade tasks -due compares due dates with today, tomorrow or a date", async (t) => {
-  const stored = {
-    CDEV: [
-      historyTask("100.1", { title: "Late", owners: ["UACTOR"], dueDate: dueIn(-1) }),
-      historyTask("100.2", { title: "Today", owners: ["UACTOR"], dueDate: dueIn(0) }),
-      historyTask("100.3", { title: "Tomorrow", owners: ["UACTOR"], dueDate: dueIn(1) }),
-      historyTask("100.4", { title: "Someday", owners: ["UACTOR"], dueDate: "" }),
-      // Immediate counts as today.
-      historyTask("100.5", { title: "Down", owners: ["UACTOR"], dueDate: "Immediate" }),
-    ],
-  };
-  const titles = (later) =>
-    later.blocks.filter((block) => block.type === "section").flatMap((block) =>
-      [...block.text.text.matchAll(/\|([^>]+)>/g)].map(([, title]) => title),
-    ).sort();
-  for (const [filter, expected, label] of [
-    ["-due<@today", ["Late"], "Due before today"],
-    ["-due=@today", ["Down", "Today"], "Due today"],
-    ["-due<=@today", ["Down", "Late", "Today"], "Due by today"],
-    ["-due=@tomorrow", ["Tomorrow"], "Due tomorrow"],
-    ["-due>@today", ["Tomorrow"], "Due after today"],
-    [`-due>=${dueIn(1)}`, ["Tomorrow"], `Due from ${dueIn(1)}`],
-    [`-due=${dueIn(-1).split("/").reverse().join("-")}`, ["Late"], `Due ${dueIn(-1)}`],
-    ["-due=none", ["Someday"], "No due date"],
-  ]) {
-    const { later } = await tasksCommand(t, `tasks ${filter}`, "CDEV", stored, env);
-    assert.deepEqual(titles(later), expected, filter);
-    assert.equal(later.blocks[1].elements[0].text, label, filter);
-  }
-});
-
-test("/cade tasks options combine, in any order", async (t) => {
-  const { later } = await tasksCommand(t, "tasks -due&lt;@today <@UBOB> dev -status=in-progress", "CDEV", {
-    CDEV: [
-      historyTask("100.1", { title: "Match", owners: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
-      historyTask("100.2", { title: "Not late", owners: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(2) }),
-      historyTask("100.3", { title: "Reviewing", reviewers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
-      historyTask("100.4", { title: "To do", owners: ["UBOB"], dueDate: dueIn(-2) }),
-    ],
-  });
-  assert.equal(later.text, "<@UBOB> has 1 acme owned task: In progress  ·  Due before today.");
-  assert.equal(later.blocks[0].text.text, "Bob's acme tasks: Owned");
-  assert.match(later.blocks[2].text.text, /\|Match>/);
-});
-
-test("/cade tasks says what's wrong with options it can't use", () => {
-  for (const [text, start] of [
-    ["-status=blocked", 'I don\'t know "-status=blocked" as a status filter.'],
-    ["-status", 'I don\'t know "-status" as a status filter.'],
-    ["-due=soon", 'I don\'t know "-due=soon" as a due date filter.'],
-    ["-due=31/02/2027", 'I don\'t know "-due=31/02/2027" as a due date filter.'],
-    ["-due<none", 'I don\'t know "-due&lt;none" as a due date filter.'],
-    ["-mine", 'I don\'t know "-mine" as an option.'],
-    ["-all dev", "`-all` shows everyone's tasks, so it can't take a role or a person."],
-    ["-all <@UBOB>", "`-all` shows everyone's tasks, so it can't take a role or a person."],
-    ["<@UBOB> <@UALICE>", "I can only look up one person at a time."],
-    ["dev review", "I can only show one role at a time."],
-  ]) {
-    assert.equal(parseTaskFilters(text).error, `${start} ${TASKS_USAGE}`, text);
-  }
-  // A dash Slack made of a typed --, and upper case, are fine.
-  assert.equal(parseTaskFilters("—ALL").all, true);
-  assert.deepEqual(parseTaskFilters("--status=In-Progress").statuses, ["IN_PROGRESS"]);
-});
-
 test("today is in the configured time zone", () => {
   const lateEvening = new Date("2026-10-24T20:00:00Z");
   assert.equal(todayIn({}, lateEvening), "2026-10-24");
@@ -3151,15 +2901,6 @@ test("/cade standup says so when there's nothing to go through, and takes only -
   // It's the team's, so it runs in its channels.
   const outside = await tasksCommand(t, "standup", "COTHER", {});
   assert.equal(JSON.parse(outside.now).text, "That one works with `/cade standup` in <#CDEV> or <#CTESTDEV>.");
-});
-
-test("/cade tasks -unassigned lists open tasks with no owner", async (t) => {
-  const { later } = await tasksCommand(t, "tasks -unassigned", "CDEV", standupTasks());
-  assert.equal(later.text, "There is 1 open acme unassigned task.");
-  assert.equal(later.blocks[0].text.text, "Unassigned acme tasks");
-  assert.match(later.blocks[1].text.text, /^\*To do \(1\)\*\n• <[^|]+\|Nobody's>.*<@UALICE>$/);
-  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Try ")[0], "`-unassigned` shows tasks with no owner, so it can't take a role or a person.");
-  assert.equal(parseTaskFilters("-all -unassigned").error.split(" Try ")[0], "Use `-all` or `-unassigned`, not both.");
 });
 
 // `@Cade release`: some of a task's PRs sent to the client.
@@ -4203,12 +3944,6 @@ test("a standup step with more tasks than fit says how many more", async (t) => 
   const many = Array.from({ length: 23 }, (_, i) => historyTask(`100.${i + 10}`, { title: `Task ${i}`, owners: ["UALICE"] }));
   const { later } = await tasksCommand(t, "standup", "CDEV", { CDEV: many });
   assert.equal(later.blocks.at(-2).elements[0].text, "_…and 3 more, after these._");
-});
-
-test("/cade tasks -all with nothing to show says so", async (t) => {
-  const { later } = await tasksCommand(t, "tasks -all", "CDEV", {});
-  assert.equal(later.text, "There are no open acme tasks.");
-  assert.equal(later.blocks.at(-1).text.text, "There are no open tasks.");
 });
 
 // A canvas's markdown, from conversations.canvases.create or canvases.edit.

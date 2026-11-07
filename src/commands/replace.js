@@ -21,7 +21,6 @@ export default {
   description: "Change what one of Cade's messages says, from anywhere, with its link",
   slashUsage: "/cade replace <link> <text>",
   admin: true,
-  section: "task",
   slashChannel: [],
   async slash(command, context) {
     const link = linkedMessage(command.text);

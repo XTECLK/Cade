@@ -206,7 +206,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }, 
 // with a short prompt to paste into the person's AI agent, which reads the
 // task's thread and the thread it was made from through Cade's MCP endpoint
 // and writes the summary on the task's notes page (see mcp.js), and a line
-// on what to do if the agent isn't connected to Cade yet (`/cade mcp init`,
+// on what to do if the agent isn't connected to Cade yet (the Home tab's AI agent button,
 // see commands/mcp.js). Only for a task made from a message, and not one from
 // a direct message, which Cade can't read. A project turns it off with
 // `aiAgentSummary` (false), and turning MCP off (`mcp`: false) does too.
@@ -252,7 +252,7 @@ async function createAndGuide({ env, waitUntil }, task, origin, user) {
   return { response_action: "update", view: agentView(prompt(first.taskId)) };
 }
 
-const NOT_CONNECTED = "Agent not connected to Cade yet? Send `/cade mcp init`.";
+const NOT_CONNECTED = "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.";
 
 // What to paste into the agent, for the task with this ID.
 const prompt = (taskId) => `Summarize the Cade task ${taskId} and save the summary once I approve it.`;

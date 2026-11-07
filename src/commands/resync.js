@@ -27,7 +27,6 @@ export default {
   description: "Redraw a task's card from what Cade has stored, quietly",
   slashUsage: ["/cade resync <link>", "/cade resync summary"],
   admin: true,
-  section: "task",
   slashChannel: [],
   async slash(command, context) {
     if (/^summary$/i.test(command.text.trim())) return resyncSummary(command, context);

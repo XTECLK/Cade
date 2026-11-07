@@ -12,7 +12,7 @@ import { formatTime } from "./format.js";
 //                       notes people write here by hand
 //
 // Both are for people who can read the task's channel (a private one's
-// members; anyone in a public one), signed in with a link `/cade web login` gives
+// members; anyone in a public one), signed in with a link the Home tab's Web pages button gives
 // in Slack: it is used once within ten minutes and sets a cookie that lasts
 // thirty days. Only hashes of the link and the cookie are kept (web_tokens).
 const COOKIE = "cade_session";
@@ -61,7 +61,7 @@ async function currentUser(request, env) {
   return cookie ? await webTokenUser(env, await hashToken(cookie), "session") : null;
 }
 
-const SIGN_IN = "<p>Send <code>/cade web login</code> in Slack. Cade answers with a link that signs you in here for thirty days; then open this page again.</p>";
+const SIGN_IN = "<p>In Slack, open Cade's Home tab, press <b>Web pages</b>, then <b>Get a sign-in link</b>. The link signs you in here for thirty days; then open this page again.</p>";
 
 function sessionToken(request) {
   for (const part of (request.headers.get("cookie") ?? "").split(";")) {
@@ -74,7 +74,7 @@ function sessionToken(request) {
 async function signIn(request, env, code) {
   if (request.method !== "GET") return methodNotAllowed("GET");
   const user = /^[A-Za-z0-9_-]{43}$/.test(code) ? await webTokenUser(env, await hashToken(code), "login") : null;
-  if (!user) return page(401, "Link expired", "<p>This sign-in link was used already or has expired. Send <code>/cade web login</code> in Slack for a new one.</p>");
+  if (!user) return page(401, "Link expired", "<p>This sign-in link was used already or has expired. In Slack, open Cade's Home tab and press <b>Web pages</b> for a new one.</p>");
   const session = newToken();
   await putWebToken(env, await hashToken(session), user, "session", SESSION_MINUTES);
   return page(200, "Signed in", "<p>You're signed in for thirty days. Open the task's link in Slack again.</p>", {

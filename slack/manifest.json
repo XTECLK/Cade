@@ -39,8 +39,8 @@
       {
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
-        "description": "Track a task, report an incident, list your tasks or summarise them",
-        "usage_hint": "task | incident | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | project init | project settings | web login | web logout",
+        "description": "Track a task, report an incident or run a standup",
+        "usage_hint": "task | incident | standup [-unassigned]",
         "should_escape": true
       }
     ]

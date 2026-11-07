@@ -3,6 +3,7 @@ import { ensureWorkDoc } from "../doc.js";
 import { googleEnabled } from "../google.js";
 import { addProject } from "../db.js";
 import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn } from "../settings.js";
+import { SETTINGS_ACTION } from "../home.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 
 const SETTINGS_VIEW = "project:settings";
@@ -12,33 +13,28 @@ const PICK_ACTION = "project:pick";
 // would be: its tasks are tracked there (see channels.js). The project is named after the channel,
 // or by `/cade project init <name>`, and its name and channel can't be changed afterwards. In a
 // channel that is a project already it only warns. Every project has a Google Doc for its executive
-// summaries, made by `init` (so Google must be set up first). `/cade project settings` opens a form in Slack
-// with a project's switches (see settings.js), each following the config or turned on or off, and a
-// list to pick the project from. `/cade project` tells which project the channel is. Only the
-// admins listed in cade.config.json can use any of it.
+// summaries, made by `init` (so Google must be set up first). The Project settings button in Configure on
+// the Home tab (see home.js) opens a form in Slack with a project's switches (see settings.js), each
+// following the config or turned on or off, and a list to pick the project from. `/cade project`
+// tells which project the channel is. Only the admins listed in cade.config.json can use any of it.
 export default {
   name: "project",
-  description: "Make this channel a project, so its tasks are tracked here: `init` adds it, `settings` opens the projects' settings. Admins only",
-  slashUsage: ["/cade project init", "/cade project settings"],
+  description: "Make this channel a project, so its tasks are tracked here: `init` adds it. Admins only",
+  slashUsage: "/cade project init",
   admin: true,
-  section: "work",
   async slash(command, { env }) {
     if (!isAdmin(env, command.user)) return "Only an admin can use `/cade project`. Admins are listed under `admins` in cade.config.json.";
     const [action, ...rest] = command.text.trim().split(/\s+/);
     const existing = projects(env).find((project) => project.channel === command.channel);
     if (!action) {
       return existing
-        ? `This channel is the project *${existing.name}*. \`/cade project settings\` opens its settings.`
+        ? `This channel is the project *${existing.name}*. Its settings are in Configure on the Cade Home tab.`
         : "This channel isn't a project yet. Send `/cade project init` here to make it one.";
     }
-    if (action.toLowerCase() === "settings") {
-      await callSlack(env, "views.open", { trigger_id: command.triggerId, view: await settingsView(env, command.channel) });
-      return undefined;
-    }
-    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, `/cade project settings` for the projects' settings or `/cade project` to see if this channel is one.";
+    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, or `/cade project` to see if this channel is one.";
 
     if (existing) {
-      return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. \`/cade project settings\` opens its settings.`;
+      return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. Its settings are in Configure on the Cade Home tab.`;
     }
     if (!googleEnabled(env)) return NO_GOOGLE;
     let info;
@@ -68,10 +64,10 @@ export default {
     }
     await addProject(env, command.channel, name, command.user);
     console.log("Project added", { name, channel: command.channel, by: command.user });
-    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and \`/cade project settings\` opens its settings. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
+    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and its settings are in Configure on the Cade Home tab. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
   },
   views: { [SETTINGS_VIEW]: saveSettings },
-  actions: { [PICK_ACTION]: pickProject },
+  actions: { [PICK_ACTION]: pickProject, [SETTINGS_ACTION]: openSettings },
 };
 
 const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md), then try again.";
@@ -122,6 +118,12 @@ async function settingsView(env, channel) {
       }),
     ],
   };
+}
+
+// The Project settings button in Configure on the Home tab: opens the form for the project it carries.
+async function openSettings(payload, { env }) {
+  if (!isAdmin(env, payload.user.id)) return;
+  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await settingsView(env, payload.actions[0].value) });
 }
 
 // Another project picked in the form: show its settings in its place.

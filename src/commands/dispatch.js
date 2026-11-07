@@ -8,6 +8,8 @@ export async function dispatch(command, context) {
   const handler = commands[command.name];
   if (!handler) return "Send `/cade help` to see what I can do.";
   const scope = { channel: handler.channel, inThread: handler.inThread };
+  // Admin commands are only sent as slash commands, so `@Cade` doesn't know them.
+  if (!handler.run && handler.admin) return "Send `/cade help` to see what I can do.";
   if (!handler.run) {
     return `That one's a slash command: try \`${[handler.slashUsage].flat()[0]}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
   }
@@ -79,13 +81,12 @@ function channelHint(scope, env, from) {
 
 // Help lists the commands by how they're sent: the slash commands, at the
 // top of a channel; the `@Cade` messages, sent in a message's thread or a
-// task's; the message shortcuts; and the admin commands, for tidying up.
+// task's; and the message shortcuts. Admin commands are not listed.
 function usage() {
   const all = [...new Set(Object.values(commands))];
   const handlers = all.filter((handler) => !handler.admin);
   const slash = handlers.filter((handler) => handler.slashUsage).flatMap((handler) => handler.slashUsage);
   const messages = (section) => handlers.filter((handler) => handler.section === section && handler.usage).flatMap((handler) => handler.usage);
-  const admin = all.filter((handler) => handler.admin).flatMap((handler) => handler.slashUsage);
   const list = (forms) => forms.map((form) => `\`${form}\``).join(" · ");
   return [
     "Here's what I can do:",
@@ -95,7 +96,6 @@ function usage() {
     `• In a message's thread: ${list(messages("message"))}`,
     `• In a task's thread: ${list(messages("task"))}`,
     "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
-    `*Admin commands*, for tidying up: ${list(admin)}`,
     "Send `/cade help` any time to see this again.",
   ].join("\n");
 }

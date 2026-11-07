@@ -6,7 +6,7 @@ import replace from "./replace.js";
 import edit from "./edit.js";
 import { due, priority } from "./details.js";
 import home from "./home.js";
-import mcp from "./mcp.js";
+import configure from "./configure.js";
 import menu from "./menu.js";
 import move from "./move.js";
 import pr from "./pr.js";
@@ -17,10 +17,8 @@ import retry from "./retry.js";
 import standup from "./standup.js";
 import status from "./status.js";
 import suggest from "./suggest.js";
-import tasks from "./tasks.js";
 import track, { incident } from "./track.js";
 import unassign from "./unassign.js";
-import web from "./web.js";
 
 // To add a command, create a handler module and list it here. A handler is:
 //   {
@@ -50,7 +48,7 @@ import web from "./web.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, web, mcp, project, tasks, standup];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, project, standup];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>
@@ -60,7 +58,7 @@ export const commands = Object.fromEntries(
 
 // The Home tab's Refresh button, the task card's menu, its Edit form, and suggestions from people's own words only answer
 // clicks and messages, so they aren't commands.
-const interactive = [...handlers, menu, edit, suggest, aiSuggest];
+const interactive = [...handlers, home, configure, menu, edit, suggest, aiSuggest];
 
 export const views = Object.assign(
   {},

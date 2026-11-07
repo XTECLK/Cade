@@ -17,7 +17,7 @@
 //             model without it. One model for every project
 //   mcp       whether people can connect their AI agent to      → MCP
 //             Cade's MCP endpoint (optional, on): false turns
-//             it off, and `/cade mcp init` gives no keys
+//             it off, and the Home tab gives no keys
 //
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required

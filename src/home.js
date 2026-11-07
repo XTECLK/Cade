@@ -2,6 +2,9 @@ import { projects } from "./channels.js";
 import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime } from "./format.js";
+import { MCP_ACTION, WEB_ACTION } from "./commands/configure.js";
+import { mcpEnabled } from "./mcp.js";
+import { isAdmin } from "./settings.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
 import { PRIORITIES, blockedLine, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
@@ -30,9 +33,16 @@ export const REFRESH_ACTION = "home:refresh";
 export const CLAIM_ACTION = "home:claim";
 
 // The project picker, which also remembers the choice (see db.js). Its value
-// is a group's name, or none for every project.
+// is a project's name; with none chosen, or one that is gone, the first project is shown.
 export const PROJECT_ACTION = "home:project";
-export const ALL_PROJECTS = "all";
+
+// The two parts of the tab, as buttons under the picker: the person's tasks, and Configure, with the
+// setup buttons (see commands/configure.js) and, for an admin, the project's settings. Which part is
+// open isn't kept: the tab opens on tasks.
+export const HOME_ACTION = "home:section:home";
+export const CONFIGURE_ACTION = "home:section:configure";
+export const CONFIGURE = "configure";
+export const SETTINGS_ACTION = "home:settings";
 
 // The buttons along the top, each a view of the open tasks. Slack has no
 // tabs in the Home tab, so a button draws the tab again with its view.
@@ -47,49 +57,59 @@ const DEFAULT_TAB = "mine";
 // with the Assign to me button).
 const MAX_LISTED = 20;
 
-// Draws `user`'s Home tab, on the `tab` view, which is kept for next time.
-// With none, it opens on the one they were last on.
+// Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Configure, which isn't.
+// With none, it opens on the tasks tab they were last on.
 export async function publishHome(env, user, tab) {
   if (TABS[tab]) await setHomeTab(env, user, tab);
-  else tab = (await getHomeTab(env, user)) ?? DEFAULT_TAB;
+  else if (tab !== CONFIGURE) tab = (await getHomeTab(env, user)) ?? DEFAULT_TAB;
   await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab) });
 }
 
-// The view carries its tab, for the project picker to draw it again on.
+// The view carries its tab (or Configure), for the project picker to draw it again on.
 export async function homeView(env, user, tab = DEFAULT_TAB) {
-  if (!TABS[tab]) tab = DEFAULT_TAB;
+  if (!TABS[tab] && tab !== CONFIGURE) tab = DEFAULT_TAB;
   return { ...(await draw(env, user, tab)), private_metadata: tab };
 }
 
 async function draw(env, user, tab) {
   const { url } = await callSlack(env, "auth.test", {});
   const all = projects(env);
-  // The person's last project, unless it is gone from the settings.
+  // The person's last project, unless it is gone from the settings: then the first.
   const chosen = await getHomeProject(env, user);
-  const project = all.find((group) => group.name === chosen);
-  const groups = project ? [project] : all;
-  const open = (await Promise.all(groups.map((group) => groupTasks(env, group, OPEN, url)))).flat();
-  const today = todayIn(env);
-  // The project picker and Refresh share a row, above the tabs.
-  const tabs = [
+  const project = all.find((group) => group.name === chosen) ?? all[0];
+  // The project picker and Refresh share a row, then the two parts of the tab, then (for tasks) the tabs.
+  const top = [
     {
       type: "actions",
       elements: [
-        projectPicker(all, project),
+        ...(project ? [projectPicker(all, project)] : []),
         { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
       ],
     },
     {
       type: "actions",
-      elements: Object.entries(TABS).map(([name, { action, label }]) => ({
-        type: "button",
-        action_id: action,
-        text: plainText(label),
-        ...(name === tab && { style: "primary" }),
-      })),
+      elements: [
+        { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
+        { type: "button", action_id: CONFIGURE_ACTION, text: plainText("Configure"), ...(tab === CONFIGURE && { style: "primary" }) },
+      ],
     },
   ];
-  if (tab !== "mine") return listView(env, tab, tabs, open, today, user);
+  if (!project) {
+    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_There are no projects yet. An admin makes a channel one with `/cade project init`._")] }] };
+  }
+  if (tab === CONFIGURE) return configureView(env, user, top, project);
+  const open = await groupTasks(env, project, OPEN, url);
+  const today = todayIn(env);
+  const tabRow = {
+    type: "actions",
+    elements: Object.entries(TABS).map(([name, { action, label }]) => ({
+      type: "button",
+      action_id: action,
+      text: plainText(label),
+      ...(name === tab && { style: "primary" }),
+    })),
+  };
+  if (tab !== "mine") return listView(env, tab, top, tabRow, open, today, user);
 
   const entries = open.filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
 
@@ -109,9 +129,10 @@ async function draw(env, user, tab) {
     : "You're all caught up :tada:";
 
   const blocks = [
+    ...top,
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(summary)] },
-    ...tabs,
+    tabRow,
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });
@@ -123,30 +144,50 @@ async function draw(env, user, tab) {
   return { type: "home", blocks };
 }
 
-// A dropdown of the groups, "All projects" first, on `project` if one is
-// chosen.
+// A dropdown of the projects, on `project`.
 function projectPicker(groups, project) {
-  const option = (value, text) => ({ text: plainText(text), value });
-  const all = option(ALL_PROJECTS, "All projects");
-  const options = [all, ...groups.map((group) => option(group.name, group.name))];
+  const options = groups.slice(0, 100).map((group) => ({ text: plainText(group.name.slice(0, 75)), value: group.name }));
   return {
     type: "static_select",
     action_id: PROJECT_ACTION,
     placeholder: plainText("Project"),
     options,
-    initial_option: project ? options[1 + groups.indexOf(project)] : all,
+    initial_option: options[groups.indexOf(project)] ?? options[0],
   };
+}
+
+// The Configure part: a section for each setup, with its button. AI agent is left out when MCP is
+// turned off, and Project settings is for admins only.
+function configureView(env, user, top, project) {
+  const row = (title, about, action, label, value) => ({
+    type: "section",
+    text: mrkdwn(`*${title}*\n${about}`),
+    accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) },
+  });
+  const blocks = [
+    ...top,
+    { type: "header", text: plainText("Configure") },
+    row("Web pages", "Sign in to the thread and notes pages that task cards link to, or sign out of every browser.", WEB_ACTION, "Web pages"),
+    ...(mcpEnabled(env) ? [row("AI agent", "Connect your own AI agent to Cade: your API key, the endpoint and the setup guide.", MCP_ACTION, "AI agent")] : []),
+    ...(isAdmin(env, user)
+      ? [row("Project settings", `Switches and people for *${project.name}*. Admins only.`, SETTINGS_ACTION, "Project settings", project.channel)]
+      : []),
+    { type: "divider" },
+    { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] },
+  ];
+  return { type: "home", blocks };
 }
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first. Unassigned ones have an Assign to me button there, and only there.
-function listView(env, tab, tabs, open, today, user) {
+function listView(env, tab, top, tabRow, open, today, user) {
   const unassigned = tab === "unassigned";
   const entries = (unassigned ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
   const blocks = [
+    ...top,
     { type: "header", text: plainText(unassigned ? "Unassigned tasks" : "All open tasks") },
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
-    ...tabs,
+    tabRow,
     { type: "divider" },
   ];
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });

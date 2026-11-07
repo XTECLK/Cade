@@ -107,8 +107,14 @@ test("/cade project init takes a name, and refuses a non-admin, a taken name, a 
   assert.match(await slash("init Billing team"), /now the project \*Billing team\*/);
   assert.ok(calls.some((call) => call.method === "conversations.join" && call.args.channel === "CNEW"));
   assert.match(await slash("nope"), /Send `\/cade project init`/);
-  assert.match(await slash("settings", { user: "UMEMBER" }), /Only an admin can use `\/cade project`/);
+  assert.match(await slash("init", { user: "UMEMBER" }), /Only an admin can use `\/cade project`/);
+  // `settings` isn't a command any more: they are in Configure on the Home tab.
+  assert.match(await slash("settings"), /Send `\/cade project init`/);
 });
+
+// The Project settings button in Configure on the Home tab (see home.js), pressed as `user`.
+const openSettings = (channel, user = "UADMIN") =>
+  interact({ type: "block_actions", user: { id: user }, trigger_id: "T1", actions: [{ action_id: "home:settings", value: channel }] });
 
 const select = (view, key) => view.blocks.find((block) => block.block_id === `s_${key}`);
 const chosen = (view, key) => select(view, key).element.initial_option.value;
@@ -122,9 +128,11 @@ const submitted = (channel, picks) => ({
   },
 });
 
-test("/cade project settings opens a form with the channel's project, its name and channel not editable", async (t) => {
+test("the Project settings button opens a form with the channel's project, its name and channel not editable, for an admin only", async (t) => {
   const calls = mock(t, { "views.open": {} });
-  assert.equal(await slash("settings", { channel: "CDEV" }), undefined);
+  await openSettings("CDEV", "UMEMBER");
+  assert.equal(calls.some((call) => call.method === "views.open"), false);
+  await openSettings("CDEV");
   const { args } = calls.find((call) => call.method === "views.open");
   assert.equal(args.trigger_id, "T1");
   const view = JSON.parse(args.view);
@@ -155,7 +163,7 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
 
   // Opening the form again shows what is chosen, and what the config says.
   const reopened = mock(t, { "views.open": {} });
-  await slash("settings", { channel: "CDEV" });
+  await openSettings("CDEV");
   const view = JSON.parse(reopened.find((call) => call.method === "views.open").args.view);
   assert.equal(chosen(view, "summaryCanvas"), "off");
   assert.equal(chosen(view, "activeTasksPinning"), "on");
@@ -190,7 +198,7 @@ test("the project's people are picked in the form and kept, and emptying the lis
   await interact(withPeople(["UBOB", "UANN"]));
   assert.deepEqual(await members(), ["UANN", "UBOB"]);
   assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /Saved 1 setting for the project \*acme\*/);
-  await slash("settings", { channel: "CDEV" });
+  await openSettings("CDEV");
   const view = JSON.parse(calls.findLast((call) => call.method === "views.open").args.view);
   assert.deepEqual(view.blocks.find((block) => block.block_id === "members").element.initial_users, ["UANN", "UBOB"]);
   // A submission that doesn't carry the field leaves them alone; an empty list clears them.
@@ -220,23 +228,29 @@ test("picking another project in the form shows its settings, and a project adde
   assert.equal(calls.length, before);
 });
 
-test("/cade web logout ends every browser session of the person, and no one else's", async (t) => {
-  mock(t);
+test("the web pages modal's sign-out button ends every browser session of the person, and no one else's", async (t) => {
+  const calls = mock(t);
   const mine = [await session("UADMIN"), await session("UADMIN")];
   const other = await session("UMEMBER");
   assert.equal((await notes(mine[0])).status, 404);
-  const reply = async (text, user = "UADMIN") => {
-    const body = new URLSearchParams({ command: "/cade", text, user_id: user, channel_id: "CDEV", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
-    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), env, { waitUntil() {} })).json()).text;
+  // Presses a button in the modal (see commands/configure.js) and reads what Cade drew in answer.
+  const press = async (actionId, user = "UADMIN") => {
+    const before = calls.length;
+    await interact({ type: "block_actions", user: { id: user }, trigger_id: "T1", view: { id: "V1" }, actions: [{ action_id: actionId, value: "" }] });
+    const drawn = calls.slice(before).find((call) => call.method === "views.update" || call.method === "views.open");
+    return JSON.parse(drawn.args.view).blocks.map((block) => block.text?.text ?? "").join("\n");
   };
-  assert.match(await reply("web logout"), /Signed out of 2 browser sessions/);
+  assert.match(await press("home:web:logout"), /Signed out of 2 browser sessions/);
   // Both sessions are gone, so the page asks to sign in; the other person's stays (a task page they can't find).
   assert.equal((await notes(mine[0])).status, 401);
   assert.equal((await notes(mine[1])).status, 401);
   assert.equal((await notes(other)).status, 404);
-  assert.match(await reply("web logout"), /weren't signed in/);
-  assert.match(await reply("web login"), /<https:\/\/worker\.example\.net\/login\/[\w-]+\|Sign in/);
-  assert.match(await reply("web"), /\/cade web logout/);
+  assert.match(await press("home:web:logout"), /weren't signed in/);
+  assert.match(await press("home:web:login"), /<https:\/\/worker\.example\.net\/login\/[\w-]+\|Sign in/);
+  // Opening the modal only explains and offers the buttons; it makes no link.
+  const opened = await press("home:web");
+  assert.match(opened, /Sign in once in each browser/);
+  assert.doesNotMatch(opened, /\/login\//);
 });
 
 test("/cade project init makes the project's Google Doc first, and keeps it with the project", async (t) => {

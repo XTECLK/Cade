@@ -29,8 +29,9 @@ async function sign(body) {
 
 // A fake Slack API and Google web app: `slack` maps a method to its result
 // (or a function of its arguments); every call is recorded.
+let recorded = [];
 function mock(t, slack = {}, google = { ok: true }) {
-  const calls = [];
+  const calls = (recorded = []);
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     if (url === GOOGLE_URL) {
@@ -54,18 +55,36 @@ const ORIGIN = "https://worker.example.net";
 // users.info: everyone is an active person, but UGHOST (not in the workspace), UGONE (deactivated) and UBOT (a bot).
 const WORKSPACE = (args) => (args.user === "UGHOST" ? new Error("user_not_found") : { user: { real_name: args.user, deleted: args.user === "UGONE", is_bot: args.user === "UBOT" } });
 
-// A slash command, as Slack sends it, and the reply it gets.
+// Cade's AI agent modal (see commands/configure.js), as the slash command it replaced was used:
+// "mcp status" opens it, "mcp init" presses Create key and "mcp revoke" presses Revoke key. Resolves to the
+// modal Cade drew in answer, with its text.
+const MCP_BUTTONS = { status: "home:mcp", init: "home:mcp:create", revoke: "home:mcp:revoke" };
 async function slash(text, user = "UME") {
-  const body = new URLSearchParams({ command: "/cade", text, user_id: user, channel_id: "CDEV", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
+  const [, name] = text.split(" ");
+  const before = recorded.length;
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "block_actions",
+      user: { id: user },
+      trigger_id: "T1",
+      view: { id: "V1" },
+      actions: [{ action_id: MCP_BUTTONS[name], value: "" }],
+    }),
+  }).toString();
   const response = await worker.fetch(
-    new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }),
+    new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }),
     env,
-    { waitUntil() {} },
+    { waitUntil: () => {} },
   );
-  return response.json();
+  assert.equal(response.status, 200);
+  // The handler's work follows the answer to Slack, so give it a moment.
+  for (let i = 0; i < 50 && !recorded.slice(before).some((call) => call.method.startsWith("views.")); i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const drawn = recorded.slice(before).find((call) => call.method === "views.open" || call.method === "views.update");
+  const view = JSON.parse(drawn.args.view);
+  return { view, text: view.blocks.map((block) => block.text?.text ?? "").join("\n") };
 }
 
-// The API key /cade mcp init gives, from its reply (the endpoint is the same for everyone).
+// The API key the Create key button gives, from the modal (the endpoint is the same for everyone).
 const addressIn = (reply) => /\*API key\*[^\n]*\n```([\w-]{43})```/.exec(reply.text)[1];
 const ENDPOINT = `${ORIGIN}/mcp`;
 
@@ -101,7 +120,7 @@ test("/cade mcp init gives an API key for the caller, and revoke ends it", async
   assert.equal(await list(first), 200);
 
   // While there is one, init makes none: it can't be shown again, so changing it is revoke, then init.
-  assert.match((await slash("mcp init")).text, /API key already.*send `\/cade mcp revoke`.*then `\/cade mcp init`/);
+  assert.match((await slash("mcp init")).text, /API key already, and I can.t show it again/);
   assert.equal(await list(first), 200);
 
   // Only a hash is kept.
@@ -118,7 +137,6 @@ test("/cade mcp init gives an API key for the caller, and revoke ends it", async
   assert.match((await slash("mcp revoke")).text, /no longer works/);
   assert.equal(await list(second), 401);
   assert.match((await slash("mcp revoke")).text, /no API key to revoke/);
-  assert.match((await slash("mcp")).text, /mcp init/);
 });
 
 test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header", async (t) => {
@@ -450,7 +468,7 @@ test("the guide /cade mcp status links to is the website's MCP reference, with t
   const html = readFileSync(new URL("../docs/mcp.html", import.meta.url), "utf8");
   assert.ok(html.includes('id="connect"'));
   assert.ok(html.includes("claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header \"x-apikey: YOUR_API_KEY\""));
-  assert.ok(html.includes("/cade mcp init") && html.includes("/cade mcp status"));
+  assert.ok(html.includes("AI agent"));
   for (const def of TOOL_DEFS) assert.ok(html.includes(`id="${def.name}"`), def.name);
   assert.ok(!html.includes("get_flow"));
   // Nothing of any one workspace is in it.
@@ -466,7 +484,7 @@ test("turning MCP off ends the endpoint, gives no keys and drops the prompt, but
   t.after(() => delete env.MCP);
   assert.equal((await rpc(url, { id: 1, method: "tools/list" })).status, 404);
   const init = await slash("mcp init", "UNEW");
-  assert.match(JSON.stringify(init), /AI agent access is turned off/);
+  assert.match(JSON.stringify(init), /an admin turned it off/);
   assert.doesNotMatch(JSON.stringify(init), /x-apikey/);
   const move = { channel: "CGEN", ts: "500.1", link: "https://acme.slack.com/archives/CGEN/p5001" };
   assert.deepEqual(await submitTrack({ channel: "CDEV", move }), { response_action: "clear" });
@@ -499,7 +517,7 @@ test("get_users lists the people of the workspace, up to a limit", async (t) => 
   assert.match((await tool(url, "get_users", { fields: ["email"] })).text, /fields is a list of: name, username/);
   assert.match((await tool(url, "get_users", { limit: 2 })).text, /^3 people, showing the first 2; raise limit \(up to 200\) or use find_user_by_name:\nAnn Lee/);
   for (const limit of [0, 201, 2.5, "5"]) assert.match((await tool(url, "get_users", { limit })).text, /limit is a whole number from 1 to 200/);
-  assert.ok(calls.every((call) => call.method === "users.list"));
+  assert.ok(calls.filter((call) => !call.method.startsWith("views.")).every((call) => call.method === "users.list"));
 });
 
 test("find_user_by_name gives the IDs of people by name", async (t) => {
@@ -799,7 +817,7 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.match(text, /Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\./);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
-    assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Send `/cade mcp init`.");
+    assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.");
     assert.ok(!text.includes("claude mcp add"));
     assert.ok(view.blocks.every((block) => (block.text?.text ?? "").length <= 3000));
     DB.reset();
@@ -823,7 +841,7 @@ test("the prompt follows privately when the task takes too long to post for the 
   const ephemeral = calls.find((call) => call.method === "chat.postEphemeral");
   assert.equal(ephemeral.args.user, "UCREATOR");
   assert.match(ephemeral.args.text, /Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\./);
-  assert.match(ephemeral.args.text, /\/cade mcp init/);
+  assert.match(ephemeral.args.text, /Home tab and press AI agent/);
 });
 
 test("the prompt isn't offered for a task not made from a message, from a DM, or in a project that turned it off", async (t) => {

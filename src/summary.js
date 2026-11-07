@@ -18,7 +18,7 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 
 // A summary is a dev channel's canvas listing what is open there, most
 // urgent first, then what is closed (Done), most recently first, then what
-// was archived (see archive.js), most recently first, each in tables: the group's tasks, incidents too, as `/cade tasks` lists them.
+// was archived (see archive.js), most recently first, each in tables: the group's tasks, incidents too.
 // Every group has one: when a task is made, Cade puts it in the channel's
 // canvas, making one if there is none, and saves which it is; from then on
 // the table is rewritten whenever a task changes.
@@ -43,7 +43,7 @@ export function summaryTitle(env, channel) {
 // The channel's summary, as canvas markdown.
 export async function summaryMarkdown(env, channel) {
   const group = findProject(env, channel);
-  // Links are built from the workspace's address, as `/cade tasks` does.
+  // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
   const updated = `_Updated ${formatTime(env, new Date())}. Cade keeps this up to date._`;
   const tasks = (await groupTasks(env, group, Object.keys(STATUSES), url)).map((entry) => ({

@@ -39,7 +39,6 @@ export default {
   description: "Delete a task and Cade's messages in its thread, or what a link points at",
   slashUsage: "/cade remove <link>",
   admin: true,
-  section: "task",
   slashChannel: [],
   async slash(command, context) {
     const link = linkedMessage(command.text);

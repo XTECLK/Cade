@@ -52,8 +52,8 @@ import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullReq
 // one JSON-RPC message, or a batch of them, answered with JSON. There are no
 // sessions and nothing is streamed.
 //
-// The API key is the person's own, made by `/cade mcp init` and ended by
-// `/cade mcp revoke` (see commands/mcp.js), so every action is theirs: a
+// The API key is the person's own, made and ended with the Home tab's AI agent button
+// (see commands/configure.js), so every action is theirs: a
 // private channel's thread is read only for someone in it. It is sent in the
 // `x-apikey` header with every request, never in the address, which ends up
 // in logs and histories. Only a hash of it is kept (see grantToken).
@@ -65,7 +65,7 @@ const PAGE = 200;
 const MAX_PAGES = 10;
 
 // Makes a new API key for `user`, ending any they had, and returns it. It
-// can't be read again; `/cade mcp revoke` ends it, and a new one follows.
+// can't be read again; revoking it ends it, and a new one follows.
 export async function grantToken(env, user) {
   const token = newToken();
   await putMcpToken(env, user, await hashToken(token));
@@ -118,7 +118,7 @@ const loadedVersionOf = (request) => /^cade-([0-9a-f]{8})-/.exec(request.headers
 class ToolError extends Error {}
 
 // The Worker's answer to a request for /mcp.
-// The names of the tools, for `/cade mcp status`.
+// The names of the tools, for the AI agent modal.
 export function mcpCatalog() {
   return { tools: TOOLS.map((tool) => tool.name) };
 }

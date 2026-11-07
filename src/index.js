@@ -30,7 +30,7 @@ export default {
     // header, not Slack's signature (see mcp.js).
     if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
     // People reach a task's thread and notes pages with a session of their
-    // own, which `/cade web login` starts (see web.js).
+    // own, which the Home tab's Web pages button starts (see web.js).
     if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
     const route = ROUTES[path];
     if (!route) return new Response("Not found", { status: 404 });

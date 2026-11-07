@@ -5234,6 +5234,14 @@ test("AI is given the dates of the coming week, for deadlines like Friday", asyn
   assert.equal(Object.keys(days).length, 7);
 });
 
+test("AI is given the dates of next week's days too, for deadlines like next Friday", async () => {
+  const { nextWeekDays } = await import("../src/ai.js");
+  const days = nextWeekDays("2026-10-27");
+  assert.equal(days["next Friday"], "2026-11-06");
+  assert.equal(days["in a week"], "2026-11-03");
+  assert.equal(days["in two weeks"], "2026-11-10");
+});
+
 test("the Edit form of a suggestion shows the task as it will be, with its pull requests and status", () => {
   const { task } = storedTask({ reviewers: ["URIA"] });
   task.status = "IN_PROGRESS";

@@ -68,7 +68,8 @@ const SCHEMA = {
 
 const INSTRUCTIONS = `You read one Slack message posted in the thread of a task, usually a software one, and say what it asks to change on the task. Reply with JSON only.
 
-People are Slack user IDs such as U0123ABC. In the message, <@U0123ABC> mentions that person. "author" wrote the message.
+People are Slack user IDs such as U0123ABC. In the message, <@U0123ABC> mentions that person. "author" wrote the message; in it, "I", "me", "my" and "we" mean the author. The author is added to a role only when they speak of themselves in the first person ("I'll test it", "on it", "taking this"), never because the message is about someone else.
+Slack markup is noise: <https://…|text> is a link, and :emoji: codes carry no request on their own. A :+1:, :rocket:, :eyes: or :tada: alone changes nothing; only :white_check_mark: from a reviewer counts as approval.
 
 Roles:
 - owner: does the work, whatever it is: builds, implements or fixes it, or takes it on ("can you implement this", "pick this up", "take this over", "can you handle this").
@@ -76,11 +77,15 @@ Roles:
 - tester: tests it or does QA ("can you test", "QA this", "verify").
 Add a person to a role only when the message asks that person to do that work, or the author says they will do it themselves ("I'll test it", "while I test this", "on it"). "remove" lists who should stop ("take over from @bob" removes @bob). Use only IDs from "mentioned", "author" or the task's people, and don't add someone who already has the role.
 Never add people for anything else: approving ("lgtm"), a deadline, urgency, thanks or a cc changes no one's role.
+Only a request or the author's own promise changes a role. These add no one: a question about the past or present ("did <@UB> review this?", "<@UB> already reviewed it"), or a statement about someone else's work ("<@UB> is testing it", "<@UB> tested it yesterday"). A question such as "who can review?" names no one.
 
 Statuses: TODO, IN_PROGRESS (work started), IN_REVIEW (code ready for review), IN_TESTING (review approved, ready to test), CLIENT_REVIEW (the client checks it), DONE (finished, merged and tested).
-The task's "nextStatuses" are the only statuses you may answer with; a task never moves back, so answer "" when the message points to an earlier status or to none. Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test"). Work done on only a part of the task changes no status: a subtask, a piece or phase, one of several items, one side of it ("login part is done", "backend merged, frontend pending", "finished the first step", "subtask 2 is in testing"). Only a message about the whole task moves it. Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
+The task's "nextStatuses" are the only statuses you may answer with; a task never moves back, so answer "" when the message points to an earlier status or to none. "authorRoles" lists the roles the author holds on the task; approving ("lgtm", "approved", a :white_check_mark: alone) counts only from someone whose authorRoles has "reviewer", and "QA passed" or "tested, works" only from "tester". From anyone else it moves nothing.
+Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test").
+Cues: "started", "working on it", "picked up" → IN_PROGRESS. "PR is up", "ready for review", "please review" → IN_REVIEW. A reviewer's approval, "deployed to staging, please test", "ready for QA" → IN_TESTING. "QA passed" from a tester, "released", "shipped and verified" → DONE. "sent to the client", "client is checking", "waiting on client's approval" → CLIENT_REVIEW. "Merged" alone is not enough: with no sign that testing is next or finished, answer "". Work done on only a part of the task changes no status: a subtask, a piece or phase, one of several items, one side of it ("login part is done", "backend merged, frontend pending", "finished the first step", "subtask 2 is in testing"). Only a message about the whole task moves it. Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
 Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message says how urgent it is ("this is urgent", "blocking the release", "low priority").
-dueDate: when the message sets a deadline, as YYYY-MM-DD; for a weekday ("by Friday") or "tomorrow", take the date from "comingDays". "clear" if it says there's no deadline anymore.
+dueDate: when the message sets a deadline, as YYYY-MM-DD. Take a weekday ("by Friday"), "tomorrow" or "today" from "comingDays" and "today", "next Friday", "in a week" or "in two weeks" from "nextWeekDays", or use a date written out in the message ("by 12 Dec", "2026-12-12"). "clear" if it says there's no deadline anymore.
+Answer "" for any deadline you can't read straight from those: "next week", "end of month", "soon", "EOD", "ASAP". A missing date is better than a wrong one; never work out a date yourself.
 
 Examples (author UA):
 - "<@UB> can you implement this while I test it" → owner add UB, tester add UA.
@@ -90,6 +95,16 @@ Examples (author UA):
 - "the API part is done, UI still to do" → nothing (only a part).
 - "finished subtask 1, moving to testing for that bit" → nothing (only a subtask).
 - "thanks <@UB>, cc <@UC>" → nothing.
+- "<@UB> already reviewed this" → nothing (about the past).
+- "is <@UB> testing it?" → nothing (a question).
+- "<@UB> is testing it right now" → nothing (about someone else's work).
+- "deployed to staging, please test" from the owner, task IN_REVIEW → status IN_TESTING.
+- "lgtm" from someone whose authorRoles is empty → nothing.
+- "merged" alone → nothing.
+- "<@UB> is taking this" from UA → nothing (a statement about UB, not a request, and UA didn't speak of themselves).
+- "let's ship it next week" → nothing (no date to read).
+- "needed by next Friday" → dueDate that date from "nextWeekDays".
+- ":rocket: :tada:" → nothing.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
 
@@ -103,7 +118,13 @@ export async function readChanges(env, { message, task, today, allowed }) {
     today: `${today.weekday} ${today.date}`,
     // Small models get weekdays wrong when they work them out.
     comingDays: comingDays(today.date),
+    // "next Friday" is the Friday a week after the coming one.
+    nextWeekDays: nextWeekDays(today.date),
     author: message.user,
+    // The roles the author already holds on the task, so "lgtm" or "QA passed" can be weighed by who says it.
+    authorRoles: Object.entries(task.people ?? {})
+      .filter(([, ids]) => Array.isArray(ids) && ids.includes(message.user))
+      .map(([role]) => role),
     mentioned: message.mentions,
     task: {
       title: task.title,
@@ -143,6 +164,17 @@ export function comingDays(date) {
       return [new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(next), next.toISOString().slice(0, 10)];
     }),
   );
+}
+
+// "next Friday", etc: the coming days a week later, as { "next Wednesday": "2026-11-04", …}, plus
+// "in a week" and "in two weeks".
+export function nextWeekDays(date) {
+  const shift = (iso, days) => new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+  return {
+    ...Object.fromEntries(Object.entries(comingDays(date)).map(([day, iso]) => [`next ${day}`, shift(iso, 7)])),
+    "in a week": shift(date, 7),
+    "in two weeks": shift(date, 14),
+  };
 }
 
 function withTimeout(promise) {

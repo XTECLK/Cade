@@ -25,8 +25,9 @@ export async function suggestWithAi(env, message, { target, task }) {
   const handOffs = suggesting(env, "hand-offs", message.channel) || suggesting(env, "started", message.channel);
   const allowed = {
     roles: handOffs ? Object.keys(ROLES) : [],
-    // A task done in parts gets no status suggestions: a message about one part says nothing about the whole.
-    status: !task.subtasks && (suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel)),
+    // A task done in parts only gets DONE, and only for a message about the whole (see checkChanges):
+    // a message about one part says nothing about the whole.
+    status: (suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel)),
     details: suggesting(env, "details", message.channel) && !task.incident,
   };
   // Nothing for the model to read when only PR links are on.

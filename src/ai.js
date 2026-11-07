@@ -83,6 +83,7 @@ Statuses: TODO, IN_PROGRESS (work started), IN_REVIEW (code ready for review), I
 The task's "nextStatuses" are the only statuses you may answer with; a task never moves back, so answer "" when the message points to an earlier status or to none. "authorRoles" lists the roles the author holds on the task; approving ("lgtm", "approved", a :white_check_mark: alone) counts only from someone whose authorRoles has "reviewer", and "QA passed" or "tested, works" only from "tester". From anyone else it moves nothing.
 Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test").
 Cues: "started", "working on it", "picked up" → IN_PROGRESS. "PR is up", "ready for review", "please review" → IN_REVIEW. A reviewer's approval, "deployed to staging, please test", "ready for QA" → IN_TESTING. "QA passed" from a tester, "released", "shipped and verified" → DONE. "sent to the client", "client is checking", "waiting on client's approval" → CLIENT_REVIEW. "Merged" alone is not enough: with no sign that testing is next or finished, answer "". Work done on only a part of the task changes no status: a subtask, a piece or phase, one of several items, one side of it ("login part is done", "backend merged, frontend pending", "finished the first step", "subtask 2 is in testing"). Only a message about the whole task moves it. Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
+When the task's "hasSubtasks" is true, you may answer only with DONE or, from TODO, IN_PROGRESS. DONE only when the message says the whole task is finished and can be closed ("we can close this as done", "all subtasks are done", "everything is merged and verified"). IN_PROGRESS when the task is TODO and the message says work began, even on one subtask or part ("started on subtask 1", "picked up the API part"). Anything else about one subtask or part, or about a later status, is "".
 Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message says how urgent it is ("this is urgent", "blocking the release", "low priority").
 dueDate: when the message sets a deadline, as YYYY-MM-DD. Take a weekday ("by Friday"), "tomorrow" or "today" from "comingDays" and "today", "next Friday", "in a week" or "in two weeks" from "nextWeekDays", or use a date written out in the message ("by 12 Dec", "2026-12-12"). "clear" if it says there's no deadline anymore.
 Answer "" for any deadline you can't read straight from those: "next week", "end of month", "soon", "EOD", "ASAP". A missing date is better than a wrong one; never work out a date yourself.
@@ -94,6 +95,11 @@ Examples (author UA):
 - "will start on this tomorrow" → nothing.
 - "the API part is done, UI still to do" → nothing (only a part).
 - "finished subtask 1, moving to testing for that bit" → nothing (only a subtask).
+- "we can close this as done", task hasSubtasks → status DONE.
+- "all subtasks are done", task hasSubtasks → status DONE.
+- "subtask 2 is done", task hasSubtasks → nothing.
+- "started on subtask 1", task hasSubtasks and TODO → status IN_PROGRESS.
+- "started on subtask 2", task hasSubtasks and already IN_PROGRESS → nothing.
 - "thanks <@UB>, cc <@UC>" → nothing.
 - "<@UB> already reviewed this" → nothing (about the past).
 - "is <@UB> testing it?" → nothing (a question).
@@ -130,7 +136,8 @@ export async function readChanges(env, { message, task, today, allowed }) {
       title: task.title,
       status: task.status,
       // The only statuses it can move to: forward from the current one.
-      nextStatuses: laterStatuses(task.status),
+      nextStatuses: task.subtasks ? laterStatuses(task.status).filter((status) => partsMayMoveTo(task, status)) : laterStatuses(task.status),
+      hasSubtasks: Boolean(task.subtasks),
       priority: task.priority,
       dueDate: task.dueDate || "none",
       people: task.people,
@@ -215,7 +222,7 @@ export function checkChanges(raw, { task, message, allowed }) {
     const remove = unique(raw?.[role]?.remove).filter((id) => current.includes(id) && !add.includes(id));
     if (add.length || remove.length) (changes.people ??= {})[role] = { add, remove };
   }
-  if (allowed.status && isForward(task.status, raw?.status) && !PARTIAL.test(message.text ?? "")) changes.status = raw.status;
+  if (allowed.status && isForward(task.status, raw?.status) && statusFits(raw.status, task, message.text ?? "")) changes.status = raw.status;
   if (allowed.details && PRIORITIES[raw?.priority] && raw.priority !== task.priority) changes.priority = raw.priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);
@@ -229,6 +236,27 @@ export function checkChanges(raw, { task, message, allowed }) {
 // message is dropped here.
 const PARTIAL =
   /\b(sub-?tasks?|sub-?items?|parts?|partly|partial(ly)?|pieces?|phases?|steps?|stages?|milestones?|(some|one|two|three|half|rest|remaining|other) of (it|them|the)|first (bit|half|one)|second (bit|half|one)|front-?end|back-?end|the (api|ui|db|database) (is|are|was|were)|bits?)\b/i;
+
+// Words that say the whole task is finished ("we can close this", "all subtasks are done").
+const WHOLE = /\b(clos(e|ed|ing)|all|every(thing|one)?|entire(ly)?|whole|complete(d|ly)?|finished|done)\b/i;
+// "all the subtasks" and the like name every part, so they aren't PARTIAL.
+const EVERY_PART = /\b(all|every|each|both)\s+(of\s+)?(the\s+)?(sub-?tasks?|sub-?items?|parts?|pieces?|phases?|steps?|stages?|milestones?)\b/gi;
+
+// Whether a message about parts may move a task done in parts to `status`: to DONE, and from TODO to
+// IN_PROGRESS, as work on any part means the task has begun.
+function partsMayMoveTo(task, status) {
+  return status === "DONE" || (status === "IN_PROGRESS" && task.status === "TODO");
+}
+
+// Whether a status the model proposed fits the message. A message about only a part never moves a
+// task, except to start one done in parts. That moves to DONE only when the message speaks of the
+// whole, and from TODO to IN_PROGRESS on any work begun.
+export function statusFits(status, task, text) {
+  if (!task.subtasks) return !PARTIAL.test(text);
+  if (!partsMayMoveTo(task, status)) return false;
+  if (status === "IN_PROGRESS") return true;
+  return WHOLE.test(text) && !PARTIAL.test(text.replace(EVERY_PART, "all"));
+}
 
 // The statuses in the order work moves through them (the order of STATUSES).
 const FLOW = Object.keys(STATUSES);

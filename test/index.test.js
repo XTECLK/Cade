@@ -4914,6 +4914,26 @@ const aiClick = (button, extra = {}) =>
     ...extra,
   });
 
+test("a task with subtasks only moves to DONE, and only for a message about the whole", async () => {
+  const { checkChanges } = await import("../src/ai.js");
+  const people = { owner: [], reviewer: [], tester: [] };
+  const allowed = { roles: [], status: true, details: false };
+  const status = (task, text, to) => checkChanges(aiRead({ status: to }), { task, message: { user: "UACTOR", mentions: [], text }, allowed })?.status ?? null;
+  const parts = { status: "IN_PROGRESS", people, subtasks: true };
+  assert.equal(status(parts, "we can close this as done", "DONE"), "DONE");
+  assert.equal(status(parts, "all subtasks are done", "DONE"), "DONE");
+  assert.equal(status(parts, "subtask 2 is done", "DONE"), null);
+  assert.equal(status(parts, "backend merged, we're done here", "DONE"), null);
+  assert.equal(status(parts, "everything is ready for review", "IN_REVIEW"), null);
+  assert.equal(status(parts, "lgtm", "DONE"), null);
+  // Work begun on any part starts the task, but only from TODO.
+  assert.equal(status({ ...parts, status: "TODO" }, "started on subtask 1", "IN_PROGRESS"), "IN_PROGRESS");
+  assert.equal(status(parts, "started on subtask 2", "IN_PROGRESS"), null);
+  assert.equal(status({ ...parts, status: "TODO" }, "ready for review", "IN_REVIEW"), null);
+  // Without subtasks the same words move it as before.
+  assert.equal(status({ ...parts, subtasks: false }, "ready for review", "IN_REVIEW"), "IN_REVIEW");
+});
+
 test("AI's changes are checked against the message and the task", async () => {
   const { checkChanges } = await import("../src/ai.js");
   const task = { status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { owner: ["UBOB"], reviewer: [], tester: [] } };

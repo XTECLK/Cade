@@ -16,9 +16,9 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { HOME, ROOT } from "./paths.mjs";
-import { askHidden } from "./prompt.mjs";
-import "./cloudflare.mjs";
+import { HOME, ROOT } from "./paths.ts";
+import { askHidden } from "./prompt.ts";
+import "./cloudflare.ts";
 
 const MANIFEST = `${ROOT}slack/manifest.json`;
 const APP_FILE = `${HOME}.cade/slack-app.json`;
@@ -58,7 +58,8 @@ async function slack(method, token, body) {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },
     body: JSON.stringify(body),
   });
-  const result = await response.json();
+  // Slack's answer: what each caller reads of it, or why it failed.
+  const result = (await response.json()) as { ok: boolean; error?: string; errors?: { pointer?: string; message: string }[]; [key: string]: any };
   if (!result.ok) {
     const details = (result.errors ?? []).map((error) => `\n  ${error.pointer ?? ""} ${error.message}`).join("");
     throw new Error(`Slack ${method} failed: ${result.error}${details}`);
@@ -68,7 +69,7 @@ async function slack(method, token, body) {
 
 // Stores a Worker secret with wrangler, which must be logged in.
 function putSecret(name, value) {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn("npx", ["wrangler", "secret", "put", name], {
       cwd: ROOT,
       stdio: ["pipe", "inherit", "inherit"],
@@ -139,7 +140,7 @@ export async function create(args) {
   }
   if (!botToken.startsWith("xoxb-")) throw new Error("That isn't a bot token; it should start with xoxb-.");
   await putSecret("SLACK_BOT_TOKEN", botToken);
-  // The workspace's name, for names such as the Google script's (see google-app.mjs).
+  // The workspace's name, for names such as the Google script's (see google-app.ts).
   try {
     const { team } = await slack("auth.test", botToken, {});
     await writeFile(APP_FILE, `${JSON.stringify({ ...app, team }, null, 2)}\n`);
@@ -169,7 +170,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [action, ...args] = process.argv.slice(2);
   const run = { create, update }[action];
   if (!run) {
-    console.error("Use: node scripts/slack-app.mjs create <worker-url> [--name Cade] [--command /cade] | update");
+    console.error("Use: node scripts/slack-app.ts create <worker-url> [--name Cade] [--command /cade] | update");
     process.exit(1);
   }
   run(args).catch((error) => {

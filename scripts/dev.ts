@@ -9,14 +9,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readConfig } from "./config.mjs";
-import { HOME, ROOT } from "./paths.mjs";
-import { askHidden } from "./prompt.mjs";
+import { readConfig } from "./config.ts";
+import { HOME, ROOT } from "./paths.ts";
+import { askHidden } from "./prompt.ts";
 
 
 // The secrets asked for, in order. An optional one can be skipped with Enter;
 // `when` says whether to ask at all, given the answers so far.
-export const SECRETS = [
+// The secrets npm run dev asks for: a hint and a check of the value, and `when`, if only some
+// settings need it; `optional` ones can be skipped.
+export const SECRETS: { name: string; hint?: string; check?: (value: string) => boolean; when?: (settings: Record<string, string>) => boolean; optional?: boolean }[] = [
   { name: "SLACK_BOT_TOKEN", hint: "xoxb-…", check: (value) => value.startsWith("xoxb-") },
   { name: "SLACK_SIGNING_SECRET" },
   // Asked only when cade.config.json has the Google web app's address.
@@ -25,7 +27,7 @@ export const SECRETS = [
 
 // The .env file Wrangler reads: values in single quotes, so JSON such as
 // PROJECTS is taken as it is.
-export function envFile(settings) {
+export function envFile(settings: Record<string, string | undefined>) {
   return Object.entries(settings)
     .filter(([, value]) => value)
     .map(([name, value]) => {
@@ -95,7 +97,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     });
     // Ctrl+C reaches Wrangler too; this waits for it to stop, then tidies up.
     process.on("SIGINT", () => {});
-    const code = await new Promise((resolve) => child.on("exit", resolve));
+    const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
     process.exitCode = code ?? 0;
   } catch (error) {
     console.error(error.message);

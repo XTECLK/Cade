@@ -1,7 +1,7 @@
 // cade.config.json as a JSON Schema: every setting it takes, and what each must be. `npm run config`
-// (scripts/config.mjs) checks the file against it before uploading anything, after its own checks for
+// (scripts/config.ts) checks the file against it before uploading anything, after its own checks for
 // the common mistakes, which say more; this catches the rest, such as a misspelt setting, which would
-// otherwise be uploaded and do nothing. Settings are described in scripts/config.mjs and
+// otherwise be uploaded and do nothing. Settings are described in scripts/config.ts and
 // GETTING_STARTED.md.
 import type { Schema } from "./validate.ts";
 

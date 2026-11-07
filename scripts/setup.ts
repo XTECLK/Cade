@@ -10,8 +10,8 @@ import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { HOME, ROOT } from "./paths.mjs";
-import { ask, askHidden, choose, confirm, intro, log, note, outro, pause } from "./prompt.mjs";
+import { HOME, ROOT } from "./paths.ts";
+import { ask, askHidden, choose, confirm, intro, log, note, outro, pause } from "./prompt.ts";
 
 const SLACK_APP = `${HOME}.cade/slack-app.json`;
 const GOOGLE_APP = `${HOME}.cade/google-app.json`;
@@ -30,7 +30,7 @@ export function accountIdsIn(output) {
 // workspace's name (lowercase letters and digits only, cut so the whole name
 // fits Gmail's 30 characters), ., and six random letters a-z, such as
 // cade.acme.qwhzme@gmail.com. Without a workspace, cade.qwhzme@gmail.com.
-export function cadeGmail(workspace, random = randomInt) {
+export function cadeGmail(workspace?: string, random: (max: number) => number = randomInt) {
   const letters = Array.from({ length: 6 }, () => String.fromCharCode(97 + random(26))).join("");
   const name = String(workspace ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30 - "cade..".length - letters.length);
   return `cade.${name ? `${name}.` : ""}${letters}@gmail.com`;
@@ -52,8 +52,8 @@ async function exists(file) {
 
 // Runs a command in this folder, showing its output (and taking input), and
 // returns { code, output }.
-function run(command, args, { env = process.env } = {}) {
-  return new Promise((resolve) => {
+function run(command: string, args: string[], { env = process.env } = {}) {
+  return new Promise<{ code: number; output: string }>((resolve) => {
     const child = spawn(command, args, { cwd: ROOT, env, stdio: ["inherit", "pipe", "pipe"] });
     let output = "";
     for (const stream of [child.stdout, child.stderr]) {
@@ -81,7 +81,7 @@ function runLive(command, args) {
 // by slack:create when it was given the bot token, else read with the token
 // (asked for here, hidden) and saved to .cade/slack-app.json. None if skipped.
 async function workspaceName() {
-  let app = {};
+  let app: { team?: string; appId?: string } = {};
   try {
     app = JSON.parse(await readFile(SLACK_APP, "utf8"));
   } catch {}
@@ -92,7 +92,7 @@ async function workspaceName() {
   if (!token) return undefined;
   process.env.SLACK_BOT_TOKEN ??= token;
   try {
-    const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+    const result = (await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json())) as { ok: boolean; error?: string; team?: string };
     if (!result.ok) throw new Error(result.error);
     await writeFile(SLACK_APP, `${JSON.stringify({ ...app, team: result.team }, null, 2)}\n`);
     return result.team;
@@ -146,7 +146,7 @@ async function main() {
     if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${HOME}.cade/cloudflare.json`))) {
       const id = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
       process.env.CLOUDFLARE_ACCOUNT_ID = id;
-      await import("./cloudflare.mjs"); // saves it for every script
+      await import("./cloudflare.ts"); // saves it for every script
     }
   });
 
@@ -170,7 +170,7 @@ async function main() {
 You'll be asked for it, then to install the app and give its bot token; both hidden.`,
     );
     await pause("Press Enter once it's generated…");
-    if ((await runLive("node", ["scripts/slack-app.mjs", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
+    if ((await runLive("node", ["scripts/slack-app.ts", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
   });
 
   await step("Google Doc for executive summaries", async () => {
@@ -198,14 +198,14 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
     );
     await pause("Press Enter when the API is on… ");
     if ((await runLive("npx", ["clasp", "login"])) !== 0) fail("The Google login failed.");
-    if ((await runLive("node", ["scripts/google-app.mjs", "create"])) !== 0) fail("Creating the Google web app failed.");
+    if ((await runLive("node", ["scripts/google-app.ts", "create"])) !== 0) fail("Creating the Google web app failed.");
     await pause("Open the script link above, choose authorize, click Run and allow it. Press Enter when done… ");
   });
 
   await step("Admin", async () => {
     // Only an admin can add a project from the Home tab; without any, no one can.
     const file = `${HOME}cade.config.json`;
-    let config = {};
+    let config: { admins?: string[] } = {};
     try {
       config = JSON.parse(await readFile(file, "utf8"));
     } catch {}
@@ -218,7 +218,7 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
     const ids = (await ask("Slack member ID of the first admin (more later in cade.config.json): ")).split(/[\s,]+/).filter(Boolean);
     if (!ids.length || !ids.every((id) => /^[UW][A-Z0-9]{6,}$/.test(id))) fail("That isn't a Slack member ID, such as U0123ABCD.");
     await writeFile(file, `${JSON.stringify({ ...config, admins: ids }, null, 2)}\n`);
-    if ((await runLive("node", ["scripts/config.mjs"])) !== 0) fail("Uploading cade.config.json failed. npm run config retries it.");
+    if ((await runLive("node", ["scripts/config.ts"])) !== 0) fail("Uploading cade.config.json failed. npm run config retries it.");
     return `admin ${ids.join(", ")}`;
   });
 

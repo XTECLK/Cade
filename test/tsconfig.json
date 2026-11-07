@@ -1,5 +1,5 @@
 {
-  // The tests run on Node.js, so they get its types; src/ runs on Workers, and is checked without
+  // The tests and scripts/ run on Node.js, so they get its types; src/ runs on Workers, and is checked without
   // them by ../tsconfig.json. `npm run typecheck` checks both.
   //
   // The tests are checked for what matters in them: that they call Cade's code with the arguments,
@@ -14,5 +14,5 @@
     "strictNullChecks": false,
     "noUncheckedIndexedAccess": false
   },
-  "include": ["../worker-configuration.d.ts", "../src/**/*", "./**/*"]
+  "include": ["../worker-configuration.d.ts", "../src/**/*", "../scripts/**/*", "./**/*"]
 }

@@ -11,7 +11,7 @@
 // and carry on if it isn't as expected.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
-import { Cast, loadConfig, attempt, pause } from "./lib.mjs";
+import { Cast, loadConfig, attempt, pause } from "./lib.ts";
 
 const OUT = new URL("../../docs/videos/", import.meta.url).pathname;
 const TMP = new URL("../../.demo/raw/", import.meta.url).pathname;
@@ -281,7 +281,7 @@ for (const n of acts) {
   for (const [key, raw] of Object.entries(videos)) {
     const base = key === "randil" ? act.file : `${act.file}-${key}`;
     const mp4 = `${OUT}${base}.mp4`;
-    execFileSync("ffmpeg", ["-y", "-i", raw, "-vf", "scale=1600:-2", "-c:v", "libx264", "-crf", "26",
+    execFileSync("ffmpeg", ["-y", "-i", String(raw), "-vf", "scale=1600:-2", "-c:v", "libx264", "-crf", "26",
       "-preset", "slow", "-an", "-movflags", "+faststart", mp4], { stdio: "inherit" });
     if (key === "randil") {
       execFileSync("ffmpeg", ["-y", "-sseof", "-3", "-i", mp4, "-frames:v", "1", `${OUT}${base}.jpg`], { stdio: "inherit" });

@@ -8,11 +8,11 @@
 // it for wrangler, and the scripts it starts, unless it's set already.
 //
 // A custom domain for the Worker can be added by hand as { "domain" }, such as
-// "api.example.com"; `wrangler.mjs` then deploys to it (see there), so
+// "api.example.com"; `wrangler.ts` then deploys to it (see there), so
 // wrangler.toml stays free of anyone's domain.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { HOME } from "./paths.mjs";
+import { HOME } from "./paths.ts";
 
 const FILE = `${HOME}.cade/cloudflare.json`;
 

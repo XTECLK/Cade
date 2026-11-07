@@ -2135,7 +2135,7 @@ test("PROJECTS can be a JSON string, as the Cloudflare dashboard stores it", asy
 });
 
 test("the Slack app manifest is filled in from the Worker's URL, name and command", async () => {
-  const { buildManifest } = await import("../scripts/slack-app.mjs");
+  const { buildManifest } = await import("../scripts/slack-app.ts");
   const { readFile } = await import("node:fs/promises");
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
   const settings = { workerUrl: "https://cade.acme.workers.dev/", name: "Acme Cade", command: "/acme" };
@@ -2385,7 +2385,7 @@ test("Configure on the Home tab has the web pages, the AI agent (unless MCP is o
 });
 
 test("npm run config sets MCP on or off from mcp", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
   assert.equal(readConfig(JSON.stringify({ projects })).MCP, undefined);
   assert.equal(readConfig(JSON.stringify({ projects, mcp: false })).MCP, "off");
@@ -2394,7 +2394,7 @@ test("npm run config sets MCP on or off from mcp", async () => {
 });
 
 test("npm run config sets ADMINS from admins, always, and checks them", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
   assert.equal(readConfig(JSON.stringify({ projects })).ADMINS, "[]");
   assert.equal(readConfig(JSON.stringify({ projects, admins: ["UANN", "UBOB", "UANN"] })).ADMINS, '["UANN","UBOB"]');
@@ -2403,7 +2403,7 @@ test("npm run config sets ADMINS from admins, always, and checks them", async ()
 });
 
 test("npm run config checks the activeTasksPinning, summaryCanvas and newTaskDetection switches", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
   const set = JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: false, summaryCanvas: true, newTaskDetection: false }] })).PROJECTS)[0];
   assert.deepEqual([set.activeTasksPinning, set.summaryCanvas, set.newTaskDetection], [false, true, false]);
@@ -2430,7 +2430,7 @@ test("pinning and the summary canvas can be turned off, for every group or one",
   }
 });
 test("slack:create checks its settings before calling Slack", async () => {
-  const { checkSettings } = await import("../scripts/slack-app.mjs");
+  const { checkSettings } = await import("../scripts/slack-app.ts");
   assert.deepEqual(checkSettings({ workerUrl: "https://cade.acme.workers.dev", name: "Cade", command: "/cade" }), []);
   assert.equal(checkSettings({ workerUrl: "http://cade", name: "Cade", command: "/cade" }).length, 1);
   assert.equal(checkSettings({ workerUrl: "https://cade.dev", name: "x".repeat(36), command: "/cade" }).length, 1);
@@ -2438,7 +2438,7 @@ test("slack:create checks its settings before calling Slack", async () => {
 });
 
 test("npm run config checks the suggestions setting", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
   const suggestions = (value) => JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], taskChangeDetection: value }] })).PROJECTS)[0].taskChangeDetection;
   assert.equal(suggestions(false), false);
@@ -2467,7 +2467,7 @@ test("suggestions can be turned off, all or some, and a kind turned off asks the
 });
 
 test("npm run config turns cade.config.json into the Worker's secrets", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
   assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", projects })), {
     PROJECTS: JSON.stringify(projects),
@@ -2480,7 +2480,7 @@ test("npm run config turns cade.config.json into the Worker's secrets", async ()
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const good = [{ name: "acme", channel: "C0000000002" }];
   for (const [config, problem] of [
     ["{", /not valid JSON/],
@@ -2497,7 +2497,7 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
 });
 
 test("npm run dev passes its settings to Wrangler as a quoted .env file", async () => {
-  const { envFile } = await import("../scripts/dev.mjs");
+  const { envFile } = await import("../scripts/dev.ts");
   const pairs = JSON.stringify([{ name: "acme", channel: "C0000000002" }]);
   assert.equal(
     envFile({ PROJECTS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", GOOGLE_URL: undefined }),
@@ -2507,7 +2507,7 @@ test("npm run dev passes its settings to Wrangler as a quoted .env file", async 
 });
 
 test("npm run dev asks for the Google web app's secret only with its URL", async () => {
-  const { SECRETS } = await import("../scripts/dev.mjs");
+  const { SECRETS } = await import("../scripts/dev.ts");
   const googleSecret = SECRETS.find(({ name }) => name === "GOOGLE_SECRET");
   assert.equal(googleSecret.when({}), false);
   assert.equal(googleSecret.when({ GOOGLE_URL: "https://script.google.com/x" }), true);
@@ -2518,7 +2518,7 @@ test("npm run dev asks for the Google web app's secret only with its URL", async
 });
 
 test("cade.config.json can hold the Google web app's address and each group's doc", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const doc = "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit";
   const projects = [{ name: "acme", channel: "C0000000002", workDoc: doc }];
   const googleUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
@@ -2614,7 +2614,7 @@ test("messages about work already in hand suggest nothing", async (t) => {
 });
 
 test("npm run google:create makes Secret.gs, finds the deployment and sets googleUrl", async () => {
-  const { deploymentIdIn, secretFile, webAppUrl, withGoogleUrl } = await import("../scripts/google-app.mjs");
+  const { deploymentIdIn, secretFile, webAppUrl, withGoogleUrl } = await import("../scripts/google-app.ts");
   const secret = "a".repeat(64);
   assert.match(secretFile(secret), new RegExp(`^// .*GOOGLE_SECRET.*\\nconst SECRET = "${secret}";\\n$`));
   assert.throws(() => secretFile("short"), /long and hex/);
@@ -2659,7 +2659,7 @@ test("the Slack app's description fits Slack's 140 characters", async () => {
 
 test("npm run setup leaves secrets to the scripts it runs, and asks for the one token it needs hidden", async () => {
   const { readFile } = await import("node:fs/promises");
-  const script = await readFile(new URL("../scripts/setup.mjs", import.meta.url), "utf8");
+  const script = await readFile(new URL("../scripts/setup.ts", import.meta.url), "utf8");
   // It sets no secrets itself.
   assert.doesNotMatch(script, /secret put/);
   // The only token it asks for (the Slack bot token, to name the Google account after the workspace) is
@@ -2672,7 +2672,7 @@ test("npm run setup leaves secrets to the scripts it runs, and asks for the one 
 
 test("npm run slack:create asks for both tokens hidden", async () => {
   const { readFile } = await import("node:fs/promises");
-  const script = await readFile(new URL("../scripts/slack-app.mjs", import.meta.url), "utf8");
+  const script = await readFile(new URL("../scripts/slack-app.ts", import.meta.url), "utf8");
   assert.match(script, /askHidden\("Bot token/);
   assert.doesNotMatch(script, /createInterface/);
 });
@@ -4772,7 +4772,7 @@ test("with suggestions off, AI isn't asked and only commands work", async (t) =>
 });
 
 test("AI reads messages whenever the binding is there, with aiModel naming the one model", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = (settings) => [{ name: "acme", channel: "C0000000002", ...settings }];
   const config = (top, settings) => readConfig(JSON.stringify({ projects: projects(settings), ...top }));
   // The model is one for every project, at the top of the file; without it, the secret is empty.
@@ -4810,7 +4810,7 @@ test("suggestions can be set per group, over the setting for every group", async
 });
 
 test("npm run config checks each group's suggestions", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const projects = [
     { name: "acme", channel: "C0000000002", taskChangeDetection: true },
     { name: "test", channel: "C0000000003", taskChangeDetection: false },
@@ -5244,7 +5244,7 @@ test("changes that are not about people ask no one", () => {
 });
 
 test("setup suggests a separate Google account for Cade", async () => {
-  const { cadeGmail, googleSignupUrl } = await import("../scripts/setup.mjs");
+  const { cadeGmail, googleSignupUrl } = await import("../scripts/setup.ts");
   assert.match(cadeGmail("Acme Inc."), /^cade\.acmeinc\.[a-z]{6}@gmail\.com$/);
   assert.match(cadeGmail(), /^cade\.[a-z]{6}@gmail\.com$/);
   assert.equal(cadeGmail("Acme", () => 0), "cade.acme.aaaaaa@gmail.com");
@@ -5261,13 +5261,13 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   assert.match(publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n"), /Fix login/);
 
   // The script is named after the Slack workspace.
-  const { scriptTitle } = await import("../scripts/google-app.mjs");
+  const { scriptTitle } = await import("../scripts/google-app.ts");
   assert.equal(scriptTitle("Acme Inc"), "Cade_Acme Inc");
   assert.equal(scriptTitle("A/B <x>"), "Cade_A-B -x-");
   assert.equal(scriptTitle(undefined), "Cade");
 
   // npm run setup reads the Worker's URL from the deploy, and .
-  const { workerUrlIn } = await import("../scripts/setup.mjs");
+  const { workerUrlIn } = await import("../scripts/setup.ts");
   assert.equal(workerUrlIn("Deployed cade (1s)\n  https://cade.acme.workers.dev\n"), "https://cade.acme.workers.dev");
 });
 
@@ -5346,7 +5346,7 @@ test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout 
   const { execFileSync } = await import("node:child_process");
   const show = (env) =>
     JSON.parse(
-      execFileSync(process.execPath, ["--input-type=module", "-e", 'import {HOME,ROOT} from "./scripts/paths.mjs"; console.log(JSON.stringify({HOME,ROOT}))'], {
+      execFileSync(process.execPath, ["--input-type=module", "-e", 'import {HOME,ROOT} from "./scripts/paths.ts"; console.log(JSON.stringify({HOME,ROOT}))'], {
         env: { ...process.env, CADE_DEPLOY_DIR: "", ...env },
         encoding: "utf8",
       }),
@@ -5357,7 +5357,7 @@ test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout 
 });
 
 test("callWebApp follows Apps Script's redirect, and secretIn reads Secret.gs", async () => {
-  const { callWebApp, secretIn } = await import("../scripts/google-call.mjs");
+  const { callWebApp, secretIn } = await import("../scripts/google-call.ts");
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url, body: init?.body && JSON.parse(init.body) });
@@ -5365,11 +5365,11 @@ test("callWebApp follows Apps Script's redirect, and secretIn reads Secret.gs", 
       ? { status: 302, headers: { get: () => "https://script.googleusercontent.com/echo" } }
       : { status: 200, json: async () => ({ ok: true, stored: true }) };
   };
-  assert.deepEqual(await callWebApp("https://script.google.com/exec", "ab12", "secret.status", {}, fetchImpl), { ok: true, stored: true });
+  assert.deepEqual(await callWebApp("https://script.google.com/exec", "ab12", "secret.status", {}, fake(fetchImpl)), { ok: true, stored: true });
   assert.deepEqual(calls[0].body, { secret: "ab12", action: "secret.status" });
   assert.equal(calls[1].url, "https://script.googleusercontent.com/echo");
   const html = async () => ({ status: 401, json: async () => { throw new Error("not json"); } });
-  assert.deepEqual(await callWebApp("https://x", "s", "a", {}, html), { ok: false, error: "HTTP 401" });
+  assert.deepEqual(await callWebApp("https://x", "s", "a", {}, fake(html)), { ok: false, error: "HTTP 401" });
   assert.equal(secretIn('// x\nconst SECRET = "abc123";\n'), "abc123");
   assert.equal(secretIn(""), undefined);
 });
@@ -5431,7 +5431,7 @@ test("a form whose metadata no longer fits says so in its window, and changes no
 });
 
 test("npm run config refuses what cade.config.json can't say, such as a misspelt setting, which would do nothing", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
+  const { readConfig } = await import("../scripts/config.ts");
   const acme = { name: "acme", channel: "C0000000002" };
   for (const [config, problem] of [
     // A setting on a project the Worker doesn't read, misspelt or from an older format.

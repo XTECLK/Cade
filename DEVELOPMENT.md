@@ -29,7 +29,7 @@ npm run setup       # Cloudflare login, the Worker, the Slack app, your first gr
 it unless you're working on the executive summary tools. Then create a channel, invite Cade with `/invite @Cade`, and add it as a project from the app's Home tab.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
-When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in it, ignored by git. A team's real deployment keeps them in its own repo, made from the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, which sets `CADE_DEPLOY_DIR` to point the scripts there (see `scripts/paths.mjs`).
+When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in it, ignored by git. A team's real deployment keeps them in its own repo, made from the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, which sets `CADE_DEPLOY_DIR` to point the scripts there (see `scripts/paths.ts`).
 
 ### 3. Change, deploy, try
 
@@ -65,7 +65,7 @@ JSON that comes back in is checked against a JSON Schema at runtime (`src/valida
   for only the fields Cade routes it by: one that can't be read is answered 400 and logged ("Slack sent something
   Cade can't read"), not failed on halfway through a handler. Anything else Slack adds or leaves out never matters.
 - `cade.config.json` is checked by `npm run config` before anything is uploaded: first the checks in
-  `scripts/config.mjs` for the common mistakes, which say how to fix them, then its schema in `src/config-schema.ts`
+  `scripts/config.ts` for the common mistakes, which say how to fix them, then its schema in `src/config-schema.ts`
   for everything else, so a misspelt or retired setting is refused rather than uploaded to do nothing. A new setting
   goes in both the schema and `readConfig`.
 
@@ -77,7 +77,7 @@ Then use it in Slack. A deploy takes a few seconds. Changes to the Slack app its
 Watch what the Worker does while you use it:
 
 ```sh
-node scripts/wrangler.mjs tail      # live logs of your Worker (uses the account setup saved)
+node scripts/wrangler.ts tail      # live logs of your Worker (uses the account setup saved)
 ```
 
 An AI agent makes this loop much faster. Give a coding agent (Claude Code, Gemini CLI, Cursor, …) a terminal and let it:
@@ -89,7 +89,7 @@ An AI agent makes this loop much faster. Give a coding agent (Claude Code, Gemin
 
 A prompt to start with:
 
-> Run `node scripts/wrangler.mjs tail` in the background. In my dev Slack workspace's #acme-dev channel, send `/cade task`
+> Run `node scripts/wrangler.ts tail` in the background. In my dev Slack workspace's #acme-dev channel, send `/cade task`
 > and create a task, then read the logs. If anything fails, find the cause in `src/`, fix it, add a test, deploy with
 > `npm run deploy` and try again.
 

@@ -22,7 +22,7 @@ Hard-won details:
   "Connect to apps" does nothing. Do: move the mouse onto "Connect to apps", wait for the
   submenu items, move the mouse horizontally (same y) into the submenu, then click.
   `locator.hover()` alone was not enough; `page.mouse.move(..., { steps })` worked.
-- `lib.mjs` `messageAction` is wrong for this UI: it clicks `[data-qa="more_message_actions"]`
+- `lib.ts` `messageAction` is wrong for this UI: it clicks `[data-qa="more_message_actions"]`
   then a "More actions" menuitem. Replace with the sequence above.
 
 ## Forms (confirmed on a fresh message in all-xteclk, then cancelled)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { argTypes, mcpPage } from "../scripts/docs.mjs";
+import { argTypes, mcpPage } from "../scripts/docs.ts";
 
 // The website's MCP pages, and the tools' argument types, are made from src/mcp-tools.ts by `npm run docs`.
 test("the website's MCP reference is up to date with the tool definitions", () => {

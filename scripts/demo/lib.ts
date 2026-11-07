@@ -62,7 +62,12 @@ export function loadConfig() {
 const buttonName = (label) => (typeof label === "string" ? { name: label, exact: true } : { name: label });
 
 export class Cast {
-  static async start(config, { videoDir } = {}) {
+  // The demo's settings (workspace, sessions), where videos go if they are recorded, and each person's open browser.
+  config: any;
+  videoDir: string | undefined;
+  people: Map<string, Promise<{ page: any; context: any }>>;
+
+  static async start(config, { videoDir }: { videoDir?: string } = {}) {
     return new Cast(config, videoDir);
   }
 

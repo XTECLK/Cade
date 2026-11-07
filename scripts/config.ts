@@ -55,8 +55,8 @@ import { projects } from "../src/channels.ts";
 import { CONFIG_SCHEMA, PROJECT_SCHEMA } from "../src/config-schema.ts";
 import { docId } from "../src/doc.ts";
 import { validate } from "../src/validate.ts";
-import "./cloudflare.mjs";
-import { HOME, ROOT } from "./paths.mjs";
+import "./cloudflare.ts";
+import { HOME, ROOT } from "./paths.ts";
 
 const FILE = `${HOME}cade.config.json`;
 
@@ -94,7 +94,8 @@ export function readConfig(json) {
     }
   }
 
-  const secrets = { PROJECTS: JSON.stringify(list) };
+  // Each Worker secret it sets, by name.
+  const secrets: Record<string, string> = { PROJECTS: JSON.stringify(list) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
   // Always set, so taking someone out of the file takes them out of the Worker.
   const admins = config.admins ?? [];

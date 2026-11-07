@@ -19,10 +19,10 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { callWebApp, secretIn } from "./google-call.mjs";
-import { HOME, ROOT } from "./paths.mjs";
-import { askHidden } from "./prompt.mjs";
-import "./cloudflare.mjs";
+import { callWebApp, secretIn, type WebAppReply } from "./google-call.ts";
+import { HOME, ROOT } from "./paths.ts";
+import { askHidden } from "./prompt.ts";
+import "./cloudflare.ts";
 
 const DIR = `${ROOT}google`;
 // Secret.gs exists only while a new web app is pushed (it has no authorization
@@ -58,7 +58,7 @@ async function workspaceName() {
     token = await askHidden("Slack bot token (hidden), or Enter to name it just Cade: ");
   }
   if (!token) return undefined;
-  const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+  const result = (await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json())) as { ok: boolean; team?: string };
   return result.ok ? result.team : undefined;
 }
 
@@ -88,7 +88,7 @@ export function withGoogleUrl(configJson, url) {
 }
 
 // Runs a command in `cwd`, showing its output, and returns that output.
-function run(command, args, { cwd = ROOT, input } = {}) {
+function run(command: string, args: string[], { cwd = ROOT, input }: { cwd?: string; input?: string } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: [input === undefined ? "inherit" : "pipe", "pipe", "pipe"] });
     let output = "";
@@ -125,7 +125,7 @@ async function exists(file) {
 // which makes the script a web app anyone can reach, running as you.
 // `secret` is the text of Secret.gs to push with it; without, the file is left
 // out, which takes it off the script (clasp removes what it isn't given).
-async function pushScript(manifest, { secret } = {}) {
+async function pushScript(manifest: string, { secret }: { secret?: string } = {}) {
   await writeFile(MANIFEST_FILE, manifest);
   if (secret) await writeFile(SCRIPT_SECRET_FILE, secret);
   else await rm(SCRIPT_SECRET_FILE, { force: true });
@@ -171,7 +171,7 @@ export async function create(args) {
   await run("npx", ["wrangler", "secret", "put", "GOOGLE_SECRET"], { input: secret });
   if (await exists(CONFIG_FILE)) {
     await writeFile(CONFIG_FILE, withGoogleUrl(await readFile(CONFIG_FILE, "utf8"), url));
-    await run("node", ["scripts/config.mjs"]);
+    await run("node", ["scripts/config.ts"]);
   } else {
     await copyFile(`${ROOT}cade.config.sample.json`, CONFIG_FILE);
     await writeFile(CONFIG_FILE, withGoogleUrl(await readFile(CONFIG_FILE, "utf8"), url));
@@ -214,7 +214,7 @@ export async function update(args = []) {
 
   if (!args.includes("--skip-check")) {
     // Asking also makes the script move a secret in Secret.gs into its properties.
-    const stored = async () => (await callWebApp(app.url, undefined, "secret.status").catch(() => ({}))).stored === true;
+    const stored = async () => (await callWebApp(app.url, undefined, "secret.status").catch((): WebAppReply => ({ ok: false }))).stored === true;
     if (!(await stored())) {
       const old = await readFile(OLD_SECRET_FILE, "utf8").catch(() => "");
       if (!secretIn(old)) {
@@ -240,7 +240,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [action, ...args] = process.argv.slice(2);
   const actions = { create, update };
   if (!actions[action]) {
-    console.error('Use: node scripts/google-app.mjs create [--title "Cade"] | update [--skip-check]');
+    console.error('Use: node scripts/google-app.ts create [--title "Cade"] | update [--skip-check]');
     process.exit(1);
   }
   actions[action](args).catch((error) => {

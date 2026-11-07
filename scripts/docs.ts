@@ -5,15 +5,16 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
+import type { Schema } from "../src/validate.ts";
 
 const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const code = (text) => `<code>${escape(text)}</code>`;
 
 // The rows of a schema's properties, nested ones with a dotted name: [{ name, type, required, note }].
-export function rows(schema, prefix = "", required = new Set(schema.required ?? [])) {
-  return Object.entries(schema.properties ?? {}).flatMap(([key, property]) => {
+export function rows(schema: Schema, prefix = "", required = new Set(schema.required ?? [])) {
+  return Object.entries(schema.properties ?? {}).flatMap(([key, property]): { name: string; type: string; required: boolean; note: string }[] => {
     const name = prefix + key;
-    const nested = property.type === "array" ? property.items : property;
+    const nested = (property.type === "array" ? property.items : property) ?? {};
     const kind = [property.type].flat().join(" or ");
     const type = property.enum ? `${kind}: ${property.enum.join(" | ")}` : property.type === "array" ? `${[nested.type].flat().join(" or ")}[]${nested.enum ? `: ${nested.enum.join(" | ")}` : ""}` : kind;
     const limits = [property.minimum !== undefined && `min ${property.minimum}`, property.maximum !== undefined && `max ${property.maximum}`].filter(Boolean).join(", ");
@@ -167,10 +168,10 @@ function typeOf(schema, indent) {
 // A union inside an array's brackets: (A | B)[].
 const wrap = (type) => (/[|&]/.test(type) && !/^\{[\s\S]*\}$/.test(type) ? `(${type})` : type);
 
-function objectOf(schema, indent) {
+function objectOf(schema: Schema, indent: string) {
   const required = new Set(schema.required ?? []);
   const inner = `${indent}  `;
-  const lines = Object.entries(schema.properties).map(([key, property]) => {
+  const lines = Object.entries(schema.properties ?? {}).map(([key, property]) => {
     const note = property.description ? `${inner}// ${property.description.replace(/\s+/g, " ")}\n` : "";
     return `${note}${inner}${key}${required.has(key) ? "" : "?"}: ${typeOf(property, inner)};`;
   });

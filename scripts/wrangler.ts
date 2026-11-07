@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Runs wrangler with the account in .cade/cloudflare.json (see cloudflare.mjs), for
-// the npm scripts that run it directly: `node scripts/wrangler.mjs deploy`. A
+// Runs wrangler with the account in .cade/cloudflare.json (see cloudflare.ts), for
+// the npm scripts that run it directly: `node scripts/wrangler.ts deploy`. A
 // deploy also goes to the custom domain saved there, if any, so a deploy never
 // leaves it out.
 import { spawn } from "node:child_process";
-import { domain } from "./cloudflare.mjs";
+import { domain } from "./cloudflare.ts";
 
 const args = process.argv.slice(2);
 if (args[0] === "deploy" && domain && !args.includes("--domain")) args.push("--domain", domain);

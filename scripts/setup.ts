@@ -21,9 +21,19 @@ export function workerUrlIn(output) {
   return /https:\/\/[\w.-]+\.workers\.dev/.exec(output)?.[0];
 }
 
-// The account IDs in what `wrangler whoami` printed.
-export function accountIdsIn(output: string): string[] {
-  return [...new Set(output.match(/\b[0-9a-f]{32}\b/g) ?? [])];
+// The accounts in what `wrangler whoami` printed: a table of rows like
+// "│ Acme's Account │ 0123…cdef │". The name is the row's other cell; a row
+// without one is named by its ID.
+export function accountsIn(output: string): { id: string; name: string }[] {
+  const accounts = new Map<string, string>();
+  for (const line of output.split("\n")) {
+    const id = /\b[0-9a-f]{32}\b/.exec(line)?.[0];
+    if (!id || accounts.has(id)) continue;
+    const cells = /[│|]/.test(line) ? line.split(/[│|]/).map((cell) => cell.trim()) : [];
+    const name = cells.find((cell) => cell && cell !== id);
+    accounts.set(id, name ?? id);
+  }
+  return [...accounts].map(([id, name]) => ({ id, name }));
 }
 
 // A Gmail name for a Google account made just for Cade: cade., the Slack
@@ -145,9 +155,12 @@ async function main() {
       if ((await runLive("npx", ["wrangler", "login"])) !== 0) fail("Cloudflare login failed.");
       who = await run("npx", ["wrangler", "whoami"]);
     }
-    const accounts = accountIdsIn(who.output);
+    const accounts = accountsIn(who.output);
     if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${HOME}.cade/cloudflare.json`))) {
-      process.env.CLOUDFLARE_ACCOUNT_ID = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
+      process.env.CLOUDFLARE_ACCOUNT_ID = await choose(
+        "Several Cloudflare accounts are listed. Which one is Cade deployed to?",
+        accounts.map(({ id, name }) => ({ label: name, value: id, hint: id })),
+      );
       await import("./cloudflare.ts"); // saves it for every script
     }
   });

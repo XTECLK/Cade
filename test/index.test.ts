@@ -5269,6 +5269,21 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   // npm run setup reads the Worker's URL from the deploy, and .
   const { workerUrlIn } = await import("../scripts/setup.ts");
   assert.equal(workerUrlIn("Deployed cade (1s)\n  https://cade.acme.workers.dev\n"), "https://cade.acme.workers.dev");
+
+  // …and offers the Cloudflare accounts by name, from wrangler whoami's table.
+  const { accountsIn } = await import("../scripts/setup.ts");
+  const a = "0123456789abcdef0123456789abcdef";
+  const b = "fedcba9876543210fedcba9876543210";
+  const whoami = [
+    "┌────────────────┬──────────────────────────────────┐",
+    "│ Account Name   │ Account ID                       │",
+    "├────────────────┼──────────────────────────────────┤",
+    `│ Acme's Account │ ${a} │`,
+    `│ XTECHLK        │ ${b} │`,
+    "└────────────────┴──────────────────────────────────┘",
+  ].join("\n");
+  assert.deepEqual(accountsIn(whoami), [{ id: a, name: "Acme's Account" }, { id: b, name: "XTECHLK" }]);
+  assert.deepEqual(accountsIn(`Account ID: ${a}`), [{ id: a, name: a }]);
 });
 
 test("AI moves a task's status forward only, never back or sideways", async () => {

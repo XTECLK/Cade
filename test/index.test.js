@@ -2330,8 +2330,9 @@ test("the Home tab's project picker keeps the person's project for next time", a
 
 test("Configure on the Home tab has the web pages, the AI agent (unless MCP is off) and, for an admin, the project settings", async (t) => {
   const stored = [{ channel: "CDEV", ts: "1.1", task: { ...storedTask().task, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } } }];
-  const configure = async (user, environment = env) => {
+  const configure = async (user, environment = env, seed) => {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+    await seed?.();
     await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, view: { private_metadata: "mine" }, actions: [{ action_id: "home:section:configure" }] }), {}, environment);
     const view = calls.find((call) => call.method === "views.publish").args.view;
     assert.equal(view.private_metadata, "configure");
@@ -2340,17 +2341,28 @@ test("Configure on the Home tab has the web pages, the AI agent (unless MCP is o
     return { names: buttons.map((button) => button.text.text), settings: buttons.find((button) => button.action_id === "home:settings"), text: view.blocks.map((block) => blockText(block) ?? "").join("\n") };
   };
   const admin = { ...env, ADMINS: JSON.stringify(["UME"]) };
-  // Everyone: the two parts, then the setup. The task tabs are not there.
+  // Everyone: the two parts, then how each setup stands now, with a button to change it. The task tabs are not there.
   const member = await configure("UME");
-  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Web pages", "AI agent"]);
-  assert.match(member.text, /Configure/);
-  // An admin also has the project settings, for the project shown.
+  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Manage", "Manage"]);
+  assert.match(member.text, /\*Web pages\*\n:x: Not signed in on any browser/);
+  assert.match(member.text, /\*AI agent\*\n:x: No key yet/);
+  assert.doesNotMatch(member.text, /Project settings/);
+  // The picture follows what the person has done, without opening anything.
+  const set = await configure("UME", env, async () => {
+    await DB.prepare("INSERT INTO web_tokens (token_hash, user_id, kind, expires_at) VALUES ('h1', 'UME', 'session', datetime('now', '+1 day')), ('h2', 'UME', 'session', datetime('now', '+1 day')), ('h3', 'UME', 'session', datetime('now', '-1 day'))").run();
+    await DB.prepare("INSERT INTO mcp_tokens (user_id, token_hash) VALUES ('UME', 'k1')").run();
+  });
+  assert.match(set.text, /:white_check_mark: Signed in on 2 browsers/);
+  assert.match(set.text, /:white_check_mark: Configured · key made \d{4}-\d{2}-\d{2} · \d+ tools/);
+  // An admin also has the project settings, for the project shown, with its switches.
   const asAdmin = await configure("UME", admin);
-  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Web pages", "AI agent", "Project settings"]);
+  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Manage", "Manage", "Change"]);
   assert.equal(asAdmin.settings.value, "CDEV");
-  // MCP off: no AI agent.
+  assert.match(asAdmin.text, /\*Project settings\*\n\*acme\*: everyone in the workspace\nTask change detection: on  ·  New task detection: on/);
+  // MCP off: it says so, with no button.
   const off = await configure("UME", { ...env, MCP: "off" });
-  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Web pages"]);
+  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Manage"]);
+  assert.match(off.text, /\*AI agent\*\n:x: Turned off by an admin/);
   // Home comes back to the tasks, on the tab last used.
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
   await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:section:home" }] }));

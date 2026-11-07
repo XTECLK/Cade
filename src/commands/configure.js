@@ -1,4 +1,4 @@
-import { deleteWebTokensOf, hasMcpToken, mcpTokenCreated } from "../db.js";
+import { deleteWebTokensOf, hasMcpToken, mcpTokenCreated, webSessionsOf } from "../db.js";
 import { endpointUrl, grantToken, mcpCatalog, mcpEnabled, revokeToken } from "../mcp.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 import { loginLink } from "../web.js";
@@ -29,10 +29,16 @@ const section = (text) => ({ type: "section", text: mrkdwn(text) });
 const button = (action_id, text, extra = {}) => ({ type: "button", action_id, text: plainText(text), ...extra });
 const modal = (title, blocks) => ({ type: "modal", title: plainText(title), close: plainText("Close"), blocks });
 
-// The web pages modal, with what the last button said above its buttons.
-export function webView(result) {
+// Whether the person is signed in to the web pages, for the Configure part of the Home tab and the modal.
+export async function webLine(env, user) {
+  const browsers = await webSessionsOf(env, user);
+  return browsers ? `:white_check_mark: Signed in on ${browsers} browser${browsers === 1 ? "" : "s"}` : ":x: Not signed in on any browser";
+}
+
+// The web pages modal, with how things stand and what the last button said above its buttons.
+export async function webView(env, user, result) {
   return modal("Cade web pages", [
-    section("Task cards link to *Full history* and *Extra notes* pages that Cade hosts. Sign in once in each browser to read the ones for channels you can read."),
+    section(`Task cards link to *Full history* and *Extra notes* pages that Cade hosts. Sign in once in each browser to read the ones for channels you can read.\n*Now:* ${await webLine(env, user)}`),
     ...(result ? [section(result)] : []),
     {
       type: "actions",
@@ -49,6 +55,13 @@ export function webView(result) {
       ],
     },
   ]);
+}
+
+// Whether MCP is on for this Cade and the person has a key, for the Configure part of the Home tab.
+export async function mcpLine(env, user) {
+  if (!mcpEnabled(env)) return ":x: Turned off by an admin";
+  const made = await mcpTokenCreated(env, user);
+  return made ? `:white_check_mark: Configured · key made ${made.slice(0, 10)} · ${mcpCatalog().tools.length} tools` : ":x: No key yet";
 }
 
 // The AI agent modal: whether MCP is configured (on) for this Cade, whether the person has a key (never the key
@@ -108,18 +121,20 @@ const update = (env, payload, view) => callSlack(env, "views.update", { view_id:
 export default {
   actions: {
     [WEB_ACTION]: async (payload, { env }) => {
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: webView() });
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await webView(env, payload.user.id) });
     },
     [WEB_LOGIN_ACTION]: async (payload, { env }) => {
       const link = await loginLink(env, payload.user.id);
-      await update(env, payload, webView(`:key: <${link}|Sign in to Cade's pages>. The link works once, for ten minutes, and keeps you signed in on that browser for thirty days.`));
+      await update(env, payload, await webView(env, payload.user.id, `:key: <${link}|Sign in to Cade's pages>. The link works once, for ten minutes, and keeps you signed in on that browser for thirty days.`));
     },
     [WEB_LOGOUT_ACTION]: async (payload, { env }) => {
       const sessions = await deleteWebTokensOf(env, payload.user.id);
       await update(
         env,
         payload,
-        webView(
+        await webView(
+          env,
+          payload.user.id,
           sessions
             ? `:wave: Signed out of ${sessions} browser session${sessions === 1 ? "" : "s"}.`
             : "You weren't signed in to Cade's pages in any browser. Any sign-in link you hadn't used is cancelled too.",

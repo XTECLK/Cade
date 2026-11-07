@@ -2,9 +2,9 @@ import { projects } from "./channels.js";
 import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime } from "./format.js";
-import { MCP_ACTION, WEB_ACTION } from "./commands/configure.js";
+import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.js";
 import { mcpEnabled } from "./mcp.js";
-import { isAdmin } from "./settings.js";
+import { SETTINGS, isAdmin, projectMembers, settingOn } from "./settings.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
 import { PRIORITIES, blockedLine, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
@@ -99,7 +99,7 @@ async function draw(env, user, tab) {
   if (!project) {
     return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_There are no projects yet. An admin adds one with the Add project button._")] }] };
   }
-  if (tab === CONFIGURE) return configureView(env, user, top, project);
+  if (tab === CONFIGURE) return await configureView(env, user, top, project);
   const open = await groupTasks(env, project, OPEN, url);
   const today = todayIn(env);
   const tabRow = {
@@ -158,27 +158,32 @@ function projectPicker(groups, project) {
   };
 }
 
-// The Configure part: a section for each setup, with its button. AI agent is left out when MCP is
-// turned off, and Project settings is for admins only.
-function configureView(env, user, top, project) {
-  const row = (title, about, action, label, value) => ({
+// The Configure part: the whole picture without a click, a section for each setup with how it stands
+// now and a button to change it. AI agent says so when MCP is turned off, and has no button then; Project
+// settings is for admins only, and lists the project's switches.
+async function configureView(env, user, top, project) {
+  const row = (title, now, action, label, value) => ({
     type: "section",
-    text: mrkdwn(`*${title}*\n${about}`),
-    accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) },
+    text: mrkdwn(`*${title}*\n${now}`),
+    ...(action && { accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) } }),
   });
+  const members = projectMembers(env, project.channel);
+  const switches = SETTINGS.map(({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`).join("  ·  ");
   const blocks = [
     ...top,
     { type: "header", text: plainText("Configure") },
-    row("Web pages", "Sign in to the thread and notes pages that task cards link to, or sign out of every browser.", WEB_ACTION, "Web pages"),
-    ...(mcpEnabled(env) ? [row("AI agent", "Connect your own AI agent to Cade: your API key, the endpoint and the setup guide.", MCP_ACTION, "AI agent")] : []),
+    row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
+    row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
     ...(isAdmin(env, user)
-      ? [row("Project settings", `Switches and people for *${project.name}*. Admins only.`, SETTINGS_ACTION, "Project settings", project.channel)]
+      ? [row("Project settings", `*${project.name}*: ${members.length ? `${members.length} ${members.length === 1 ? "person" : "people"} picked` : "everyone in the workspace"}\n${switches}`, SETTINGS_ACTION, "Change", project.channel)]
       : []),
     { type: "divider" },
     { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] },
   ];
   return { type: "home", blocks };
 }
+
+const stateOf = (on) => (on === "some" ? "partly on" : on ? "on" : "off");
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first. Unassigned ones have an Assign to me button there, and only there.

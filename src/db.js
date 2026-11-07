@@ -668,6 +668,12 @@ export async function deleteWebToken(env, hash) {
   await env.DB.prepare("DELETE FROM web_tokens WHERE token_hash = ?").bind(hash).run();
 }
 
+// How many browsers `user` is signed in on: their live sessions.
+export async function webSessionsOf(env, user) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM web_tokens WHERE user_id = ? AND kind = 'session' AND expires_at > datetime('now')").bind(user).first();
+  return row?.count ?? 0;
+}
+
 // Ends every sign-in of `user`, the browsers' sessions and any sign-in link not used yet;
 // returns how many sessions there were.
 export async function deleteWebTokensOf(env, user) {

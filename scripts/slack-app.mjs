@@ -16,12 +16,12 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { HOME, ROOT } from "./paths.mjs";
 import { askHidden } from "./prompt.mjs";
 import "./cloudflare.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MANIFEST = `${ROOT}slack/manifest.json`;
-const APP_FILE = `${ROOT}.cade/slack-app.json`;
+const APP_FILE = `${HOME}.cade/slack-app.json`;
 const DEFAULTS = { name: "Cade", command: "/cade" };
 
 // The manifest for an app called `name`, answering `command`, served by the
@@ -112,7 +112,7 @@ export async function create(args) {
     manifest: JSON.stringify(buildManifest(template, { ...settings, events: false })),
   });
   const app = { appId: created.app_id, ...settings };
-  await mkdir(`${ROOT}.cade`, { recursive: true });
+  await mkdir(`${HOME}.cade`, { recursive: true });
   await writeFile(APP_FILE, `${JSON.stringify(app, null, 2)}\n`);
   console.log(`Created app ${app.appId}; saved its settings to .cade/slack-app.json.`);
 

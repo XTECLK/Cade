@@ -9,18 +9,21 @@ D1 database, and your own AI agent can connect to it over MCP.
 ## Where to go
 
 - **[The Cade website](https://xteclk.github.io/Cade/)**: what it does, [every command](https://xteclk.github.io/Cade/commands.html) and [how to connect your agent](https://xteclk.github.io/Cade/mcp.html).
-- **[Getting started](GETTING_STARTED.md)**: set Cade up for your team. Run `npm run setup` and a guided script does it with you.
+- **[Getting started](GETTING_STARTED.md)**: set Cade up for your team from the **[cade-deploy](https://github.com/XTECLK/cade-deploy)** template. Run `npm run setup` and a guided script does it with you.
 - **[Development guide](DEVELOPMENT.md)**: how it's built, and how to run and test it.
 - **[Contributing](CONTRIBUTING.md)**: how to report a bug, suggest a change or send a pull request.
 - **[Issues](https://github.com/XTECLK/Cade/issues)**: the changes planned for Cade, each with its design and status.
 
 ## Quick start
 
+Use the [cade-deploy](https://github.com/XTECLK/cade-deploy) template (**Use this template**, private), then:
+
 ```sh
-git clone https://github.com/XTECLK/Cade.git && cd Cade
-npm install
-npm run setup
+git clone https://github.com/<you>/<your copy>.git cade-deploy && cd cade-deploy
+npm run setup     # asks which version of Cade, a release or the latest (main)
 ```
+
+To work on Cade itself, see the [development guide](DEVELOPMENT.md).
 
 ## Community
 

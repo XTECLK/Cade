@@ -18,17 +18,20 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { HOME, ROOT } from "./paths.mjs";
 import { askHidden } from "./prompt.mjs";
 import "./cloudflare.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIR = `${ROOT}google`;
-const SECRET_FILE = `${DIR}/Secret.gs`;
+// Kept in HOME, and copied beside the script when it is pushed.
+const SECRET_FILE = `${HOME}google/Secret.gs`;
+const SCRIPT_SECRET_FILE = `${DIR}/Secret.gs`;
 const MANIFEST_FILE = `${DIR}/appsscript.json`;
-const APP_FILE = `${ROOT}.cade/google-app.json`;
-const CONFIG_FILE = `${ROOT}cade.config.json`;
-const SLACK_APP_FILE = `${ROOT}.cade/slack-app.json`;
+const APP_FILE = `${HOME}.cade/google-app.json`;
+const CONFIG_FILE = `${HOME}cade.config.json`;
+const SLACK_APP_FILE = `${HOME}.cade/slack-app.json`;
 
 // The script's title: Cade_ and the Slack workspace's name, with anything
 // Apps Script wouldn't want in a name turned to -. Without a workspace,
@@ -120,6 +123,7 @@ async function exists(file) {
 // which makes the script a web app anyone can reach, running as you.
 async function pushScript(manifest) {
   await writeFile(MANIFEST_FILE, manifest);
+  if (SECRET_FILE !== SCRIPT_SECRET_FILE) await copyFile(SECRET_FILE, SCRIPT_SECRET_FILE);
   await clasp("push", "--force");
 }
 
@@ -140,6 +144,7 @@ export async function create(args) {
   const project = JSON.parse(await readFile(`${DIR}/.clasp.json`, "utf8"));
 
   const secret = randomBytes(32).toString("hex");
+  await mkdir(dirname(SECRET_FILE), { recursive: true });
   await writeFile(SECRET_FILE, secretFile(secret));
   await pushScript(manifest);
 
@@ -149,7 +154,7 @@ export async function create(args) {
   if (!deploymentId) throw new Error("Couldn't find the deployment ID in clasp's output; see npx clasp list-deployments.");
   const url = webAppUrl(deploymentId);
   const app = { scriptId: project.scriptId, deploymentId, url };
-  await mkdir(`${ROOT}.cade`, { recursive: true });
+  await mkdir(`${HOME}.cade`, { recursive: true });
   await writeFile(APP_FILE, `${JSON.stringify(app, null, 2)}\n`);
 
   console.log("Giving the Worker the secret and the address…");

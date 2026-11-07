@@ -8,11 +8,17 @@ the Worker.
 
 ## The quick way
 
-From the cloned folder (step 1), run:
+Cade is deployed from your own copy of its
+[**cade-deploy**](https://github.com/XTECLK/cade-deploy) template, which holds your
+settings and checks Cade out at the version you choose. Click **Use this
+template** on that page, make the copy private, clone it (step 1), then run:
 
 ```sh
 npm run setup
 ```
+
+It first asks which version of Cade to deploy: a release, or `main`, the
+latest development version.
 
 It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
 Slack app, a Google Doc for executive summaries, then your first group. It
@@ -35,7 +41,7 @@ someone to click in a browser.
 ## Settings
 
 Cade has two kinds of settings. **Config** is what you edit as your team
-changes; it lives in `cade.config.json` on your machine (git ignores it) and
+changes; it lives in `cade.config.json` in your deploy repo (commit it) and
 `npm run config` uploads it. **Secrets** give access to Slack or Google;
 they're set once with `npx wrangler secret put NAME` and live only in
 Cloudflare, never in a file. Both take effect straight away and survive every
@@ -108,20 +114,24 @@ uploads the file, as `npm run config` does.
 `npm run dev` (see [DEVELOPMENT.md](DEVELOPMENT.md)) uses the same config file and asks for the
 secrets each time, without saving them.
 
-## 1. Get the code
+## 1. Get your deploy repo
 
-Copy Cade to your own GitHub account first (person): on its GitHub page,
-click **Fork**, or **Use this template** for a copy without its history.
-Your copy is what you deploy, and where you pull updates into later. Then:
+Make your own copy of the template (person): on the
+[cade-deploy](https://github.com/XTECLK/cade-deploy) page, click **Use this
+template** and make the copy private. It holds your settings (`cade.config.json`,
+`.cade/`), not Cade's code. Then:
 
 ```sh
-git clone https://github.com/<you>/<your copy>.git cade
-cd cade
-npm install
-npm test
+git clone https://github.com/<you>/<your copy>.git cade-deploy
+cd cade-deploy
+npm run version
 ```
 
-**Expect:** `npm test` ends with `fail 0`.
+**Expect:** `No version chosen yet`. Choose one with `npm run upgrade`, or let
+`npm run setup` ask. It lists Cade's releases and `main` (the latest
+development version), saves your choice in `.cade/version.json`, checks that
+version out into `.cade-src/` (ignored by git), runs `npm ci` and its build there. Every
+`npm run` script below is run in your deploy repo and works on that checkout.
 
 ## 2. Log in to Cloudflare (person)
 
@@ -137,16 +147,17 @@ again; on a machine without a browser, use an API token instead
 
 **If `whoami` lists several accounts**, give the one for Cade once, with any
 npm script: `CLOUDFLARE_ACCOUNT_ID=<its ID> npm run deploy`. It's saved to
-`.cade/cloudflare.json` (kept out of git), and every npm script uses it from then
-on.
+`.cade/cloudflare.json` (commit it with your deploy repo), and every npm script
+uses it from then on.
 
 ## 3. Name and deploy the Worker
 
-In `wrangler.toml`, set `name` (for example `cade`). It must be unique in
-your Cloudflare account, and becomes part of the URL.
+Choose the Worker's name (for example `cade`): `npm run setup` asks, or put
+`"workerName": "cade"` in `.cade/cloudflare.json`. It must be unique in your
+Cloudflare account, and becomes part of the URL.
 
 All other settings are Worker secrets, set in later steps, so nothing else
-in the file needs changing.
+needs changing.
 
 ```sh
 npm run deploy
@@ -311,17 +322,21 @@ Information**); `not_in_channel` means the app isn't invited;
 
 ## Updating
 
-Bring Cade's changes into your copy with **Sync fork** on its GitHub page
-(or `git pull https://github.com/XTECLK/Cade.git main`), then:
+Choose the version to update to, from your deploy repo, then deploy it:
 
 ```sh
-git pull
-npm install
-npm test
+npm run upgrade                             # lists the releases and main, and asks
+npm run upgrade -- v1.3.0                   # or name one
 npm run deploy                              # also applies new files in migrations/
 npm run slack:update                        # only if slack/manifest.json changed
 npm run google:update                       # only if google/ changed
+git add -A && git commit -m "Cade v1.3.0" && git push
 ```
+
+A release stays as it was released. `main` follows the latest development
+version: `deploy`, `slack:update` and `google:update` fetch its newest changes
+first. `npm run version` shows what you are on; to roll back, upgrade to the
+earlier release and deploy again.
 
 If Slack says the app needs reinstalling after an update, reinstall it from
 the app's page (step 6); the bot token usually stays the same.

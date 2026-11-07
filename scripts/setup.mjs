@@ -11,11 +11,11 @@ import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { HOME, ROOT } from "./paths.mjs";
 import { ask, askHidden, choose, confirm, intro, log, note, outro, pause } from "./prompt.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SLACK_APP = `${ROOT}.cade/slack-app.json`;
-const GOOGLE_APP = `${ROOT}.cade/google-app.json`;
+const SLACK_APP = `${HOME}.cade/slack-app.json`;
+const GOOGLE_APP = `${HOME}.cade/google-app.json`;
 const WRANGLER_TOML = `${ROOT}wrangler.toml`;
 
 // The Worker's URL in what `wrangler deploy` printed.
@@ -151,7 +151,7 @@ async function main() {
       who = await run("npx", ["wrangler", "whoami"]);
     }
     const accounts = accountIdsIn(who.output);
-    if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${ROOT}.cade/cloudflare.json`))) {
+    if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${HOME}.cade/cloudflare.json`))) {
       const id = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
       process.env.CLOUDFLARE_ACCOUNT_ID = id;
       await import("./cloudflare.mjs"); // saves it for every script
@@ -165,6 +165,8 @@ async function main() {
     if (!(await exists(SLACK_APP))) {
       const name = await ask(`Worker name, unique in your Cloudflare account [${current}]: `, current);
       await writeFile(WRANGLER_TOML, withWorkerName(toml, name));
+      // Kept with your deployment, which puts it back into wrangler.toml after any change of version.
+      (await import("./cloudflare.mjs")).save({ workerName: name });
     }
     console.log("Deploying; Wrangler may ask to confirm creating the database tables.");
     const deployed = await run("npm", ["run", "deploy"]);

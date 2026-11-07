@@ -30,6 +30,8 @@ in your workspace. Name the Worker something of your own (such as `cade-dev`) wh
 it unless you're working on the executive summary tools. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
+When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in it, ignored by git. A team's real deployment keeps them in its own repo, made from the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, which sets `CADE_DEPLOY_DIR` to point the scripts there (see `scripts/paths.mjs`).
+
 ### 3. Change, deploy, try
 
 ```sh

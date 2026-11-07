@@ -10,9 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "./config.mjs";
+import { HOME, ROOT } from "./paths.mjs";
 import { askHidden } from "./prompt.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 // The secrets asked for, in order. An optional one can be skipped with Enter;
 // `when` says whether to ask at all, given the answers so far.
@@ -69,7 +69,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     let json;
     try {
-      json = await readFile(`${ROOT}cade.config.json`, "utf8");
+      json = await readFile(`${HOME}cade.config.json`, "utf8");
     } catch {
       throw new Error("No cade.config.json: copy cade.config.sample.json to cade.config.json and fill it in.");
     }

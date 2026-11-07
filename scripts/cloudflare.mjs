@@ -12,9 +12,9 @@
 // wrangler.toml stays free of anyone's domain.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { HOME } from "./paths.mjs";
 
-const FILE = fileURLToPath(new URL("../.cade/cloudflare.json", import.meta.url));
+const FILE = `${HOME}.cade/cloudflare.json`;
 
 function read() {
   try {
@@ -24,12 +24,17 @@ function read() {
   }
 }
 
+// Saves `patch` in the file with the rest of it, such as { workerName }.
+export function save(patch) {
+  mkdirSync(dirname(FILE), { recursive: true });
+  writeFileSync(FILE, `${JSON.stringify({ ...read(), ...patch }, null, 2)}\n`);
+}
+
 export const domain = read().domain;
 const accountId = read().accountId;
 if (!process.env.CLOUDFLARE_ACCOUNT_ID && accountId) {
   process.env.CLOUDFLARE_ACCOUNT_ID = accountId;
 } else if (process.env.CLOUDFLARE_ACCOUNT_ID && !accountId && !process.env.NODE_TEST_CONTEXT) {
-  mkdirSync(dirname(FILE), { recursive: true });
-  writeFileSync(FILE, `${JSON.stringify({ ...read(), accountId: process.env.CLOUDFLARE_ACCOUNT_ID }, null, 2)}\n`);
+  save({ accountId: process.env.CLOUDFLARE_ACCOUNT_ID });
   console.log(`Saved Cloudflare account ${process.env.CLOUDFLARE_ACCOUNT_ID} to .cade/cloudflare.json; it needn't be given again.`);
 }

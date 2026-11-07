@@ -16,11 +16,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { callSlack } from "../src/slack.js";
 import { checkZone, readConfig, uploadConfig } from "./config.mjs";
+import { HOME } from "./paths.mjs";
 import { ask, askHidden, choose, chooseMany, confirm } from "./prompt.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const CONFIG_FILE = `${ROOT}cade.config.json`;
-const SECRET_FILE = `${ROOT}google/Secret.gs`;
+const CONFIG_FILE = `${HOME}cade.config.json`;
+const SECRET_FILE = `${HOME}google/Secret.gs`;
 
 // Each kind of file: where its address names its ID, and what it's called.
 const KINDS = {
@@ -287,7 +287,7 @@ export async function channelPlan(slack, ask, role, group, options, current, pic
 // list of apps without it.
 async function tokenPage() {
   try {
-    const { appId } = JSON.parse(await readFile(`${ROOT}.cade/slack-app.json`, "utf8"));
+    const { appId } = JSON.parse(await readFile(`${HOME}.cade/slack-app.json`, "utf8"));
     if (appId) return `https://api.slack.com/apps/${appId}/oauth`;
   } catch {}
   return "https://api.slack.com/apps (open Cade → OAuth & Permissions)";

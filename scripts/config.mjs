@@ -54,9 +54,9 @@ import { fileURLToPath } from "node:url";
 import { projects } from "../src/channels.js";
 import { docId } from "../src/doc.js";
 import "./cloudflare.mjs";
+import { HOME, ROOT } from "./paths.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FILE = `${ROOT}cade.config.json`;
+const FILE = `${HOME}cade.config.json`;
 
 // Returns the Worker secrets `json` sets, or throws saying what's wrong.
 export function readConfig(json) {

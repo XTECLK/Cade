@@ -5436,3 +5436,17 @@ test("the Edit form toggles subtasks, which the card shows and the thread is tol
   const post = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").at(-1);
   assert.match(post.args.text, /<@UACTOR> marked this as having subtasks\./);
 });
+
+test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout without it", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const show = (env) =>
+    JSON.parse(
+      execFileSync(process.execPath, ["--input-type=module", "-e", 'import {HOME,ROOT} from "./scripts/paths.mjs"; console.log(JSON.stringify({HOME,ROOT}))'], {
+        env: { ...process.env, CADE_DEPLOY_DIR: "", ...env },
+        encoding: "utf8",
+      }),
+    );
+  const alone = show({});
+  assert.equal(alone.HOME, alone.ROOT);
+  assert.equal(show({ CADE_DEPLOY_DIR: "/tmp/acme-deploy" }).HOME, "/tmp/acme-deploy/");
+});

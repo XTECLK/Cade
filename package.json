@@ -5,6 +5,8 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "node scripts/dev.mjs",
+    "wrangler": "node scripts/wrangler.mjs",
+    "clasp": "clasp",
     "deploy": "node scripts/wrangler.mjs deploy && node scripts/wrangler.mjs d1 migrations apply DB --remote",
     "test": "node --test",
     "docs": "node scripts/docs.mjs",

@@ -33,7 +33,7 @@ someone to click in a browser.
 
 ## What you need
 
-- Node.js 20 or newer, and git.
+- Node.js 20 or newer, and git. Nothing to `npm install` yourself: the deploy repo fetches and installs Cade.
 - A Cloudflare account (the free plan is enough).
 - A Slack workspace where you can create apps.
 - A Google account, for each project's executive-summary Doc.
@@ -43,9 +43,9 @@ someone to click in a browser.
 Cade has two kinds of settings. **Config** is what you edit as your team
 changes; it lives in `cade.config.json` in your deploy repo (commit it) and
 `npm run config` uploads it. **Secrets** give access to Slack or Google;
-they're set once with `npx wrangler secret put NAME` and live only in
+they're set once with `npm run wrangler -- secret put NAME` and live only in
 Cloudflare, never in a file. Both take effect straight away and survive every
-`npm run deploy`. `npx wrangler secret list` shows which are set (not their
+`npm run deploy`. `npm run wrangler -- secret list` shows which are set (not their
 values).
 
 ### Config: `cade.config.json`
@@ -88,8 +88,8 @@ To add a project without editing the file, use the **Add project** button on the
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
-| Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
-| Google login | Creating or updating the Google web app (`npm run google:create`, `google:update`). | `npx clasp login` (step 7). |
+| Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npm run wrangler -- login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
+| Google login | Creating or updating the Google web app (`npm run google:create`, `google:update`). | `npm run clasp -- login` (step 7). |
 | App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [DEVELOPMENT.md](DEVELOPMENT.md)) uses the same config file and asks for the
@@ -112,17 +112,17 @@ npm run version
 `npm run setup` ask. It lists Cade's releases and `main` (the latest
 development version), saves your choice in `.cade/version.json`, checks that
 version out into `.cade-src/` (ignored by git), runs `npm ci` and its build there. Every
-`npm run` script below is run in your deploy repo and works on that checkout.
+`npm run` script below is run in your deploy repo and works on that checkout; that includes `npm run wrangler -- …` and `npm run clasp -- …`, which stand in for `npx wrangler` and `npx clasp`.
 
 ## 2. Log in to Cloudflare (person)
 
 ```sh
-npx wrangler login
-npx wrangler whoami
+npm run wrangler -- login
+npm run wrangler -- whoami
 ```
 
 `wrangler login` opens a browser to approve access. **Expect:** `whoami`
-prints your account name and ID. **If it fails:** run `npx wrangler login`
+prints your account name and ID. **If it fails:** run `npm run wrangler -- login`
 again; on a machine without a browser, use an API token instead
 (`CLOUDFLARE_API_TOKEN`, with **Workers Scripts → Edit**).
 
@@ -193,7 +193,7 @@ Open the install link the script printed and **Allow**. Then, in the app's
 and paste it when the script asks. If you skipped that:
 
 ```sh
-npx wrangler secret put SLACK_BOT_TOKEN
+npm run wrangler -- secret put SLACK_BOT_TOKEN
 ```
 
 ## 7. A Google Doc for executive summaries
@@ -207,7 +207,7 @@ needs a Google account.
    only what it makes, not your own Drive. `npm run setup` offers to make one
    and prints the sign-up link with a name like `cade.acme.qwhzme@gmail.com` (`cade.`, your Slack workspace,
    and six random letters). Signed in as that account (or the existing one you
-   prefer), run `npx clasp login`, and turn on the Apps Script API at
+   prefer), run `npm run clasp -- login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings> (once per account).
 2. Create the web app:
 
@@ -278,7 +278,7 @@ settings**). Projects added there are kept in Cade's database; ones in
    the task form, with a **Project** picker if you have more than one group;
    submitting posts the task and copies the message into its thread.
 
-**If nothing answers:** run `npx wrangler tail` and try again.
+**If nothing answers:** run `npm run wrangler -- tail` and try again.
 `Invalid signature` means the signing secret is wrong (rerun step 5 or
 `wrangler secret put SLACK_SIGNING_SECRET` with the one under **Basic
 Information**); `not_in_channel` means the app isn't invited;

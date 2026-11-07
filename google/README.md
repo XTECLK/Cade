@@ -43,7 +43,7 @@ section's heading as it is: it's how Cade finds the section again (through a nam
 
 ## Setup
 
-1. **Log in to Google (person).** `npx clasp login` opens a browser to
+1. **Log in to Google (person).** `npm run clasp -- login` opens a browser to
    allow clasp, Google's Apps Script command line, to manage your scripts.
 2. **Turn on the Apps Script API (person, once per Google account)** at
    <https://script.google.com/home/usersettings>.
@@ -68,7 +68,7 @@ and the notes and thread tabs, which Cade no longer uses.
 ## Troubleshooting
 
 The Worker logs `Could not add the executive summary to the doc` with the
-reason in `npx wrangler tail`:
+reason in `npm run wrangler -- tail`:
 
 - `unauthorized`: `GOOGLE_SECRET` doesn't match the script's `SECRET` property (Apps Script → Project Settings → Script Properties). To change it, set both to the same new value.
 - `HTTP 401/403`: the web app's access isn't set to **Anyone**.

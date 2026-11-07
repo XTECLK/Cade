@@ -1,0 +1,18 @@
+{
+  // The tests run on Node.js, so they get its types; src/ runs on Workers, and is checked without
+  // them by ../tsconfig.json. `npm run typecheck` checks both.
+  //
+  // The tests are checked for what matters in them: that they call Cade's code with the arguments,
+  // shapes and types it takes, so a change to it shows here rather than as a test that quietly
+  // tests something else. Their own helpers and fixtures are looser than src/'s code: untyped
+  // parameters and nulls are allowed, and a stand-in with only what the code under test reads is
+  // made with fake() (see helpers.ts).
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["../worker-configuration.d.ts", "../src/**/*", "./**/*"]
+}

@@ -5,11 +5,16 @@ import { decideRelease, getNotes, getTask, insertRelease, keepName, putSummary, 
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
 import { fakeD1 } from "./d1.ts";
 import { check } from "./schema.ts";
+import type { AppEnv } from "../src/env.ts";
+import type { TestContext } from "node:test";
+import type { StoredTask } from "../src/types.ts";
+import { context } from "./helpers.ts";
 
 const SIGNING_SECRET = "test-signing-secret";
 const GOOGLE_URL = "https://script.google.com/macros/s/test/exec";
 const DB = fakeD1();
 beforeEach(() => DB.reset());
+// The Worker's environment for the tests: the settings they need, and no AI binding unless a test adds one.
 const env = {
   DB,
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
@@ -17,7 +22,7 @@ const env = {
   GOOGLE_URL,
   GOOGLE_SECRET: "g",
   PROJECTS: [{ name: "acme", channel: "CDEV" }, { name: "bare", channel: "CBARE" }],
-};
+} as unknown as AppEnv;
 
 async function sign(body) {
   const timestamp = Math.floor(Date.now() / 1000);
@@ -30,7 +35,7 @@ async function sign(body) {
 // A fake Slack API and Google web app: `slack` maps a method to its result
 // (or a function of its arguments); every call is recorded.
 let recorded = [];
-function mock(t, slack = {}, google = { ok: true }) {
+function mock(t: TestContext, slack: Record<string, unknown> = {}, google: unknown = { ok: true }) {
   const calls = (recorded = []);
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -74,7 +79,7 @@ async function slash(text, user = "UME") {
   const response = await worker.fetch(
     new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }),
     env,
-    { waitUntil: () => {} },
+    context(),
   );
   assert.equal(response.status, 200);
   // The handler's work follows the answer to Slack, so give it a moment.
@@ -86,20 +91,19 @@ async function slash(text, user = "UME") {
 
 // The API key the Create key button gives, from the modal (the endpoint is the same for everyone).
 const addressIn = (reply) => /\*API key\*[^\n]*\n```([\w-]{43})```/.exec(reply.text)[1];
-const ENDPOINT = `${ORIGIN}/mcp`;
 
 // One JSON-RPC message to the endpoint with an API key (in the x-apikey header, if given); returns the Response.
 const rpc = (key, message, method = "POST", path = "/mcp", more = {}) =>
   worker.fetch(
     new Request(`${ORIGIN}${path}`, { method, headers: { "content-type": "application/json", ...(key && { "x-apikey": key }), ...more }, body: method === "POST" ? JSON.stringify({ jsonrpc: "2.0", ...message }) : undefined }),
     env,
-    { waitUntil() {} },
+    context(),
   );
 
 // A tool's result: its text, and whether it is an error. Its data must match the tool's
 // outputSchema, so every call in these tests checks that, and an error carries none.
 async function tool(url, name, args) {
-  const { result } = await (await rpc(url, { id: 1, method: "tools/call", params: { name, arguments: args } })).json();
+  const { result } = await (await rpc(url, { id: 1, method: "tools/call", params: { name, arguments: args } })).json<any>();
   const { outputSchema } = TOOL_DEFS.find((def) => def.name === name);
   if (result.isError) assert.equal(result.structuredContent, undefined, `${name} gave data with an error`);
   else assert.deepEqual(check(outputSchema, result.structuredContent), [], `${name}'s data doesn't match its outputSchema`);
@@ -124,7 +128,7 @@ test("/cade mcp init gives an API key for the caller, and revoke ends it", async
   assert.equal(await list(first), 200);
 
   // Only a hash is kept.
-  const { token_hash: stored } = await DB.prepare("SELECT token_hash FROM mcp_tokens WHERE user_id = ?").bind("UME").first();
+  const { token_hash: stored } = await DB.prepare("SELECT token_hash FROM mcp_tokens WHERE user_id = ?").bind("UME").first<{ token_hash: string }>();
   assert.ok(!first.includes(stored));
 
   assert.match((await slash("mcp revoke")).text, /no longer works/);
@@ -148,15 +152,15 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal((await rpc("x".repeat(43), { id: 1, method: "tools/list" })).status, 401);
   assert.equal((await rpc("nope", { id: 1, method: "tools/list" })).status, 401);
   assert.equal((await rpc(undefined, { id: 1, method: "tools/list" }, "POST", `/mcp/${url}`)).status, 404);
-  const bearer = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "POST", headers: { authorization: `Bearer ${url}` }, body: "{}" }), env, { waitUntil() {} });
+  const bearer = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "POST", headers: { authorization: `Bearer ${url}` }, body: "{}" }), env, context());
   assert.equal(bearer.status, 401);
   assert.equal((await rpc(url, {}, "GET")).status, 405);
   // CORS preflight tells browsers they may send the header.
-  const preflight = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "OPTIONS" }), env, { waitUntil() {} });
+  const preflight = await worker.fetch(new Request(`${ORIGIN}/mcp`, { method: "OPTIONS" }), env, context());
   assert.equal(preflight.status, 204);
   assert.match(preflight.headers.get("access-control-allow-headers"), /x-apikey/);
 
-  const init = await (await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } })).json();
+  const init = await (await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } })).json<any>();
   assert.equal(init.result.protocolVersion, "2025-03-26");
   assert.equal(init.result.serverInfo.name, "cade");
   // What Cade is goes in serverInfo, not in the rules the agent is told.
@@ -170,14 +174,14 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
   assert.match(init.result.instructions, /Every write needs the person.s approval of the exact values first.*finalized values/);
-  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json()).result.tools.find((tool) => tool.name === "update_task");
+  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools.find((tool) => tool.name === "update_task");
   assert.match(summaryTool.description, /only with changes the person has seen and approved/);
   assert.match(init.result.instructions, /Never invent or guess a value: if one is missing, or more than one thing could be meant, ask/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);
 
-  const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json();
+  const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json<any>();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
   assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "send_approval_request", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
@@ -185,7 +189,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
   assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
-  assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json()).error.code, -32601);
+  assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
 });
 
 test("get_thread_history reads a thread, and a private channel only for someone in it", async (t) => {
@@ -251,7 +255,7 @@ test("get_user gives a user's name from an ID or a mention", async (t) => {
   assert.match((await tool(url, "get_user", { user_id: "UGONE" })).text, /couldn't look up UGONE/);
 });
 
-const stored = (overrides = {}) => ({
+const stored = (overrides: Partial<StoredTask> = {}): StoredTask => ({
   title: "Fix login",
   priority: "High",
   status: "TODO",
@@ -300,7 +304,8 @@ test("update_task with a summary links the notes page of an older task on its ca
 test("get_thread_history reads only from Slack, even for a task Cade keeps messages of", async (t) => {
   await putTask(env, "CDEV", "1700000000.000100", stored());
   await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000060.000200', 'UBOB', 'Kept reply')").run();
-  let slack = { messages: [{ user: "UBOB", ts: "1700000000.000100", text: "We should fix login" }] };
+  // What conversations.replies gives, or the error it fails with.
+  let slack: { messages: unknown[] } | Error = { messages: [{ user: "UBOB", ts: "1700000000.000100", text: "We should fix login" }] };
   mock(t, { "conversations.info": { channel: { name: "dev" } }, "conversations.replies": () => slack });
   const url = addressIn(await slash("mcp init"));
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
@@ -607,7 +612,6 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
     "conversations.members": { members: ["UBOB"] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
-  const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
   const result = await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" });
   assert.equal(result.isError, false, result.text);
@@ -791,9 +795,9 @@ async function submitTrack(origin, { callback = "track", user = "UCREATOR" } = {
   const values = { title: { value: { value: "Fix login" } }, due_date: { value: { selected_date: null } }, priority: { value: { selected_option: { value: "High" } } } };
   const payload = { type: "view_submission", user: { id: user }, view: { callback_id: callback, private_metadata: JSON.stringify(origin), state: { values: callback === "track" ? values : { title: values.title } } } };
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
-  const pending = [];
-  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), env, { waitUntil: (promise) => pending.push(promise) });
-  const answer = response.headers.get("content-type")?.includes("json") ? await response.json() : null;
+  const pending: Promise<unknown>[] = [];
+  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), env, context((promise) => { pending.push(promise); }));
+  const answer = response.headers.get("content-type")?.includes("json") ? await response.json<any>() : null;
   await Promise.all(pending);
   return answer;
 }
@@ -1310,10 +1314,10 @@ test("every argument and result field, and every object inside a result, has a d
   const bare = [];
   const isObject = (schema) => schema.type === "object" || (Array.isArray(schema.type) && schema.type.includes("object"));
   // The two root objects of a tool say nothing of themselves: the tool's own description does.
-  const walk = (schema, path, root = false) => {
+  const walk = (schema: Record<string, any>, path: string, root = false) => {
     if (!schema || typeof schema !== "object") return;
     if (!root && isObject(schema) && !schema.description) bare.push(path);
-    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+    for (const [name, property] of Object.entries((schema.properties ?? {}) as Record<string, any>)) {
       if (!property.description) bare.push(`${path}.${name}`);
       walk(property, `${path}.${name}`);
     }
@@ -1422,10 +1426,10 @@ test("a session is given the version of the tool set it loads, and told when the
   const connected = await rpc(url, { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } });
   const session = connected.headers.get("mcp-session-id");
   assert.match(session, new RegExp(`^cade-${TOOLSET_VERSION}-[0-9a-f-]{36}$`));
-  assert.equal((await connected.json()).result.serverInfo.version, `1.0.0+${TOOLSET_VERSION}`);
+  assert.equal((await connected.json<any>()).result.serverInfo.version, `1.0.0+${TOOLSET_VERSION}`);
   assert.equal((await rpc(url, { id: 2, method: "ping" })).headers.get("mcp-session-id"), null, "only a connection is given one");
 
-  const call = async (name, args, headers) => (await (await rpc(url, { id: 3, method: "tools/call", params: { name, arguments: args } }, "POST", "/mcp", headers)).json()).result;
+  const call = async (name, args, headers) => (await (await rpc(url, { id: 3, method: "tools/call", params: { name, arguments: args } }, "POST", "/mcp", headers)).json<any>()).result;
   const info = async (headers) => call("get_server_info", {}, headers);
 
   // A session on the latest tools, one on an older set, and one that doesn't say.

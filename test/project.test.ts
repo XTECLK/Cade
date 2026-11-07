@@ -5,10 +5,15 @@ import { groupSetting, projects } from "../src/channels.ts";
 import { putWebToken } from "../src/db.ts";
 import worker from "../src/index.ts";
 import { fakeD1 } from "./d1.ts";
+import type { AppEnv } from "../src/env.ts";
+import type { TestContext } from "node:test";
+import { context } from "./helpers.ts";
+import type { ViewValues } from "../src/types.ts";
 
 const SIGNING_SECRET = "test-signing-secret";
 const DB = fakeD1();
 beforeEach(() => DB.reset());
+// The Worker's environment for the tests: the settings they need, and no AI binding unless a test adds one.
 const env = {
   DB,
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
@@ -19,7 +24,7 @@ const env = {
   GOOGLE_SECRET: "g",
   // Only these can add projects and open the settings form.
   ADMINS: JSON.stringify(["UADMIN"]),
-};
+} as unknown as AppEnv;
 const ORIGIN = "https://worker.example.net";
 
 async function sign(body) {
@@ -31,7 +36,7 @@ async function sign(body) {
 }
 
 // A fake Slack API: `slack` maps a method to its result (or a function of its arguments).
-function mock(t, slack = {}, google = () => ({ ok: true, id: "1NewDocNewDocNewDocNewDocNewDoc" })) {
+function mock(t: TestContext, slack: Record<string, unknown> = {}, google: (body: any) => unknown = () => ({ ok: true, id: "1NewDocNewDocNewDocNewDocNewDoc" })) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -51,15 +56,6 @@ function mock(t, slack = {}, google = () => ({ ok: true, id: "1NewDocNewDocNewDo
   return calls;
 }
 
-const people = { users: { info: null } };
-
-async function slash(text, { user = "UADMIN", channel = "CNEW" } = {}) {
-  const body = new URLSearchParams({ command: "/cade", text: `project ${text}`.trim(), user_id: user, channel_id: channel, trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
-  const response = await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), env, { waitUntil() {} });
-  const answer = await response.text();
-  return answer ? JSON.parse(answer).text : undefined;
-}
-
 // A signed-in session for `user`, as a cookie header.
 async function session(user) {
   const code = newToken();
@@ -68,13 +64,13 @@ async function session(user) {
 }
 
 // The page that needs a signed-in session, for the logout test.
-const notes = (cookie) => worker.fetch(new Request(`${ORIGIN}/n/CDEV/1.1`, { headers: { cookie } }), env, { waitUntil() {} });
+const notes = (cookie) => worker.fetch(new Request(`${ORIGIN}/n/CDEV/1.1`, { headers: { cookie } }), env, context());
 
 // An interaction as Slack sends it: a button or a form submitted.
 async function interact(payload, environment = env) {
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
-  const waits = [];
-  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), environment, { waitUntil: (promise) => waits.push(promise) });
+  const waits: Promise<unknown>[] = [];
+  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), environment, context((promise) => { waits.push(promise); }));
   await Promise.all(waits);
   return response.text();
 }
@@ -99,7 +95,7 @@ const addForm = ({ channel = "CNEW", name = "", members = [], choices = {} } = {
 const textOf = (view) => view.blocks.map((block) => block.text?.text ?? "").join("\n");
 // What the form said last: Cade turns it into "Adding…" and then into how it went.
 const lastNotice = (calls) => textOf(JSON.parse(calls.findLast((call) => call.method === "views.update" && call.args.view_id === "VADD").args.view));
-const answer = async (payload, environment) => JSON.parse((await interact(payload, environment)) || "{}");
+const answer = async (payload: unknown, environment?: AppEnv) => JSON.parse((await interact(payload, environment)) || "{}");
 const ADDING = { "views.update": {}, "views.publish": {}, "auth.test": { url: "https://acme.slack.com/" } };
 
 test("Add project makes the channel a project, named after it, tells the admin, and shows it on the Home tab", async (t) => {
@@ -185,13 +181,13 @@ const openSettings = (channel, user = "UADMIN") =>
 
 const select = (view, key) => view.blocks.find((block) => block.block_id === `s_${key}`);
 const chosen = (view, key) => select(view, key).element.initial_option.value;
-const submitted = (channel, picks) => ({
+const submitted = (channel: string, picks: Record<string, string>) => ({
   type: "view_submission",
   user: { id: "UADMIN" },
   view: {
     callback_id: "project:settings",
     private_metadata: channel,
-    state: { values: Object.fromEntries(Object.entries(picks).map(([key, value]) => [`s_${key}`, { value: { selected_option: { value } } }])) },
+    state: { values: Object.fromEntries(Object.entries(picks).map(([key, value]) => [`s_${key}`, { value: { selected_option: { value } } }])) as ViewValues },
   },
 });
 

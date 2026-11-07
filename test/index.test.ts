@@ -11,6 +11,14 @@ import { formatDueDate } from "../src/tasks.ts";
 import { writeSummary } from "../src/summary.ts";
 import { todayIn } from "../src/commands/tasks.ts";
 import { fakeD1 } from "./d1.ts";
+import type { AppEnv } from "../src/env.ts";
+import type { TestContext } from "node:test";
+import type { Release, Status, StoredTask } from "../src/types.ts";
+import type { Project } from "../src/channels.ts";
+import type { TrackForm } from "../src/payloads.ts";
+import { context, fake } from "./helpers.ts";
+import type { Allowed } from "../src/ai.ts";
+import type { Change, PlainMessage } from "../src/types.ts";
 
 const SIGNING_SECRET = "test-signing-secret";
 // The Google web app, for each group's Doc; the acme group's doc
@@ -22,6 +30,7 @@ const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
 // again by mockSlack.
 const DB = fakeD1();
 beforeEach(() => DB.reset());
+// The Worker's environment for the tests: the settings they need, and no AI binding unless a test adds one.
 const env = {
   DB,
   // Off unless turned on; most tests are of both.
@@ -35,7 +44,7 @@ const env = {
     { name: "acme", channel: "CDEV" },
     { name: "test", channel: "CTESTDEV" },
   ],
-};
+} as unknown as AppEnv;
 
 async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
   const key = await crypto.subtle.importKey(
@@ -62,15 +71,13 @@ async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
 // Sends a signed request and waits for any background work it started.
 async function send(path, body, headers = {}, environment = env) {
   await seeded;
-  const pending = [];
+  const pending: Promise<unknown>[] = [];
   const request = new Request(`https://worker.example.net${path}`, {
     method: "POST",
     headers: { ...(await sign(body)), ...headers },
     body,
   });
-  const response = await worker.fetch(request, environment, {
-    waitUntil: (promise) => pending.push(promise),
-  });
+  const response = await worker.fetch(request, environment, context((promise) => { pending.push(promise); }));
   await Promise.all(pending);
   return response;
 }
@@ -105,7 +112,7 @@ async function store(record) {
   await putTask(env, record.channel, record.ts, record.task);
   for (const release of record.task.releases ?? []) await insertRelease(env, record.channel, record.ts, release);
 }
-let seeded = Promise.resolve();
+let seeded: Promise<unknown> = Promise.resolve();
 
 // `record`, moved to `channel`.
 const inChannel = (channel, record) => ({ ...record, channel });
@@ -119,11 +126,17 @@ const savedTask = (channel = "CDEV", ts = "100.1") => getTask(env, channel, ts);
 // settings are recorded as `previews` rather than with the arguments. Requests to the
 // Google web app are recorded with their JSON body, as "doc",
 // answered by `responses.doc`.
-let lastCalls = [];
-function mockSlack(t, { stored = [], ...responses } = {}) {
+// A call Cade made to Slack (or "respond", to a response_url), as mockSlack recorded it. Its `args`
+// are what Cade sent, read freely by the assertions.
+type Call = { method: string; args: any; headers?: unknown; previews?: { links?: boolean; media?: boolean } };
+let lastCalls: Call[] = [];
+// Slack's replies by method: a reply, or a function of the call's arguments giving one.
+type Replies = { stored?: readonly Stored[]; doc?: unknown } & Record<string, unknown>;
+
+function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
-  const calls = (lastCalls = []);
+  const calls: Call[] & { responses?: unknown[] } = (lastCalls = []);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     // Answers through a click's or command's response_url, unless a test
@@ -170,7 +183,7 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
 
 // The track form, submitted from `origin`: /cade task in the dev channel,
 // to begin with.
-const submission = (values, origin = { channel: "CDEV" }) => ({
+const submission = (values: { title?: string; dueDate?: string; priority?: string }, origin: TrackForm = { channel: "CDEV" }) => ({
   type: "view_submission",
   user: { id: "UCREATOR" },
   view: {
@@ -191,7 +204,11 @@ const submission = (values, origin = { channel: "CDEV" }) => ({
 });
 
 // The task at CDEV/100.1 as stored. Each role lists its people's user IDs.
-const storedTask = ({ owners = [], reviewers = [], testers = [], status = "TODO" } = {}) => ({
+// A stored task as mockSlack takes it (`stored`): where it is, and the task.
+type Stored = { channel: string; ts: string; task: StoredTask };
+type People = { owners?: string[]; reviewers?: string[]; testers?: string[]; status?: Status };
+
+const storedTask = ({ owners = [], reviewers = [], testers = [], status = "TODO" }: People = {}): Stored => ({
   channel: "CDEV",
   ts: "100.1",
   task: {
@@ -210,7 +227,7 @@ const storedTask = ({ owners = [], reviewers = [], testers = [], status = "TODO"
 const ownTask = storedTask;
 
 // An incident's task at CDEV/100.1: urgent, due immediately.
-const incidentTask = (people) => {
+const incidentTask = (people?: People) => {
   const record = storedTask(people);
   Object.assign(record.task, { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", incident: true });
   return record;
@@ -254,7 +271,7 @@ test("rejects requests with an invalid signature", async () => {
       body: "{}",
     }),
     env,
-    { waitUntil() {} },
+    context(),
   );
   assert.equal(response.status, 401);
 });
@@ -269,7 +286,7 @@ test("rejects signed requests older than five minutes", async () => {
       body,
     }),
     env,
-    { waitUntil() {} },
+    context(),
   );
   assert.equal(response.status, 401);
 });
@@ -326,7 +343,7 @@ test("modal submission tells the creator when the task cannot be posted", async 
   assert.equal(calls[1].args.channel, "CDEV");
   assert.match(calls[1].args.text, /^Sorry, I couldn't post the task "Fix login" just now\. I'll try again in a few minutes\.$/);
   // The task is stored, waiting to be posted.
-  const row = await DB.prepare("SELECT ts, post_attempts, origin FROM tasks").first();
+  const row = await DB.prepare("SELECT ts, post_attempts, origin FROM tasks").first<{ ts: string | null; post_attempts: number; origin: string }>();
   assert.equal(row.ts, null);
   assert.equal(row.post_attempts, 1);
   assert.deepEqual(JSON.parse(row.origin), {});
@@ -369,7 +386,7 @@ test("@Cade assign works for each role, in any word order", async (t) => {
     ["<@UBOT> assign tester <@UBOB>", "tester", undefined],
     ["<@UBOT> assign <@UBOB> as Tester", "tester", undefined],
     ["<@UBOT> assign owners <@UBOB>", "owner", "<@UBOB>, could you pick this up?"],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual((await savedTask()).people[role], ["UBOB"], text);
@@ -400,7 +417,7 @@ test("people are asked only when there's something for them to do now", async (t
     // Testers test it once it's In testing.
     ["tester", task("IN_REVIEW"), false],
     ["tester", task("IN_TESTING"), true],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> assign ${role} <@UBOB>`));
     const label = `${role} on ${root.task.status} with ${root.task.prs.length} PRs`;
@@ -422,7 +439,7 @@ test("@Cade assign takes short words for each role", async (t) => {
     ["<@UBOT> assign review <@UBOB>", "reviewer"],
     ["<@UBOT> assign test <@UBOB>", "tester"],
     ["<@UBOT> assign qa <@UBOB>", "tester"],
-  ]) {
+  ] as const) {
     mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual((await savedTask()).people[role], ["UBOB"], text);
@@ -528,7 +545,7 @@ test("a typed status gets a ✅ and never a question", async (t) => {
     [withStatus("DONE"), "done"],
     [withStatus("DONE"), "in progress"],
     [ownTask(), "done"],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> status ${input}`));
     assert.ok(calls.some((call) => call.method === "reactions.add"), input);
@@ -539,7 +556,7 @@ test("a typed status gets a ✅ and never a question", async (t) => {
 
 test("@Cade status accepts every status name", async (t) => {
   for (const status of ["TODO", "IN_PROGRESS", "IN_REVIEW", "IN_TESTING", "CLIENT_REVIEW", "DONE"]) {
-    const calls = mockSlack(t, {
+    mockSlack(t, {
       stored: [storedTask()],
     });
     await send("/slack/events", threadEvent(`<@UBOT> status ${status.toLowerCase()}`));
@@ -627,7 +644,7 @@ test("commands outside the dev channels point to them", async (t) => {
   assert.equal(calls[0].args.text, "That one works with `@Cade task` in <#CDEV> or <#CTESTDEV>.");
 
   calls = mockSlack(t);
-  const reply = await (await send("/slack/commands", slash("task", "COTHER"))).json();
+  const reply = await (await send("/slack/commands", slash("task", "COTHER"))).json<{ response_type: string; text: string }>();
   assert.equal(calls.length, 0);
   assert.equal(reply.response_type, "ephemeral");
   assert.equal(reply.text, "That one works with `/cade task` in <#CDEV> or <#CTESTDEV>.");
@@ -651,7 +668,7 @@ test("thread commands work in the test tasks channel", async (t) => {
 
 test("no projects in the config is fine: Cade just tracks nothing there", async (t) => {
   const calls = mockSlack(t);
-  const pending = [];
+  const pending: Promise<unknown>[] = [];
   const body = threadEvent("<@UBOT> assign owner <@UBOB>");
   await worker.fetch(
     new Request("https://worker.example.net/slack/events", {
@@ -660,7 +677,7 @@ test("no projects in the config is fine: Cade just tracks nothing there", async 
       body,
     }),
     { ...env, PROJECTS: undefined },
-    { waitUntil: (promise) => pending.push(promise) },
+    context((promise) => { pending.push(promise); }),
   );
   await Promise.all(pending);
   assert.equal(calls[0].args.text, "Hmm, I'm not tracking a task in this thread.");
@@ -693,6 +710,7 @@ test("ignores messages that do not start with @Cade, bots, edits and retries", a
 test("parseMessage reads the command name and mentioned people", () => {
   const command = parseMessage(
     {
+      type: "message",
       text: "<@UBOT> Assign <@UBOB> <@UALICE|alice> <@UBOB> <@UBOT>",
       user: "UACTOR",
       channel: "CDEV",
@@ -710,10 +728,10 @@ test("parseMessage reads the command name and mentioned people", () => {
     ts: "100.5",
     threadTs: "100.1",
   });
-  assert.equal(parseMessage({ text: "<@UBOT> TRACK" }, "UBOT").name, "track");
-  assert.equal(parseMessage({ text: "<@UBOT>" }, "UBOT").name, "");
-  assert.equal(parseMessage({ text: "@Cade task" }, "UBOT"), null);
-  assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
+  assert.equal(parseMessage({ type: "message", text: "<@UBOT> TRACK" }, "UBOT").name, "track");
+  assert.equal(parseMessage({ type: "message", text: "<@UBOT>" }, "UBOT").name, "");
+  assert.equal(parseMessage({ type: "message", text: "@Cade task" }, "UBOT"), null);
+  assert.equal(parseMessage({ type: "message", text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
 const slackUsers = {
@@ -777,7 +795,7 @@ test("/cade task in the dev channel posts the task without an announcement", asy
 test("/cade help and unknown slash commands list the commands privately", async (t) => {
   for (const text of ["", "help", "hello"]) {
     mockSlack(t);
-    const reply = await (await send("/slack/commands", slash(text))).json();
+    const reply = await (await send("/slack/commands", slash(text))).json<{ response_type: string; text: string }>();
     assert.equal(reply.response_type, "ephemeral");
     // The slash commands, the messages sent in a thread, the shortcuts, and
     // the admin commands, each on its own.
@@ -831,7 +849,7 @@ test("@Cade priority and due change the task's priority and due date", async (t)
     ["<@UBOT> priority low", "priority", "Low", "<@UACTOR> set the priority to :large_green_circle: Low."],
     ["<@UBOT> due 5/1/2027", "dueDate", "05/01/2027", "<@UACTOR> set the due date to 05/01/2027."],
     ["<@UBOT> due 2027-02-28", "dueDate", "28/02/2027", "<@UACTOR> set the due date to 28/02/2027."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [ownTask()] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual(calls.map((call) => call.method), [
@@ -863,7 +881,7 @@ test("commands without what they need say what to send", async (t) => {
     ["<@UBOT> priority soon", "I don't know \"soon\" as a priority. Try `@Cade priority high`: urgent, high, medium or low."],
     ["<@UBOT> due", "When is it due? Try `@Cade due 31/12/2026`, or `@Cade due none` to clear it."],
     ["<@UBOT> due 31/02/2027", "I couldn't read \"31/02/2027\" as a date. Try `@Cade due 31/12/2026`, or `@Cade due none` to clear it."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [ownTask()] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
@@ -896,7 +914,8 @@ test("a task's card has a menu: Edit, Release while it has PRs not sent, and Arc
   withPrs.task.prs = [PR, MR];
   assert.deepEqual(await menu(withPrs), ["Edit", "Release", "Archive"]);
   // Once every PR is sent, there's nothing to release.
-  withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }];
+  // The fields of a release the menu reads.
+  withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }] as Release[];
   assert.deepEqual(await menu(withPrs), ["Edit", "Archive"]);
 });
 
@@ -963,8 +982,6 @@ test("/cade resync <link> redraws a task's card quietly", async (t) => {
 // The Worker's address in these tests (see send), which the cards' links are built on.
 const SITE = "https://worker.example.net";
 const NOTES_URL = `${SITE}/n/CDEV/${RESYNC_TS}`;
-const EXPORT_TS = "1700000000.000100";
-const exportLink = (ts) => `<https://acme.slack.com/archives/CDEV/p${ts.replace(".", "")}>`;
 const NAMES = { UREX: { profile: { display_name: "Rex" } }, UBOB: { real_name: "Bob Lee", profile: {} } };
 const reply = (user, ts, text) => threadEvent(text, { user, ts });
 const storedMessages = async () => (await DB.prepare("SELECT * FROM messages ORDER BY ts").all()).results;
@@ -986,7 +1003,7 @@ test("Resync links the task's notes and thread pages on the card, and reads its 
     [RESYNC_TS, RESYNC_TS, "UREX", "Fix login"],
     [RESYNC_TS, "1700000000.000300", "UBOB", "On it"],
   ]);
-  assert.deepEqual(JSON.parse(rows[1].files), [{ name: "a.png", permalink: "https://acme.slack.com/files/a.png" }]);
+  assert.deepEqual(JSON.parse(rows[1].files as string), [{ name: "a.png", permalink: "https://acme.slack.com/files/a.png" }]);
 
   // Again: nothing is stored twice, and Google is never involved.
   calls.length = 0;
@@ -1029,11 +1046,11 @@ async function pressWeb(actionId, user = "UACTOR") {
 // Signs in the way a person does: the Get a sign-in link button, then the link it gives. Returns the cookie.
 async function signIn() {
   const link = /<(https:\/\/worker\.example\.net\/login\/[\w-]+)\|/.exec(await pressWeb("home:web:login"))[1];
-  const response = await worker.fetch(new Request(link), env, { waitUntil() {} });
+  const response = await worker.fetch(new Request(link), env, context());
   assert.equal(response.status, 200);
   return response.headers.get("set-cookie").split(";")[0];
 }
-const get = (path, cookie, init = {}) => worker.fetch(new Request(`${SITE}${path}`, { ...init, headers: { ...(cookie && { cookie }), ...init.headers } }), env, { waitUntil() {} });
+const get = (path: string, cookie?: string, init: RequestInit & { headers?: Record<string, string> } = {}) => worker.fetch(new Request(`${SITE}${path}`, { ...init, headers: { ...(cookie && { cookie }), ...init.headers } }), env, context());
 
 test("the web pages modal's sign-in link signs you in once, for the thread and notes pages", async (t) => {
   mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "users.info": ({ user }) => ({ user: NAMES[user] }) });
@@ -1107,7 +1124,7 @@ test("choosing from a task card's menu opens its form, and an old card's choices
     ["assign", "task:edit"],
     ["status", "task:edit"],
     ["more", "task:edit"],
-  ]) {
+  ] as const) {
     const record = ownTask({ owners: ["UREX"] });
     record.task.prs = ["https://github.com/acme/web/pull/9"];
     const calls = mockSlack(t, { stored: [record] });
@@ -1233,7 +1250,6 @@ test("Not approve moves the task back to In progress and tells the task's thread
   });
   await send("/slack/interactions", reviewClick("status:reject"));
 
-  const task = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1");
   assert.deepEqual((await savedTask()).status, "IN_PROGRESS");
   // The task was not Done, so its pin stays.
   assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
@@ -1303,7 +1319,7 @@ const RESPONSE_URL = "https://hooks.slack.com/commands/T1/1/abc";
 // Runs `/cade <text>` from `channel` as UACTOR, with `stored` (each channel's
 // task root messages) in the database, and returns its immediate answer, the
 // calls made, and the answer sent later through the response_url.
-async function tasksCommand(t, text, channel, stored = {}, environment = env) {
+async function tasksCommand(t: TestContext, text: string, channel: string, stored: Record<string, Stored[]> = {}, environment: AppEnv = env) {
   const calls = mockSlack(t, { ...slackUsers, "auth.test": { url: "https://acme.slack.com/" } });
   for (const [where, messages] of Object.entries(stored)) {
     for (const record of messages) await putTask(env, where, record.ts, record.task);
@@ -1401,7 +1417,7 @@ test("@Cade pr needs add or remove and a pull request link", async (t) => {
       "<@UBOT> pr add <https://github.com/acme/cade/issues/3>",
       "Hmm, that doesn't look like a pull request link: https://github.com/acme/cade/issues/3",
     ],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent(text));
     assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
@@ -1740,7 +1756,7 @@ test("messages without unlinked pull requests are left alone", async (t) => {
     // Cade's own messages and edits.
     [`See <${PR}>`, { bot_id: "BCADE" }, storedTask()],
     [`See <${PR}>`, { subtype: "message_changed" }, storedTask()],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: root ? [root] : [] });
     await send("/slack/events", threadReply(text, overrides));
     assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), `${text} ${JSON.stringify(overrides)}`);
@@ -1868,7 +1884,7 @@ test("Add reviewers on an already linked PR adds them and posts nothing", async 
 });
 
 test("Just link leaves the mentioned people out", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
+  mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
   recordResponses(t);
   await send("/slack/interactions", clickSuggestion(suggestionValue({ urls: [PR] })));
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
@@ -1888,7 +1904,7 @@ test("linking a PR leaves the status to the suggestions", async (t) => {
 test("removing a PR leaves the status alone", async (t) => {
   const root = withStatus("IN_REVIEW");
   root.task.prs = [PR];
-  const calls = mockSlack(t, { stored: [root] });
+  mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.deepEqual((await savedTask()).status, "IN_REVIEW");
 });
@@ -1918,7 +1934,7 @@ test("a message with a PR link and a hand-off gets one question with both", asyn
 });
 
 test("Just link works like the other link button", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
+  mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
   recordResponses(t);
   await send(
     "/slack/interactions",
@@ -1936,7 +1952,7 @@ test("Just link works like the other link button", async (t) => {
 });
 
 test("@Cade assign tester never changes the status", async (t) => {
-  const calls = mockSlack(t, { stored: [withStatus("IN_PROGRESS")] });
+  mockSlack(t, { stored: [withStatus("IN_PROGRESS")] });
   await send("/slack/events", threadEvent("<@UBOT> assign tester <@UTESS>"));
   assert.deepEqual((await savedTask()).status, "IN_PROGRESS");
   assert.deepEqual((await savedTask()).people.tester, ["UTESS"]);
@@ -1951,7 +1967,7 @@ test("a task started before the click is not moved again", async (t) => {
 });
 
 test("@Cade assign owner never changes the status", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask()] });
+  mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> assign owner <@UREX>"));
   assert.deepEqual((await savedTask()).status, "TODO");
 });
@@ -1970,7 +1986,7 @@ test("saying you've started asks nothing when there's nothing to change, or it i
     ["can you comment on it?", storedTask(), {}],
     ["started working on this", null, {}],
     ["started working on this", storedTask(), { channel: "COTHER" }],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: root ? [root] : [] });
     await send("/slack/events", threadReply(text, overrides));
     assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), `${text} ${overrides.channel ?? ""}`);
@@ -2085,7 +2101,7 @@ test("@Cade unassign of someone not assigned changes nothing", async (t) => {
     ["<@UBOT> unassign <@UREX>", "Looks like they aren't assigned to this task."],
     ["<@UBOT> unassign tester <@UALICE>", "Looks like they aren't assigned to this task as tester."],
     ["<@UBOT> unassign <@UREX> <@UBOB>", "Looks like none of them are assigned to this task."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
@@ -2214,7 +2230,7 @@ test("opening the Home tab shows the person's open tasks by what they do on them
 });
 
 test("the Home tab's cards don't link the notes page, as the title opens the task", async (t) => {
-  const task = (ts, title, notes) => ({
+  const task = (ts: string, title: string, notes?: { url: string; tab?: string }): Stored => ({
     channel: "CDEV",
     ts,
     task: { ...storedTask().task, title, notes, people: { owner: ["UME"], reviewer: [], tester: [] } },
@@ -2231,13 +2247,13 @@ test("the Home tab's cards don't link the notes page, as the title opens the tas
 });
 
 test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, and Refresh stays on the view", async (t) => {
-  const task = (ts, title, people) => ({
+  const task = (ts: string, title: string, people?: Partial<StoredTask["people"]>): Stored => ({
     channel: "CDEV",
     ts,
     task: { ...storedTask().task, title, status: "TODO", people: { owner: [], reviewer: [], tester: [], ...people } },
   });
   const stored = [task("1.1", "Mine", { owner: ["UME"] }), task("2.1", "Nobody's", {}), task("3.1", "Theirs", { owner: ["UOTHER"] })];
-  const view = async (action_id, value) => {
+  const view = async (action_id: string, value?: string) => {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
     const body = interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id, value }] });
     assert.equal((await send("/slack/interactions", body)).status, 200);
@@ -2260,7 +2276,7 @@ test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, 
 });
 
 test("Assign to me on the Home tab's Unassigned view makes the person the owner, unless someone took it", async (t) => {
-  const task = (ts, title, people) => ({
+  const task = (ts: string, title: string, people?: Partial<StoredTask["people"]>): Stored => ({
     channel: "CDEV",
     ts,
     task: { ...storedTask().task, title, status: "TODO", people: { owner: [], reviewer: [], tester: [], ...people } },
@@ -2287,7 +2303,7 @@ test("Assign to me on the Home tab's Unassigned view makes the person the owner,
 });
 
 test("the Home tab's project picker keeps the person's project for next time", async (t) => {
-  const task = (channel, ts, title) => ({
+  const task = (channel: string, ts: string, title: string): Stored => ({
     channel,
     ts,
     task: { ...storedTask().task, title, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } },
@@ -2328,8 +2344,8 @@ test("the Home tab's project picker keeps the person's project for next time", a
 });
 
 test("Configure on the Home tab has the web pages, the AI agent (unless MCP is off) and, for an admin, the project settings", async (t) => {
-  const stored = [{ channel: "CDEV", ts: "1.1", task: { ...storedTask().task, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } } }];
-  const configure = async (user, environment = env, seed) => {
+  const stored: Stored[] = [{ channel: "CDEV", ts: "1.1", task: { ...storedTask().task, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } } }];
+  const configure = async (user: string, environment: AppEnv = env, seed?: () => Promise<unknown>) => {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
     await seed?.();
     await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, view: { private_metadata: "mine" }, actions: [{ action_id: "home:section:configure" }] }), {}, environment);
@@ -2405,7 +2421,7 @@ test("pinning and the summary canvas can be turned off, for every group or one",
     [{ ...env, ACTIVE_TASKS_PINNING: undefined, SUMMARY_CANVAS: undefined }, "CDEV", 0, false],
     [{ ...env, PROJECTS: pairs, ACTIVE_TASKS_PINNING: "off" }, "CDEV", 1, true],
     [{ ...env, PROJECTS: pairs }, "CTESTDEV", 1, false],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
     await setPinned(environment, channel, "1.1", true);
     await refreshSummary(environment, channel, { create: true });
@@ -2442,7 +2458,7 @@ test("suggestions can be turned off, all or some, and a kind turned off asks the
     ["false", "<@UREX> please review this", false],
     ['["hand-offs"]', "<@UREX> please review this", true],
     ['["pr-links"]', "<@UREX> please review this", false],
-  ]) {
+  ] as const) {
     const { environment } = aiEnv(aiRead({ reviewer: add("UREX") }));
     const calls = mockSlack(t, { stored: [record()] });
     await send("/slack/events", threadEvent(text, { user: "UDEV1" }), {}, suggestions === undefined ? environment : { ...environment, TASK_CHANGE_DETECTION: suggestions });
@@ -2475,7 +2491,7 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
     [{ projects: good, timezone: "Sri Lanka" }, /isn't a time zone/],
     // A token here would be a mistake: they belong in Cloudflare only.
     [{ projects: good, SLACK_BOT_TOKEN: "xoxb-1" }, /has "SLACK_BOT_TOKEN"; it takes projects and timezone/],
-  ]) {
+  ] as const) {
     assert.throws(() => readConfig(typeof config === "string" ? config : JSON.stringify(config)), problem);
   }
 });
@@ -2518,7 +2534,7 @@ test("cade.config.json can hold the Google web app's address and each group's do
 
 test("intent phrases match whole words, or word starts with *", async () => {
   const { intent, plainMessage } = await import("../src/intents.ts");
-  const message = (text) => plainMessage({ text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1" }, "UBOT");
+  const message = (text: string) => plainMessage({ type: "message", text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1" }, "UBOT");
   const whole = intent({ name: "whole", order: 1, phrases: ["work on"], handle() {} });
   assert.ok(whole.test(message("can you work on this")));
   assert.ok(!whole.test(message("that would work only later")));
@@ -2530,7 +2546,7 @@ test("intent phrases match whole words, or word starts with *", async () => {
 
 test("the first intent by order wins, and needs are checked first", async () => {
   const { findIntent, intent, plainMessage } = await import("../src/intents.ts");
-  const event = (text, extra = {}) => ({ text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1", ...extra });
+  const event = (text: string, extra = {}) => ({ type: "message", text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1", ...extra });
   const late = intent({ name: "late", order: 50, phrases: ["deploy*"], handle() {} });
   const early = intent({ name: "early", order: 5, phrases: ["deploy*"], needs: { mention: true }, handle() {} });
   // Order wins over the order they're listed in…
@@ -2564,7 +2580,7 @@ test("@Cade status takes short names for each status", async () => {
     ["client review", "CLIENT_REVIEW"], ["client", "CLIENT_REVIEW"], ["uat", "CLIENT_REVIEW"],
     ["done", "DONE"], ["Finished", "DONE"], ["CLIENT_REVIEW", "CLIENT_REVIEW"],
     ["soon", undefined],
-  ]) {
+  ] as const) {
     assert.equal(parseStatus(input), status, input);
   }
 });
@@ -2590,7 +2606,7 @@ test("messages about work already in hand suggest nothing", async (t) => {
     ["UDEV2", "finished the login subtask"],
     ["UDEV2", "first part is done"],
     ["UDEV2", "fixed one of the bugs"],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [task()] });
     await send("/slack/events", threadEvent(text, { user }));
     assert.deepEqual(calls.map((call) => call.method), [], `${user}: ${text}`);
@@ -2710,8 +2726,8 @@ test("a deleted task is kept in the database and no longer loads", async (t) => 
 // Runs the cron, as Cloudflare does, and waits for its work.
 async function runCron(environment = env) {
   await seeded;
-  const pending = [];
-  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 0, 1, 0, 0) }, environment, { waitUntil: (promise) => pending.push(promise) });
+  const pending: Promise<unknown>[] = [];
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 0, 1, 0, 0) } as ScheduledController, environment, context((promise) => { pending.push(promise); }));
   await Promise.all(pending);
 }
 
@@ -2775,12 +2791,6 @@ test("the cron tells nobody while it keeps trying, and gives up after the last a
 
 // /cade tasks options: a person, everyone, status and due date filters.
 
-// A date `days` from today (UTC, as the test env has no TIMEZONE), as
-// DD/MM/YYYY.
-const dueIn = (days) => {
-  const date = new Date(Date.parse(`${todayIn(env)}T00:00:00Z`) + days * 86400000);
-  return date.toISOString().slice(0, 10).split("-").reverse().join("/");
-};
 
 test("today is in the configured time zone", () => {
   const lateEvening = new Date("2026-10-24T20:00:00Z");
@@ -2950,10 +2960,11 @@ test("/cade standup says so when there's nothing to go through, and takes only -
 
 // The task with `prs` linked and `releases` sent already (their ids are 1,
 // 2, … in order).
-const releaseThreads = (prs, releases = [], status = "IN_PROGRESS") => {
+const releaseThreads = (prs: string[], releases: readonly Partial<Release>[] = [], status: Status = "IN_PROGRESS") => {
   const task = withStatus(status);
   task.task.prs = prs;
-  task.task.releases = releases;
+  // The fields of a release the tests need.
+  task.task.releases = releases as Release[];
   task.task.people.owner = ["UDEV"];
   return { stored: [task] };
 };
@@ -2988,7 +2999,7 @@ const releaseClick = (actionId, id = 1) =>
     actions: [{ action_id: actionId, value: JSON.stringify({ channel: "CDEV", ts: "100.1", id }) }],
   });
 
-const inReview = (prs) => ({ prs, note: "Login and sign-up", status: "PENDING_APPROVAL", sentBy: "UDEV" });
+const inReview = (prs: string[]): Partial<Release> => ({ prs, note: "Login and sign-up", status: "PENDING_APPROVAL", sentBy: "UDEV" });
 
 // What's shown of a task's releases.
 const releasesOf = async () =>
@@ -3009,7 +3020,7 @@ test("@Cade release needs a task with PRs not sent yet", async (t) => {
   const cases = [
     [releaseThreads([]), /There aren't any PRs to send yet/],
     [releaseThreads([PR], [inReview([PR])]), /already with the client/],
-  ];
+  ] as const;
   for (const [responses, reply] of cases) {
     const calls = mockSlack(t, responses);
     await send("/slack/events", threadEvent("<@UBOT> release"));
@@ -3050,7 +3061,7 @@ test("@Cade release offers a button that opens the form with the unsent PRs", as
 test("the release form needs PRs and what they complete", async (t) => {
   mockSlack(t, releaseThreads([PR]));
   const response = await send("/slack/interactions", releaseSubmission([], "", null));
-  assert.deepEqual((await response.json()).errors, {
+  assert.deepEqual((await response.json<{ errors: unknown }>()).errors, {
     prs: "Please choose at least one PR.",
     note: "Please say what these PRs complete.",
     approver: "Please choose who approves them.",
@@ -3101,9 +3112,9 @@ test("Not approve removes the release and tells the task's thread", async (t) =>
 });
 
 test("a release decided already, or gone, is not applied again", async (t) => {
-  const released = { ...inReview([PR]), status: "APPROVED" };
-  const rejected = { ...inReview([PR]), status: "NOT_APPROVED" };
-  for (const [releases, outcome] of [[[released], /already approved/], [[rejected], /aren't waiting for approval anymore/], [[], /aren't waiting for approval anymore/]]) {
+  const released: Partial<Release> = { ...inReview([PR]), status: "APPROVED" };
+  const rejected: Partial<Release> = { ...inReview([PR]), status: "NOT_APPROVED" };
+  for (const [releases, outcome] of [[[released], /already approved/], [[rejected], /aren't waiting for approval anymore/], [[], /aren't waiting for approval anymore/]] as const) {
     const calls = mockSlack(t, releaseThreads([PR], releases));
     await send("/slack/interactions", releaseClick("release:reject"));
     assert.deepEqual(calls.map((call) => call.method), ["chat.update"]);
@@ -3136,7 +3147,7 @@ test("a Done task after a release lists the rest as its last release", async (t)
 // In the dev channel: a message at 100.7, posted on its own, and tasks to
 // move it to.
 const devStray = { ts: "100.7", user: "UACTOR", text: "The login bug also hits SSO\nfor some people" };
-const devTask = (ts, title, status, fields = {}) => {
+const devTask = (ts: string, title: string, status: Status, fields: Partial<StoredTask> = {}) => {
   const record = storedTask();
   Object.assign(record, { ts });
   Object.assign(record.task, { title, status, ...fields });
@@ -3145,7 +3156,7 @@ const devTask = (ts, title, status, fields = {}) => {
 
 // A Slack API where conversations.replies gives `root` as the thread's root,
 // posts get a ts in their thread, and permalinks end with the message's ts.
-const moveSlack = (root = devStray, replies = []) => ({
+const moveSlack = (root: Record<string, unknown> | null = devStray, replies: unknown[] = []) => ({
   "conversations.replies": { messages: root ? [root, ...replies] : [] },
   "chat.postMessage": (args) => (args.thread_ts ? { ts: `${args.thread_ts.split(".")[0]}.9` } : { channel: args.channel, ts: "100.1" }),
   "chat.getPermalink": (args) => ({ permalink: `https://slack.example/${args.message_ts}` }),
@@ -3187,7 +3198,7 @@ test("@Cade move says why it can't move a message", async (t) => {
     [moveEvent({ ts: "100.7", thread_ts: undefined }), [], devStray, "Reply `@Cade move` in the thread of the message you want to move."],
     [moveEvent({ thread_ts: "100.1" }), [storedTask()], devStray, "This is already a task thread."],
     [moveEvent(), [], { ...devStray, bot_id: "BOTHER" }, "I can only move people's messages."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { ...moveSlack(root), stored });
     await send("/slack/events", event);
     assert.equal(calls.at(-1).args.text, text);
@@ -3230,7 +3241,7 @@ test("Move moves nothing if the task was closed or the message deleted since", a
   for (const [stored, root, text] of [
     [[devTask("100.1", "Fix login", "DONE")], devStray, "That task has been closed or deleted since, so I didn't move anything."],
     [[devTask("100.1", "Fix login", "TODO")], null, "That message has been deleted since, so there's nothing to move."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { ...moveSlack(root), stored });
     const responses = recordResponses(t);
     await send("/slack/interactions", moveClick("100.1"));
@@ -3279,7 +3290,7 @@ test("@Cade move with a link says why it can't move the message", async (t) => {
   for (const [stored, text] of [
     [[], "That link isn't to a task. Use Copy link on its message."],
     [[devTask(TARGET, "Fix login", "DONE")], "That task is done, so I didn't move anything."],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { ...moveSlack(), stored });
     await send("/slack/events", moveEvent({ text: `<@UBOT> move <${messageLink("CDEV", TARGET)}>` }));
     assert.equal(calls.at(-1).args.text, text);
@@ -3288,7 +3299,7 @@ test("@Cade move with a link says why it can't move the message", async (t) => {
 
 // Choosing Cade's message shortcut `callbackId` (⋯ → More actions) on
 // `message` in `channel`, a DM to begin with.
-const shortcutClick = (callbackId, message = { ts: "500.1", user: "UBOB", text: "Customers can't pay\nsince the deploy" }, channel = "D0BOB") =>
+const shortcutClick = (callbackId: string, message: Record<string, unknown> = { ts: "500.1", user: "UBOB", text: "Customers can't pay\nsince the deploy" }, channel = "D0BOB") =>
   interaction({
     type: "message_action",
     callback_id: callbackId,
@@ -3477,7 +3488,7 @@ test("Message shortcuts in a dev channel say privately why they can't, without o
     ["convert", { ...devStray, ts: "100.1" }, [storedTask()], /already a task thread/],
     ["incident", devStray, [], /There are no open tasks|people's messages/],
     ["move", devStray, [], /There are no open tasks there/],
-  ]) {
+  ] as const) {
     const root = callbackId === "incident" ? { ...devStray, bot_id: "B1" } : devStray;
     const calls = mockSlack(t, { ...moveSlack(root), stored });
     const responses = recordResponses(t);
@@ -3529,7 +3540,7 @@ test("a message posted on its own in a dev channel is asked whether it's a task,
   for (const [stored, buttons] of [
     [[devTask("100.1", "Fix login", "IN_PROGRESS")], ["New task", "New incident", "Move to existing", "Not now"]],
     [[devTask("100.1", "Fix login", "DONE")], ["New task", "New incident", "Not now"]],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored });
     await send("/slack/events", threadEvent("The login bug also hits SSO", { ts: "100.7", thread_ts: undefined }));
     assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
@@ -3553,13 +3564,13 @@ test("with suggestions off, a message posted on its own is still asked about; ot
 
 test("newTaskDetection false stops the question about a message posted on its own, for one project or every one", async (t) => {
   const post = (environment) => send("/slack/events", threadEvent("hi", { ts: "100.7", thread_ts: undefined }), {}, environment);
-  const projects = (settings) => ({ ...env, PROJECTS: env.PROJECTS.map((project) => (project.name === "acme" ? { ...project, ...settings } : project)) });
+  const projects = (settings) => ({ ...env, PROJECTS: (env.PROJECTS as Project[]).map((project) => (project.name === "acme" ? { ...project, ...settings } : project)) });
   for (const [environment, asked] of [
     [env, true],
     [projects({ newTaskDetection: false }), false],
     [{ ...env, NEW_TASK_DETECTION: "off" }, false],
     [{ ...projects({ newTaskDetection: true }), NEW_TASK_DETECTION: "off" }, true],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t);
     await post(environment);
     assert.equal(calls.some((call) => call.method === "chat.postEphemeral"), asked);
@@ -3639,7 +3650,7 @@ test("@Cade task and @Cade incident in a message's thread offer to start one fro
   for (const [kind, question, button, actionId] of [
     ["task", "Shall I track this message as a task?", "New task", "move:track-task"],
     ["incident", "Shall I report an incident from this message?", "New incident", "move:report-incident"],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, moveSlack());
     await send("/slack/events", startEvent(kind));
     assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"], kind);
@@ -3780,7 +3791,7 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
     ],
     ["<@UBOT> unassign owner <@UACTOR>", storedTask({ owners: ["UACTOR"] }), undefined],
     ["<@UBOT> unassign <@UACTOR>", storedTask({ owners: ["UACTOR"] }), undefined],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent(text));
     assert.equal(calls.find((call) => call.method === "chat.postMessage")?.args.text, reply, text);
@@ -3832,7 +3843,7 @@ test("Accept leaves a suggested status alone once the task has moved, and Reject
 test("progressOptions reads the task, the writer and their words", async () => {
   const { progressOptions } = await import("../src/commands/status.ts");
   const task = (status, people = {}) => taskWith(status, people).task;
-  const says = (text) => ({ text });
+  const says = (text: string) => fake<PlainMessage>({ text });
   assert.deepEqual(progressOptions(task("IN_REVIEW", { reviewers: ["U1"] }), "U1", says("lgtm")), ["IN_TESTING"]);
   assert.deepEqual(progressOptions(task("IN_TESTING", { testers: ["U1"] }), "U1", says("lgtm")), ["DONE"]);
   assert.deepEqual(progressOptions(task("IN_PROGRESS", { owners: ["U1"] }), "U1", says("lgtm")), []);
@@ -3848,12 +3859,12 @@ test("the started intent asks nothing outside the paired channels", async (t) =>
 });
 
 test("the Worker answers only POSTs to its routes, and needs the signing secret", async () => {
-  const get = await worker.fetch(new Request("https://worker.example.net/slack/events"), env, { waitUntil() {} });
+  const get = await worker.fetch(new Request("https://worker.example.net/slack/events"), env, context());
   assert.equal(get.status, 405);
-  const missing = await worker.fetch(new Request("https://worker.example.net/nowhere", { method: "POST" }), env, {});
+  const missing = await worker.fetch(new Request("https://worker.example.net/nowhere", { method: "POST" }), env, context());
   assert.equal(missing.status, 404);
   await assert.rejects(
-    worker.fetch(new Request("https://worker.example.net/slack/events", { method: "POST", body: "{}" }), { ...env, SLACK_SIGNING_SECRET: "" }, {}),
+    worker.fetch(new Request("https://worker.example.net/slack/events", { method: "POST", body: "{}" }), { ...env, SLACK_SIGNING_SECRET: "" }, context()),
     /SLACK_SIGNING_SECRET is not configured/,
   );
 });
@@ -3874,7 +3885,7 @@ test("events other than messages, and interactions Cade has no handler for, are 
 
 test("callSlack and respondLater report Slack's failures", async (t) => {
   const { callSlack, respondLater } = await import("../src/slack.ts");
-  await assert.rejects(callSlack({}, "chat.postMessage", {}), /SLACK_BOT_TOKEN is not configured/);
+  await assert.rejects(callSlack(fake({}), "chat.postMessage", {}), /SLACK_BOT_TOKEN is not configured/);
   const fetch = globalThis.fetch;
   t.after(() => {
     globalThis.fetch = fetch;
@@ -3971,13 +3982,13 @@ test("a release sent without a button message is still sent", async (t) => {
 test("a release someone decided on at the same moment isn't decided again", async (t) => {
   const calls = mockSlack(t, releaseThreads([PR], [inReview([PR])]));
   // The other click's decision lands between reading the release and deciding it.
-  const raced = {
+  const raced = fake<AppEnv>({
     ...env,
     DB: {
       prepare: (sql) =>
         /^\s*UPDATE releases/i.test(sql) ? { bind: () => ({ first: async () => null }) } : DB.prepare(sql),
     },
-  };
+  });;
   await send("/slack/interactions", releaseClick("release:approve"), {}, raced);
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.9").args;
   assert.match(update.text, /Someone's already decided on these PRs\./);
@@ -4023,7 +4034,7 @@ test("/cade resync summary puts the group's open tasks in the dev channel's canv
     ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE", completedAt: "2026-10-10T09:00:00.000Z" })],
     ["CDEV", historyTask("100.5", { title: "Done later", status: "DONE", completedAt: "2026-10-20T09:00:00.000Z", owners: ["UBOB"] })],
     ["CDEV", incidentHistoryTask("100.8", { title: "Checkout is down", testers: ["UALICE", "UBOB"] })],
-  ]) await putTask(env, channel, record.ts, record.task);
+  ] as const) await putTask(env, channel, record.ts, record.task);
   const { now, later } = await runTasksCommand("resync summary", "CDEV", env);
 
   assert.equal(now, "");
@@ -4292,7 +4303,7 @@ test("Client review asks the approver in the task's own thread", async (t) => {
   for (const [action, status, said] of [
     ["status:approve", "DONE", "<@UPM> approved this, so it's now :white_check_mark: Done."],
     ["status:reject", "IN_PROGRESS", "<@UPM> didn't approve this, so it's back to :arrow_forward: In progress. Have a look at the thread for what needs to change."],
-  ]) {
+  ] as const) {
     calls = mockSlack(t, { stored: [{ ...record, task: { ...record.task, status: "CLIENT_REVIEW" } }] });
     await send(
       "/slack/interactions",
@@ -4405,7 +4416,7 @@ test("/cade replace changes what one of Cade's messages says, from anywhere", as
   for (const [text, said] of [
     [`replace ${link} "The *deposit* goes live on Friday, <@UBOB>"`, "The *deposit* goes live on Friday, <@UBOB>"],
     [`replace ${link} No quotes needed`, "No quotes needed"],
-  ]) {
+  ] as const) {
     const calls = mockSlack(t);
     const { now, later } = await runTasksCommand(text, "CRANDOM");
     assert.equal(now, "");
@@ -4445,7 +4456,7 @@ test("/cade replace leaves task cards and other people's messages alone, and nee
 // An environment with AI on, whose model answers `answer` (an object, as the
 // changes it read) or throws it (an Error). The model's inputs are kept in
 // `asked`.
-function aiEnv(answer) {
+function aiEnv(answer: unknown) {
   const asked = [];
   const AI = {
     run: async (model, input) => {
@@ -4454,7 +4465,7 @@ function aiEnv(answer) {
       return { choices: [{ message: { content: JSON.stringify(answer) } }] };
     },
   };
-  return { environment: { ...env, AI, AI_MODEL: "on" }, asked };
+  return { environment: { ...env, AI, AI_MODEL: "on" } as unknown as AppEnv, asked };
 }
 
 // What the model read, with nothing changed but `fields`.
@@ -4505,9 +4516,9 @@ test("a task with subtasks only moves to DONE, and only for a message about the 
 
 test("AI's changes are checked against the message and the task", async () => {
   const { checkChanges } = await import("../src/ai.ts");
-  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { owner: ["UBOB"], reviewer: [], tester: [] } };
-  const message = { user: "UACTOR", mentions: ["UREX", "UMIA"] };
-  const allowed = { roles: ["owner", "reviewer", "tester"], status: true, details: true };
+  const task = fake<StoredTask>({ status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { owner: ["UBOB"], reviewer: [], tester: [] } });
+  const message = fake<PlainMessage>({ user: "UACTOR", mentions: ["UREX", "UMIA"] });
+  const allowed: Allowed = { roles: ["owner", "reviewer", "tester"], status: true, details: true };
   const raw = aiRead({
     // UZED wasn't mentioned, and UBOB is an owner already.
     owner: { add: ["UREX", "UZED", "UBOB"], remove: ["UMIA"] },
@@ -4527,7 +4538,7 @@ test("AI's changes are checked against the message and the task", async () => {
   });
   assert.deepEqual(checkChanges(aiRead({ dueDate: "clear" }), { task, message, allowed }), { dueDate: "" });
   // What isn't allowed is dropped; with nothing left, nothing changes.
-  const narrow = { roles: ["reviewer"], status: false, details: false, author: false };
+  const narrow: Allowed = { roles: ["reviewer"], status: false, details: false, author: false };
   assert.equal(checkChanges(aiRead({ owner: { add: ["UREX"], remove: [] }, status: "DONE" }), { task, message, allowed: narrow }), null);
   // The author is added only when allowed.
   assert.deepEqual(
@@ -4673,7 +4684,7 @@ test("with AI on, a message saying the task is blocked, or no longer, is read an
     // None of these words were in the phrases that decide what AI reads before.
     ["we're waiting on the API keys", storedTask({ status: "IN_PROGRESS" }), { blocked: "block", blockedReason: "waiting on the API keys" }, { blocked: { on: true, reason: "waiting on the API keys" } }, "*Blocked:* no → yes (waiting on the API keys)"],
     ["design arrived, unblocked", blockedTask(), { blocked: "unblock" }, { blocked: { on: false } }, "*Blocked:* yes → no"],
-  ]) {
+  ] as const) {
     const { environment, asked } = aiEnv(aiRead(raw));
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent(text), {}, environment);
@@ -4687,10 +4698,10 @@ test("with AI on, a message saying the task is blocked, or no longer, is read an
 test("pull request links are found by code, and the model says which to link and which linked ones to unlink", async () => {
   const { checkChanges } = await import("../src/ai.ts");
   const people = { owner: [], reviewer: [], tester: [] };
-  const task = { status: "IN_PROGRESS", people, prs: [MR] };
-  const message = { user: "UA", mentions: [], text: "x" };
-  const allowed = { roles: [], prs: true };
-  const run = (prs, found = [PR], extra = {}) => checkChanges(aiRead({ prs }), { task: { ...task, ...extra }, message, allowed, pullRequests: found })?.prs ?? null;
+  const task = fake<StoredTask>({ status: "IN_PROGRESS", people, prs: [MR] });
+  const message = fake<PlainMessage>({ user: "UA", mentions: [], text: "x" });
+  const allowed: Allowed = { roles: [], prs: true };
+  const run = (prs: unknown, found = [PR], extra = {}) => checkChanges(aiRead({ prs }), { task: { ...task, ...extra }, message, allowed, pullRequests: found })?.prs ?? null;
   assert.deepEqual(run({ add: [PR], remove: [MR] }), { add: [PR], remove: [MR] });
   // The model can't invent an address, link one already linked, or unlink one the task doesn't have.
   assert.equal(run({ add: ["https://github.com/acme/cade/pull/999"], remove: ["https://github.com/acme/cade/pull/998"] }), null);
@@ -4714,7 +4725,7 @@ test("with AI on, a pasted pull request is linked or left, and a closed one unli
     [`see ${PR} for how they did it`, { prs: { add: [], remove: [] } }, null],
     [`closed ${MR}, new PR is ${PR}`, { prs: { add: [PR], remove: [MR] } }, { prs: { add: [PR], remove: [MR] } }],
     [`${MR} is abandoned`, { prs: { add: [], remove: [MR] } }, { prs: { add: [], remove: [MR] } }],
-  ]) {
+  ] as const) {
     const { question } = await aiSuggestion(t, text, withMr(), raw);
     assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
   }
@@ -4770,13 +4781,13 @@ test("AI reads messages whenever the binding is there, with aiModel naming the o
   assert.throws(() => config({ aiModel: "gpt" }, {}), /aiModel is a Workers AI/);
   assert.throws(() => config({}, { aiModel: "@cf/x/y" }), /acme's aiModel is set once at the top of the file/);
   const { aiModel } = await import("../src/ai.ts");
-  assert.equal(aiModel({ AI: {} }), "@cf/zai-org/glm-4.7-flash");
-  assert.equal(aiModel({ AI: {}, AI_MODEL_NAME: "@cf/x/y" }), "@cf/x/y");
-  assert.equal(aiModel({ AI_MODEL_NAME: "@cf/x/y" }), null, "no binding");
+  assert.equal(aiModel(fake({ AI: {} })), "@cf/zai-org/glm-4.7-flash");
+  assert.equal(aiModel(fake({ AI: {}, AI_MODEL_NAME: "@cf/x/y" })), "@cf/x/y");
+  assert.equal(aiModel(fake({ AI_MODEL_NAME: "@cf/x/y" })), null, "no binding");
 });
 
 test("suggestions can be set per group, over the setting for every group", async (t) => {
-  const pairs = (acme) => env.PROJECTS.map((pair) => (pair.name === "acme" ? { ...pair, ...acme } : pair));
+  const pairs = (acme) => (env.PROJECTS as Project[]).map((pair) => (pair.name === "acme" ? { ...pair, ...acme } : pair));
 
   // acme turns the proactive agent off, though it's on for every group.
   let calls = mockSlack(t, { stored: [storedTask()] });
@@ -4792,7 +4803,7 @@ test("suggestions can be set per group, over the setting for every group", async
 
   // Another group keeps the setting for every group.
   const { suggesting } = await import("../src/intents.ts");
-  const split = { AI: {}, TASK_CHANGE_DETECTION: "false", PROJECTS: pairs({ taskChangeDetection: ["hand-offs"] }) };
+  const split = fake<AppEnv>({ AI: {}, TASK_CHANGE_DETECTION: "false", PROJECTS: pairs({ taskChangeDetection: ["hand-offs"] }) });
   assert.equal(suggesting(split, "hand-offs", "CDEV"), true);
   assert.equal(suggesting(split, "progress", "CDEV"), false);
   assert.equal(suggesting(split, "hand-offs", "CTESTDEV"), false);
@@ -4856,7 +4867,7 @@ test("AI only adds the author to a role when their message speaks of themselves"
     ["lgtm, approved", false],
     ["<@UREX> can you build this? I'll do the review", true],
     ["on it", true],
-  ]) {
+  ] as const) {
     const { environment } = aiEnv(aiRead({ reviewer: { add: ["UACTOR"], remove: [] } }));
     const calls = mockSlack(t, { stored: [ownTask()] });
     await send("/slack/events", threadEvent(text), {}, environment);
@@ -5008,7 +5019,7 @@ test("AI blocks and unblocks only when the task's state and the message agree", 
   assert.equal(run({}, "unblocked", { blocked: "unblock" }), null);
   assert.equal(run({}, "are we blocked on design?", { blocked: "block" }), null);
   // Off when blocked suggestions are.
-  assert.equal(checkChanges(aiRead({ blocked: "block" }), { task: { status: "TODO", people }, message: { user: "UA", mentions: [], text: "blocked" }, allowed: { roles: [] } }), null);
+  assert.equal(checkChanges(aiRead({ blocked: "block" }), { task: fake<StoredTask>({ status: "TODO", people }), message: { user: "UA", mentions: [], text: "blocked" }, allowed: { roles: [] } }), null);
 });
 
 const where = { channel: "CDEV", ts: "100.1" };
@@ -5084,7 +5095,8 @@ test("changeTask leaves the status when the task moved on from where the suggest
 // ---- The acknowledgement engine: what is said about a change ----
 
 // A change as changeTask returns it, with `task` as it now is.
-const changed = ({ people = [], prs = null, status = null, priority = null, dueDate = null, told = {}, task = {} } = {}) => ({
+// A change as notify.ts reads it, with only what a test sets; the task is a stand-in, with what notify reads of it.
+const changed = ({ people = [], prs = null, status = null, priority = null, dueDate = null, told = {}, task = {} }: Partial<Omit<Change, "task">> & { task?: Partial<StoredTask> } = {}): Change => fake<Change>({
   user: "UACTOR",
   told,
   people,
@@ -5164,7 +5176,7 @@ test("moving to In review asks every reviewer once, those just added too, about 
   const none = changed({ status: { from: "IN_PROGRESS", to: "IN_REVIEW" }, task: { people: team([], ["UZOE"]) } });
   assert.deepEqual(changeRequests(none), ["<@UZOE>, could you review this?"]);
   // Pull requests all sent for approval leave nothing to review.
-  const sent = changed({ status: { from: "IN_PROGRESS", to: "IN_REVIEW" }, task: { prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }], people: team([], ["UZOE"]) } });
+  const sent = changed({ status: { from: "IN_PROGRESS", to: "IN_REVIEW" }, task: { prs: [PR], releases: fake<Release[]>([{ prs: [PR], status: "PENDING_APPROVAL" }]), people: team([], ["UZOE"]) } });
   assert.deepEqual(changeRequests(sent), []);
 });
 
@@ -5184,7 +5196,7 @@ test("no one is asked who made the change, was told already, or has nothing to d
   assert.deepEqual(changeRequests(changed({ people: people("tester", "UTOM"), task: { people: team([], [], ["UTOM"]) } })), []);
   assert.deepEqual(changeRequests(changed({ people: people("owner", "UBOB"), task: { status: "DONE", people: team(["UBOB"]) } })), []);
   // Pull requests all sent for approval are not for reviewers to review.
-  const sent = { status: "IN_REVIEW", people: team([], ["UMIA"]), prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }] };
+  const sent = fake<StoredTask>({ status: "IN_REVIEW", people: team([], ["UMIA"]), prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }] });
   assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: sent })), []);
 });
 
@@ -5261,25 +5273,25 @@ test("the Home tab's Refresh button draws it again", async (t) => {
 
 test("AI moves a task's status forward only, never back or sideways", async () => {
   const { checkChanges, laterStatuses } = await import("../src/ai.ts");
-  const message = { user: "UACTOR", mentions: [] };
-  const allowed = { roles: [], status: true, details: false };
-  const at = (status) => ({ status, priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } });
+  const message = fake<PlainMessage>({ user: "UACTOR", mentions: [] });
+  const allowed: Allowed = { roles: [], status: true, details: false };
+  const at = (status: Status) => fake<StoredTask>({ status, priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } });
   assert.deepEqual(laterStatuses("IN_REVIEW"), ["IN_TESTING", "CLIENT_REVIEW", "DONE"]);
   assert.deepEqual(laterStatuses("DONE"), []);
   // Forward, even by several steps, is offered.
   assert.deepEqual(checkChanges(aiRead({ status: "IN_TESTING" }), { task: at("IN_REVIEW"), message, allowed }), { status: "IN_TESTING" });
   assert.deepEqual(checkChanges(aiRead({ status: "DONE" }), { task: at("IN_PROGRESS"), message, allowed }), { status: "DONE" });
   // Back, or the same status, is not.
-  for (const [from, to] of [["IN_REVIEW", "IN_PROGRESS"], ["IN_TESTING", "TODO"], ["DONE", "IN_REVIEW"], ["IN_REVIEW", "IN_REVIEW"]]) {
+  for (const [from, to] of [["IN_REVIEW", "IN_PROGRESS"], ["IN_TESTING", "TODO"], ["DONE", "IN_REVIEW"], ["IN_REVIEW", "IN_REVIEW"]] as const) {
     assert.equal(checkChanges(aiRead({ status: to }), { task: at(from), message, allowed }), null, `${from} -> ${to}`);
   }
 });
 
 test("AI doesn't move a task's status for work done on only a part of it", async () => {
   const { checkChanges } = await import("../src/ai.ts");
-  const allowed = { roles: [], status: true, details: false };
-  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } };
-  const read = (text) => checkChanges(aiRead({ status: "IN_TESTING" }), { task, message: { user: "UACTOR", mentions: [], text }, allowed });
+  const allowed: Allowed = { roles: [], status: true, details: false };
+  const task = fake<StoredTask>({ status: "IN_PROGRESS", priority: "High", dueDate: "", people: { owner: [], reviewer: [], tester: [] } });
+  const read = (text: string) => checkChanges(aiRead({ status: "IN_TESTING" }), { task, message: { user: "UACTOR", mentions: [], text }, allowed });
   for (const text of ["the login part is done", "subtask 2 is in testing", "backend merged, frontend pending", "finished the first step", "half of it is ready for QA", "the API is done"]) {
     assert.equal(read(text), null, text);
   }
@@ -5298,7 +5310,7 @@ test("a task with subtasks gets no status suggestion for a part, but its pull re
     ["<@UTOM> please test it", withSubtasks(taskWith("IN_PROGRESS")), { tester: add("UTOM"), status: "IN_TESTING" }, { people: { tester: add("UTOM") } }],
     // Without the flag the same answer moves the status.
     ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), { status: "IN_TESTING" }, { status: "IN_TESTING" }],
-  ]) {
+  ] as const) {
     const { question } = await aiSuggestion(t, text, record, raw);
     assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
   }
@@ -5411,7 +5423,7 @@ test("a form whose metadata no longer fits says so in its window, and changes no
       view: { id: "V1", callback_id: "task:edit", private_metadata: JSON.stringify({ ts: "100.1" }), state: { values: {} } },
     }),
   );
-  const answer = await response.json();
+  const answer = await response.json<any>();
   assert.equal(answer.response_action, "update");
   assert.equal(answer.view.title.text, "Out of date");
   assert.match(answer.view.blocks[0].text.text, OUTDATED);
@@ -5432,7 +5444,7 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
     // The top of the file.
     [{ projects: [acme], timezone: 5 }, /timezone|isn't a time zone/],
     [{ projects: [acme], aiModel: 42 }, /aiModel is a Workers AI/],
-  ]) {
+  ] as const) {
     assert.throws(() => readConfig(JSON.stringify(config)), problem, JSON.stringify(config));
   }
   // What it does take is uploaded as it was.

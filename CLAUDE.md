@@ -5,8 +5,10 @@ people's own AI agents (`src/mcp.ts`). How it works, and where each part lives: 
 
 ## Before saying a change is done
 
-- Run `npm run check` (the type check, then the whole test suite, without Slack, in seconds). Both must pass. Say so
-  plainly if they don't, with the output.
+- Run `npm run check` (the type check of `src/` and of the tests, then the whole test suite, without Slack, in
+  seconds). Both must pass. Say so plainly if they don't, with the output.
+- Tests are type-checked too (`test/tsconfig.json`, a little looser than `src/`): a test passing a partial object
+  says so with `fake<T>()` from `test/helpers.ts`.
 - A change in behaviour comes with a test (`test/*.test.ts`) that would fail without it.
 - A change that shouldn't change behaviour (a refactor, types) is checked with `npm run bundle-diff`: the Worker's
   code must come out the same.

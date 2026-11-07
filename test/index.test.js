@@ -2338,7 +2338,7 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   assert.deepEqual(headers, ["Your tasks", ":hammer_and_wrench: To work on (2)", ":eyes: To review (1)", ":test_tube: To test (0)"]);
 });
 
-test("the Home tab links a task's notes page right under its title, when it has one", async (t) => {
+test("the Home tab's cards don't link the notes page, as the title opens the task", async (t) => {
   const task = (ts, title, notes) => ({
     channel: "CDEV",
     ts,
@@ -2351,8 +2351,8 @@ test("the Home tab links a task's notes page right under its title, when it has 
   const body = JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "app_home_opened", user: "UME", tab: "home" } });
   await send("/slack/events", body);
   const text = calls.find((call) => call.method === "views.publish").args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
-  assert.match(text, new RegExp(`\\|With notes>\\*\\nExtra notes <${NOTES_URL.replace(/[.?]/g, "\\$&")}\\|here>\\n`));
-  assert.doesNotMatch(text, /Without notes>\*\nExtra notes/);
+  assert.match(text, /\|With notes>/);
+  assert.doesNotMatch(text, /Extra notes/);
 });
 
 test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, and Refresh stays on the view", async (t) => {

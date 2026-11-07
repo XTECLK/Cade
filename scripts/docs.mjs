@@ -1,9 +1,9 @@
-// Writes the website's MCP pages from the tool definitions in src/mcp-tools.js, so the site and
+// Writes the website's MCP pages from the tool definitions in src/mcp-tools.ts, so the site and
 // the server can't disagree: docs/mcp.html (how to connect an agent, which the AI agent window in Cade links to, and every tool, its
-// arguments and its result). `npm run docs` writes it; test/docs.test.js checks it is up to date.
+// arguments and its result). `npm run docs` writes it; test/docs.test.ts checks it is up to date.
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { TOOL_DEFS } from "../src/mcp-tools.js";
+import { TOOL_DEFS } from "../src/mcp-tools.ts";
 
 const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const code = (text) => `<code>${escape(text)}</code>`;

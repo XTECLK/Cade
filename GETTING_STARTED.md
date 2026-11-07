@@ -33,7 +33,7 @@ someone to click in a browser.
 
 ## What you need
 
-- Node.js 20 or newer, and git. Nothing to `npm install` yourself: the deploy repo fetches and installs Cade.
+- Node.js 22.18 or newer, and git. Nothing to `npm install` yourself: the deploy repo fetches and installs Cade.
 - A Cloudflare account (the free plan is enough).
 - A Slack workspace where you can create apps.
 - A Google account, for each project's executive-summary Doc.

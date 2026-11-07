@@ -13,7 +13,7 @@ them. Both are free.
 - A **Cloudflare account** (the free plan is enough).
 - A **Slack workspace** just for development: create one at <https://slack.com/create>. Don't develop in your team's real
   workspace; the app you make will post and create channels there.
-- Node.js 20 or newer, and git.
+- Node.js 22.18 or newer (it runs TypeScript directly, which the tests and scripts rely on), and git.
 
 ### 2. Set it up with the guided script
 
@@ -21,7 +21,7 @@ them. Both are free.
 git clone https://github.com/XTECLK/Cade.git   # or your fork
 cd Cade
 npm install
-npm test            # the whole suite, in a few seconds, without Slack
+npm run check       # the type check, then the whole suite, in a few seconds, without Slack
 npm run setup       # Cloudflare login, the Worker, the Slack app, your first group
 ```
 
@@ -34,9 +34,28 @@ When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in
 ### 3. Change, deploy, try
 
 ```sh
-npm test            # after each change
+npm run check       # after each change: the type check and the tests
 npm run deploy      # puts your change on your Worker, and applies new migrations
 ```
+
+The code is TypeScript, with no build step of its own: wrangler bundles `src/` when it deploys, and Node runs
+the tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is what checks them, and `npm run check`
+runs it before the tests. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
+it), and imports name the `.ts` file. The shapes the modules share (a task, a release, a command, Slack's payloads,
+a handler) are in `src/types.ts`; D1's rows are in `src/db.ts`; the Worker's bindings and settings in `src/env.ts`.
+After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
+
+JSON that comes back in is checked against a JSON Schema at runtime (`src/validate.ts`, with
+`@cfworker/json-schema`, pinned to an exact version):
+
+- An MCP tool's arguments are checked against its `inputSchema` before it runs. An argument it doesn't list, a wrong
+  type or a value out of range is refused, saying which, so the agent can correct it. Add a tool's arguments to its
+  `inputSchema` in `src/mcp-tools.ts`: the schema the agent is shown is the one enforced.
+- What Cade puts in its own buttons and forms (a button's value, a `block_id`, a form's `private_metadata`) is read
+  with `readPayload` against its schema in `src/payloads.ts`. A message stays in Slack for good, so a button can come
+  back from a message an older Cade posted: one that no longer fits is answered with a private "out of date" note
+  instead of failing (see `handleInteraction` in `src/index.ts`). A schema asks only for what its reader uses, so older
+  messages that still work keep working. When you change what a button carries, change its schema with it.
 
 Then use it in Slack. A deploy takes a few seconds. Changes to the Slack app itself (commands, scopes, events) go in
 `slack/manifest.json`, and `npm run slack:update` applies them.
@@ -91,7 +110,7 @@ Slack sends three kinds of request to the Worker:
 
 | Path | Slack feature | Handles |
 | --- | --- | --- |
-| `/slack/events` | Event Subscriptions | Messages: `@Cade …` commands, and plain messages Cade reacts to; opening the Home tab draws the person's dashboard (`src/home.js`) |
+| `/slack/events` | Event Subscriptions | Messages: `@Cade …` commands, and plain messages Cade reacts to; opening the Home tab draws the person's dashboard (`src/home.ts`) |
 | `/slack/interactions` | Interactivity | Forms, buttons and menus |
 | `/slack/commands` | Slash Commands | `/cade …` |
 
@@ -108,8 +127,8 @@ straight away.
 ```mermaid
 flowchart LR
     Message["@Cade name … or /cade name …"]
-    Parse[parse.js: build a command]
-    Dispatch[dispatch.js: find handler, check scope]
+    Parse[parse.ts: build a command]
+    Dispatch[dispatch.ts: find handler, check scope]
     Handler[Command handler]
     Reply[Reply, reaction or form]
 
@@ -121,12 +140,12 @@ link, a hand-off such as "@rex please look into this", "okay, started
 working on this", or "LGTM". These are **intents**. A handler declares its
 intents next to its commands, each with the phrases (or a test) that signal
 it, what it needs (a thread, a mention), an `order`, and what to do;
-`src/intents.js` picks the first that matches. Today there are:
+`src/intents.ts` picks the first that matches. Today there are:
 
 | Order | Intent | In | Signals |
 | --- | --- | --- | --- |
-| 20 | `work` | `suggest.js` | pull request links (linked, with the people mentioned as reviewers), hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read with AI; pasted links by their text |
-| 50 | `new-thread` | `move.js` | a message posted on its own in a dev channel, not in a thread |
+| 20 | `work` | `suggest.ts` | pull request links (linked, with the people mentioned as reviewers), hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read with AI; pasted links by their text |
+| 50 | `new-thread` | `move.ts` | a message posted on its own in a dev channel, not in a thread |
 
 Each only asks the writer, privately, before changing anything, since a
 phrase can match a message that didn't mean it. Questions ("done?") and
@@ -135,22 +154,22 @@ hedged messages ("not done yet") don't count as progress.
 ### Where things are kept
 
 A tracked task's thread is kept in the `messages` table: each reply is stored
-by the event itself (`recordMessage` in `export.js`), and a new task's thread
+by the event itself (`recordMessage` in `export.ts`), and a new task's thread
 is read from Slack as it is made, so Slack's 90-day limit on the free plan
-doesn't lose it. The task's card links two pages of the Worker (`web.js`): its
+doesn't lose it. The task's card links two pages of the Worker (`web.ts`): its
 thread, `/t/<channel>/<ts>`, and its notes, `/n/<channel>/<ts>`, where the
 AI agent's summary and notes people type are kept (`task_notes`). Pages are
 for people who can read the channel and are signed in (Configure → Web pages on the Home tab signs out of every browser): the same window gives a
 link that works once and sets a 30-day cookie (`web_tokens`, hashes only). The
 links are built on `PUBLIC_URL`, or the address a request came by.
 
-Tasks are stored in D1, the `DB` binding (`db.js`, with the tables in
+Tasks are stored in D1, the `DB` binding (`db.ts`, with the tables in
 `migrations/`). A new one is stored before its root message is posted
-(`createTask` in `commands/track.js`), with `ts` empty until Slack takes the
+(`createTask` in `commands/track.ts`), with `ts` empty until Slack takes the
 post; if Slack refuses it, the cron in `wrangler.toml` posts it again every
-five minutes (`retry.js`, through `publishTask`), up to five tries in all.
+five minutes (`retry.ts`, through `publishTask`), up to five tries in all.
 Once posted, a row is found by its channel and `ts`. `loadTask` and
-`saveTask` in `tasks.js` read and write a task; `saveTask` stores the row
+`saveTask` in `tasks.ts` read and write a task; `saveTask` stores the row
 first, then renders it to the root message in the dev channel
 (`taskMessage`). Slack is only written to, never read back: the task lists are a query of
 open tasks. An incident is a task with `source_incident` set: always urgent
@@ -173,41 +192,41 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 
 | File | Role |
 | --- | --- |
-| `src/index.js` | Routes, signature check, posting replies and reactions |
-| `src/commands/parse.js` | Turns a message or slash command into a command |
-| `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
-| `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry` |
-| `src/db.js` | Reading and writing tasks in D1 |
-| `src/retry.js` | The cron's job: posting tasks Slack refused |
-| `src/tasks.js` | The task message: layout, saving, pins |
-| `src/channels.js` | `PROJECTS`: each group's dev channel |
-| `src/intents.js` | Recognising intents in plain messages |
-| `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
-| `src/google.js` | Calling the Google web app |
-| `src/format.js` | Times in `TIMEZONE`, and Slack users' names |
-| `src/export.js` | Keeping each tracked thread's messages in D1 (`messages`) |
-| `src/notes.js`, `src/links.js` | A task's notes page and the addresses of its pages |
-| `src/settings.js`, `src/commands/project.js` | the Add project button to add a project, the Project settings button in Configure (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
-| `src/web.js`, `src/access.js` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Configure → Web pages, and who may read a channel |
-| `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
+| `src/index.ts` | Routes, signature check, posting replies and reactions |
+| `src/commands/parse.ts` | Turns a message or slash command into a command |
+| `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
+| `src/commands/registry.ts` | The list of handlers, and the handler shape |
+| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry` |
+| `src/db.ts` | Reading and writing tasks in D1 |
+| `src/retry.ts` | The cron's job: posting tasks Slack refused |
+| `src/tasks.ts` | The task message: layout, saving, pins |
+| `src/channels.ts` | `PROJECTS`: each group's dev channel |
+| `src/intents.ts` | Recognising intents in plain messages |
+| `src/slack.ts` | Calling Slack, Block Kit helpers, acknowledgements |
+| `src/google.ts` | Calling the Google web app |
+| `src/format.ts` | Times in `TIMEZONE`, and Slack users' names |
+| `src/export.ts` | Keeping each tracked thread's messages in D1 (`messages`) |
+| `src/notes.ts`, `src/links.ts` | A task's notes page and the addresses of its pages |
+| `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, the Project settings button in Configure (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
+| `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Configure → Web pages, and who may read a channel |
+| `src/doc.ts` | Writing executive summaries to each group's Google Doc, and reading them back |
 | `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and `Secret.gs`, uncommitted, which only a new web app is pushed with |
 | `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
-| `test/index.test.js` | The tests, with `test/d1.js`, a stand-in database on Node's SQLite |
+| `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
 
 ### Adding a command
 
 Create a module in `src/commands/` and add it to the list in
-`src/commands/registry.js`, whose comment describes the handler shape. A
+`src/commands/registry.ts`, whose comment describes the handler shape. A
 handler declares its name, how it's used, its help section, and where it may
 run (which channels, and whether only in a thread); the dispatcher enforces
 these and answers with a hint when a command is used in the wrong place.
 Its buttons and forms are registered on the same handler, as `actions` (by
 action ID) and `views` (by form callback ID), and so are any `intents`:
 to recognise a new kind of message, add an `intent({ … })` to a handler's
-`intents` (the comment at the top of `src/intents.js` has the shape), or add
+`intents` (the comment at the top of `src/intents.ts` has the shape), or add
 words to an existing list such as `HANDOFFS`. If it needs a new Slack scope
 or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 
@@ -215,7 +234,7 @@ or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 
 Cade is also an [MCP](https://modelcontextprotocol.io) server at
 `/mcp`, so a person's own AI agent can summarize a thread into a task
-(`src/mcp.js`). Every request carries the person's API key in the `x-apikey`
+(`src/mcp.ts`). Every request carries the person's API key in the `x-apikey`
 header, never in the address. Configure → AI agent on the Home tab gives the person a key of
 their own, shown only to them with the endpoint and the commands to add it to
 their agent, and revoking it there ends it; only a hash is kept, in
@@ -227,7 +246,7 @@ thread straight from Slack, as it is, kept or not (a private channel's only for 
 task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
 has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
 first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; 
-`get_user(user_id)`, which gives a Slack user's name; (The website's tool list and `docs/mcp.html` are generated from `src/mcp-tools.js`: run `npm run docs` after changing a tool; a test fails when they are stale.) (`get_tasks`, `get_task`, `get_users` and `find_user_by_name` take `fields` to pick what is returned, GraphQL-style: `summary`, `notes` and the others are given only when asked for. Every tool has an `inputSchema` and an `outputSchema`; a result comes as text and as `structuredContent` matching the schema, so IDs chain into the next call.) `get_releases(status?, task_id?, project?, limit?)`, which lists the partial releases (PRs sent to the client for approval: waiting by default) with their task, PRs, note and who sent and decided them (approving is done in Slack by the approver, with no tool), and `update_release(release_id, prs?, note?)`, which adds PRs to or removes them from a release still waiting for approval (never approves or rejects it; it edits the approver's request, the card and tells the thread); `get_task` also gives a task's `prs`, each pending, pending approval or approved with the release it went with, and its `releases`, and `get_tasks` gives `prs` when asked for in `fields`; `update_task` links and unlinks PRs with `prs: { add, remove }` (one already sent to the client can't be unlinked); `get_channels(limit?)`, which lists the channels Cade is in that the person can read (project channels first); `get_channel_threads(channel_id, days?, with_replies?, limit?)`, which lists a channel's recent root messages from people that aren't tracked (Cade's own task cards and messages already moved into a task are left out), each with a `thread_id` for `get_thread_history` and `create_task`; `create_task(title, project?, priority?, due_date?, incident?, summary?, thread_id | link?)`, which makes a task or incident for the person, from a thread (its first message is moved into the task's thread, as the New task shortcut does) or from scratch, and saves the summary (the agent is told to suggest the fields, take the person's input, show the final version and get approval first; the `create_task_from_thread`, `create_task_from_scratch` and `browse_channels` flows do this, and `get_flow`/prompts take a `thread` link or ID); `get_projects()`, which lists the projects and their channels (get_tasks groups tasks by project and takes a `project` name to show only one); `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id, text)`, which posts a message in the task's thread as Cade, with a line saying "Sent by @person" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
+`get_user(user_id)`, which gives a Slack user's name; (The website's tool list and `docs/mcp.html` are generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool; a test fails when they are stale.) (`get_tasks`, `get_task`, `get_users` and `find_user_by_name` take `fields` to pick what is returned, GraphQL-style: `summary`, `notes` and the others are given only when asked for. Every tool has an `inputSchema` and an `outputSchema`; a result comes as text and as `structuredContent` matching the schema, so IDs chain into the next call.) `get_releases(status?, task_id?, project?, limit?)`, which lists the partial releases (PRs sent to the client for approval: waiting by default) with their task, PRs, note and who sent and decided them (approving is done in Slack by the approver, with no tool), and `update_release(release_id, prs?, note?)`, which adds PRs to or removes them from a release still waiting for approval (never approves or rejects it; it edits the approver's request, the card and tells the thread); `get_task` also gives a task's `prs`, each pending, pending approval or approved with the release it went with, and its `releases`, and `get_tasks` gives `prs` when asked for in `fields`; `update_task` links and unlinks PRs with `prs: { add, remove }` (one already sent to the client can't be unlinked); `get_channels(limit?)`, which lists the channels Cade is in that the person can read (project channels first); `get_channel_threads(channel_id, days?, with_replies?, limit?)`, which lists a channel's recent root messages from people that aren't tracked (Cade's own task cards and messages already moved into a task are left out), each with a `thread_id` for `get_thread_history` and `create_task`; `create_task(title, project?, priority?, due_date?, incident?, summary?, thread_id | link?)`, which makes a task or incident for the person, from a thread (its first message is moved into the task's thread, as the New task shortcut does) or from scratch, and saves the summary (the agent is told to suggest the fields, take the person's input, show the final version and get approval first; the `create_task_from_thread`, `create_task_from_scratch` and `browse_channels` flows do this, and `get_flow`/prompts take a `thread` link or ID); `get_projects()`, which lists the projects and their channels (get_tasks groups tasks by project and takes a `project` name to show only one); `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id, text)`, which posts a message in the task's thread as Cade, with a line saying "Sent by @person" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
 from the thread the task was made from; what was done and how it ended are in
 the task's own thread. The same flows are MCP prompts, which Claude Code lists as slash commands such
 as `/mcp__cade__summarize_task`, and the form after a task is made shows the
@@ -238,14 +257,14 @@ the person.
 After a task is made from a message, its form gives way to a
 second one with a short prompt to paste into the agent, naming the task by
 its ID, and a line pointing to the Home tab's AI agent button for an agent that isn't
-connected (in `src/commands/track.js`); `aiAgentSummary: false` on a project
+connected (in `src/commands/track.ts`); `aiAgentSummary: false` on a project
 turns that off. the AI agent window shows whether MCP is on, the endpoint, whether you have a key (never the key) and a link to the setup guide on the website (`docs/mcp.html`, made from the tool definitions), and the tools and flows; `/cade mcp init` replies with the MCP endpoint and the API key
 to add to the agent, once; to change the key, revoking it and then
 `init` again.
 
 ## Tests
 
-`npm test` runs `test/index.test.js` against the real Worker, with `fetch`
+`npm test` runs `test/index.test.ts` against the real Worker, with `fetch`
 replaced by a fake Slack API: `mockSlack` returns canned results and records
 every call, so tests check exactly what Cade would send. Like Slack, the
 fake rejects a message whose buttons share an action ID. Shared fixtures,

@@ -51,8 +51,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { projects } from "../src/channels.js";
-import { docId } from "../src/doc.js";
+import { projects } from "../src/channels.ts";
+import { docId } from "../src/doc.ts";
 import "./cloudflare.mjs";
 import { HOME, ROOT } from "./paths.mjs";
 

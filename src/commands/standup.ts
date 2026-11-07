@@ -1,0 +1,220 @@
+import { projects, findProject } from "../channels.ts";
+import { userNames } from "../format.ts";
+import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
+import { assigned, onTheirPlate, request } from "../notify.ts";
+import { STATUSES, loadTask, saveTask } from "../tasks.ts";
+import { setStatus, statusOption } from "./status.ts";
+import { OPEN, byUrgency, groupTasks, line } from "./tasks.ts";
+import type { Handler } from "../types.ts";
+import type { AppEnv } from "../env.ts";
+import type { TaskEntry } from "./tasks.ts";
+import type { SlackBlock, SlackPayload, Status } from "../types.ts";
+import { STANDUP_TASK, STANDUP_WALK, readPayload } from "../payloads.ts";
+
+// A walk through the tasks, as its buttons carry it: m, the mode ("people" or
+// "unassigned"); g, the project's name; l, who leads it; i, the step.
+type Walk = { m: "people" | "unassigned"; g: string; l: string; i: number };
+// A step: an owner's tasks, or tasks with no owner.
+type Step = { person?: string; name?: string; entries: TaskEntry[] };
+
+// Back and Next move to the step their value names. Slack wants each button
+// in a block to have its own action_id, so they have one each.
+const BACK_ACTION = "standup:back";
+const NEXT_ACTION = "standup:next";
+const END_ACTION = "standup:end";
+// A step shows up to MAX_SHOWN tasks, each with its own menu, and Slack wants
+// each menu's action_id to be different, so each place has its own.
+const MAX_SHOWN = 20;
+const STATUS_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:status:${i}`);
+const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assign:${i}`);
+
+// `/cade standup` in a group's tasks channel goes through the
+// group's open tasks with whoever runs it, one owner at a time: you
+// first, then everyone else by name, then the tasks with no owner. Each
+// owner's step lists their tasks, most urgent first, each with a status
+// menu that works as `@Cade status` does; the tasks with no owner each
+// have a menu to pick one, which assigns them as `@Cade assign` does.
+// Changes are posted in each task's thread, for the team to see.
+//
+// `/cade standup -unassigned` goes through just the tasks with no owner,
+// one at a time, to pick each one's owner.
+//
+// Only whoever runs it sees it, so they can share their screen. Each step is
+// read afresh from the database, so it shows changes made meanwhile. Its
+// state (which walk, whose it is, which step) travels in its buttons and
+// menus.
+export default {
+  name: "standup",
+  description:
+    "Go through the open tasks one owner at a time, only to you (`-unassigned` to give tasks an owner)",
+  slashUsage: "/cade standup",
+  section: "work",
+  slashChannel: "channel",
+  async slash(command, context) {
+    const option = command.text.trim();
+    const unassigned = /^(?:--?|[—–])unassigned$/i.test(option);
+    if (option && !unassigned) {
+      return `I don't know "${escapeSlack(option)}" as an option. Send \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no owner.`;
+    }
+    const group = findProject(context.env, command.channel);
+    const walk: Walk = { m: unassigned ? "unassigned" : "people", g: group!.name, l: command.user, i: 0 };
+    context.waitUntil((async () => respondLater(command.responseUrl, await render(context.env, walk)))());
+  },
+  actions: {
+    ...Object.fromEntries(
+      [BACK_ACTION, NEXT_ACTION].map((id) => [
+        id,
+        async (payload, context) => {
+          context.waitUntil(show(payload, context.env, readPayload<Walk>(STANDUP_WALK, payload.actions[0].value, "standup button")));
+        },
+      ]),
+    ),
+    [END_ACTION]: async (payload) => {
+      await respondLater(payload.response_url, { delete_original: true });
+    },
+    ...Object.fromEntries(
+      STATUS_ACTIONS.map((id) => [
+        id,
+        async (payload, context) => {
+          context.waitUntil(changeStatus(payload, context.env));
+        },
+      ]),
+    ),
+    ...Object.fromEntries(
+      ASSIGN_ACTIONS.map((id) => [
+        id,
+        async (payload, context) => {
+          context.waitUntil(assignOwner(payload, context.env));
+        },
+      ]),
+    ),
+  },
+} satisfies Handler;
+
+// Shows the walk's step `walk.i` in place of the message clicked.
+async function show(payload: SlackPayload, env: AppEnv, walk: Walk) {
+  await respondLater(payload.response_url, { replace_original: true, ...(await render(env, walk)) });
+}
+
+// A task's status menu: sets it, tells its thread, and shows the step again.
+async function changeStatus(payload: SlackPayload, env: AppEnv) {
+  const action = payload.actions[0];
+  const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup status menu");
+  const said = await setStatus(env, channel, ts, action.selected_option.value as Status, payload.user.id);
+  if (said) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: said });
+  await show(payload, env, walk);
+}
+
+// A task's owner menu: assigns them, tells the task's thread and asks
+// them to start, and shows the step again, where the task no longer is.
+async function assignOwner(payload: SlackPayload, env: AppEnv) {
+  const action = payload.actions[0];
+  const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup owner menu");
+  const owner = action.selected_user;
+  const task = await loadTask(env, channel, ts);
+  if (task && owner && !task.people.owner.includes(owner)) {
+    task.people.owner = [...task.people.owner, owner];
+    await saveTask(env, channel, ts, task);
+    const user = payload.user.id;
+    // Picking yourself needs no request, nor does a task past To do and In progress.
+    const asked = owner !== user && onTheirPlate(task, "owner") && request([owner], "owner");
+    const text = [assigned(user, [owner], "owner"), asked].filter(Boolean).join("\n");
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+  }
+  await show(payload, env, walk);
+}
+
+// The walk's steps, read afresh: for a standup, { person, name, entries } per
+// owner, whoever runs it first, then { entries } for the tasks with no
+// owner; for -unassigned, { entries } with one task each.
+async function steps(env: AppEnv, walk: Walk, url: string): Promise<Step[]> {
+  const group = projects(env).find((pair) => pair.name === walk.g);
+  const tasks = group ? await groupTasks(env, group, OPEN, url) : [];
+  const unassigned = tasks.filter((entry) => !entry.task.people.owner.length).sort(byUrgency);
+  if (walk.m === "unassigned") return unassigned.map((entry) => ({ entries: [entry] }));
+
+  const owners = [...new Set(tasks.flatMap((entry) => entry.task.people.owner))];
+  const names = Object.fromEntries(
+    await Promise.all(owners.map(async (id) => [id, await userNames(env, [id])])),
+  );
+  // Whoever runs it goes first.
+  const order = (id: string) => (id === walk.l ? 0 : 1);
+  owners.sort((a, b) => order(a) - order(b) || names[a].localeCompare(names[b]));
+  const people = owners.map((person) => ({
+    person,
+    name: names[person],
+    entries: tasks.filter((entry) => entry.task.people.owner.includes(person)).sort(byUrgency),
+  }));
+  return unassigned.length ? [...people, { entries: unassigned }] : people;
+}
+
+// The message for step `walk.i`: its heading, its tasks with their menus, and
+// Back, Next and End.
+async function render(env: AppEnv, walk: Walk) {
+  // Links are built from the workspace's address.
+  const { url } = await callSlack(env, "auth.test", {});
+  const all = await steps(env, walk, url);
+  if (walk.i >= all.length) {
+    const text = walk.m === "unassigned"
+      ? `Every open ${walk.g} task has an owner. Nice!`
+      : all.length ? "That's everyone. Thanks, all!" : `No one has open ${walk.g} tasks right now.`;
+    return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
+  }
+
+  const step = all[walk.i];
+  const of = `${walk.i + 1} of ${all.length}`;
+  let title;
+  if (step.person) title = `*Standup: <@${step.person}>*  ·  ${of}`;
+  else if (walk.m === "people") title = `*Standup: no owner yet*  ·  ${of}`;
+  else title = `*Unassigned ${walk.g} tasks*  ·  ${of}`;
+  const count = step.entries.length === 1 ? "1 open task" : `${step.entries.length} open tasks`;
+  const blocks: SlackBlock[] = [
+    { type: "section", text: mrkdwn(title) },
+    { type: "context", elements: [mrkdwn(`${count}  ·  ${walk.g}`)] },
+  ];
+
+  step.entries.slice(0, MAX_SHOWN).forEach((entry, place) => {
+    const block_id = JSON.stringify({ ...walk, c: entry.channel, t: entry.ts });
+    const accessory = step.person
+      ? {
+          type: "static_select",
+          action_id: STATUS_ACTIONS[place],
+          options: (Object.keys(STATUSES) as Status[]).map(statusOption),
+          initial_option: statusOption(entry.task.status),
+        }
+      : {
+          type: "users_select",
+          action_id: ASSIGN_ACTIONS[place],
+          placeholder: plainText("Pick an owner"),
+        };
+    blocks.push({ type: "section", block_id, text: mrkdwn(line(entry)), accessory });
+  });
+  if (step.entries.length > MAX_SHOWN) {
+    const more = step.entries.length - MAX_SHOWN;
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${more} more, after these._`)] });
+  }
+
+  const go = (action_id: string, i: number, text: string, style?: string) => ({
+    type: "button",
+    action_id,
+    text: plainText(text),
+    value: JSON.stringify({ ...walk, i }),
+    ...(style && { style }),
+  });
+  const buttons: SlackBlock[] = [];
+  if (walk.i > 0) buttons.push(go(BACK_ACTION, walk.i - 1, "◀ Back"));
+  const next = all[walk.i + 1] as Step | undefined;
+  if (next) {
+    const label = walk.m === "unassigned" ? "Skip" : `Next: ${next.name ?? "No owner"}`;
+    buttons.push(go(NEXT_ACTION, walk.i + 1, `${label} ▶`.slice(0, 75), "primary"));
+  }
+  buttons.push({
+    type: "button",
+    action_id: END_ACTION,
+    text: plainText(next ? "End" : "Finish"),
+    value: "end",
+    ...(!next && { style: "primary" }),
+  });
+  blocks.push({ type: "actions", elements: buttons });
+  return { text: `Standup: ${of}`, blocks };
+}

@@ -1,5 +1,5 @@
 name = "cade"
-main = "src/index.js"
+main = "src/index.ts"
 compatibility_date = "2026-10-13"
 
 [triggers]

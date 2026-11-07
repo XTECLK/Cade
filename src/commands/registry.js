@@ -48,7 +48,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, project, standup];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, standup];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>
@@ -58,7 +58,7 @@ export const commands = Object.fromEntries(
 
 // The Home tab's Refresh button, the task card's menu, its Edit form, and suggestions from people's own words only answer
 // clicks and messages, so they aren't commands.
-const interactive = [...handlers, home, configure, menu, edit, suggest, aiSuggest];
+const interactive = [...handlers, home, configure, project, menu, edit, suggest, aiSuggest];
 
 export const views = Object.assign(
   {},

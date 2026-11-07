@@ -2,7 +2,7 @@ import { aiModel } from "./ai.js";
 import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.js";
 import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.js";
 
-// The project settings that can be changed in the form `/cade project settings` opens (see commands/project.js), each on or off.
+// The project settings that can be changed in the form the Project settings button in Configure opens (see commands/project.js), each on or off.
 // A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS = [
@@ -14,7 +14,7 @@ export const SETTINGS = [
 ];
 
 // What else a project keeps in the database besides those: its work doc, which isn't changed in the
-// form (`/cade project init` makes it).
+// form (the Add project button makes it).
 const STORED = [...SETTINGS.map((setting) => setting.key), "workDoc", "members"];
 
 // The people who work on a project, as Slack user IDs: picked in the settings form, or listed as `members` in
@@ -36,7 +36,7 @@ export async function applyMembers(env, channel, members, user) {
   return true;
 }
 
-// The env with the projects added with `/cade project init` and the settings changed on the admin
+// The env with the projects added with the Add project button and the settings changed on the admin
 // page merged into its projects, so the code that reads them (projects, groupSetting, …) needs no
 // change. `PROJECTS_BASE` keeps what the config said. If they can't be read, the config alone is used.
 export async function withSettings(env) {
@@ -58,7 +58,7 @@ export async function withSettings(env) {
 }
 
 // Whether `user` is one of the admins cade.config.json lists (`admins`, the Worker secret ADMINS),
-// who can run `/cade project …` and open the settings form. Without a list, no one is.
+// who can add projects and open the settings form. Without a list, no one is.
 export function isAdmin(env, user) {
   try {
     const admins = typeof env.ADMINS === "string" ? JSON.parse(env.ADMINS) : env.ADMINS;

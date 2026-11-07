@@ -37,7 +37,7 @@ export function workDocId(group) {
   return docId(group?.workDoc);
 }
 
-// Makes a project's work doc when the project is added (`/cade project init`), if it has none and
+// Makes a project's work doc when the project is added (the Add project button), if it has none and
 // Google is set up: a new doc called "<name> executive summaries" (viewable by link, editable by the
 // account that owns the web app), kept in the database as the project's `workDoc`. Nothing else
 // makes one. Returns "" when there is no doc and Google isn't set up; throws if it can't be made.

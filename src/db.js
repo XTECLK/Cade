@@ -726,7 +726,7 @@ export async function clearProjectSetting(env, channel, key) {
   await env.DB.prepare("DELETE FROM project_settings WHERE channel = ? AND key = ?").bind(channel, key).run();
 }
 
-// The projects added with `/cade project init`, as { channel, name }.
+// The projects added with the Add project button, as { channel, name }.
 export async function addedProjects(env) {
   const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY rowid").all();
   return results;

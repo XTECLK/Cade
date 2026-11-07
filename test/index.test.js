@@ -2328,6 +2328,35 @@ test("the Home tab's project picker keeps the person's project for next time", a
   assert.equal(await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UME").first().then((row) => row.home_project), null);
 });
 
+test("Configure on the Home tab has the web pages, the AI agent (unless MCP is off) and, for an admin, the project settings", async (t) => {
+  const stored = [{ channel: "CDEV", ts: "1.1", task: { ...storedTask().task, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } } }];
+  const configure = async (user, environment = env) => {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, view: { private_metadata: "mine" }, actions: [{ action_id: "home:section:configure" }] }), {}, environment);
+    const view = calls.find((call) => call.method === "views.publish").args.view;
+    assert.equal(view.private_metadata, "configure");
+    assert.deepEqual(duplicateActionIds(view.blocks), []);
+    const buttons = view.blocks.flatMap((block) => [...(block.elements ?? []), ...(block.accessory ? [block.accessory] : [])]).filter((element) => element.type === "button");
+    return { names: buttons.map((button) => button.text.text), settings: buttons.find((button) => button.action_id === "home:settings"), text: view.blocks.map((block) => blockText(block) ?? "").join("\n") };
+  };
+  const admin = { ...env, ADMINS: JSON.stringify(["UME"]) };
+  // Everyone: the two parts, then the setup. The task tabs are not there.
+  const member = await configure("UME");
+  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Web pages", "AI agent"]);
+  assert.match(member.text, /Configure/);
+  // An admin also has the project settings, for the project shown.
+  const asAdmin = await configure("UME", admin);
+  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Web pages", "AI agent", "Project settings"]);
+  assert.equal(asAdmin.settings.value, "CDEV");
+  // MCP off: no AI agent.
+  const off = await configure("UME", { ...env, MCP: "off" });
+  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Web pages"]);
+  // Home comes back to the tasks, on the tab last used.
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:section:home" }] }));
+  assert.equal(calls.find((call) => call.method === "views.publish").args.view.private_metadata, "mine");
+});
+
 test("npm run config sets MCP on or off from mcp", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = [{ name: "acme", channel: "C0000000002" }];

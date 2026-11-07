@@ -44,7 +44,6 @@
       <li><a href="#details">Priority &amp; due date</a></li>
       <li><a href="#tidy">Move &amp; archive</a></li>
       <li><a href="#work">Your work</a></li>
-      <li><a href="#admin">Admin commands</a></li>
       <li><a href="#owners">Who owns what</a></li>
     </ul>
     <p class="empty" id="empty">No commands match that. Try a shorter word.</p>
@@ -69,7 +68,7 @@
       <article class="entry">
         <h3><code>/cade incident</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and their cards say <b>Incident</b>, so they stand out among the channel's tasks. They're listed first in <code>/cade tasks</code>, summaries and briefs.</p>
+        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and their cards say <b>Incident</b>, so they stand out among the channel's tasks. They're listed first in the Home tab's lists, summaries and briefs.</p>
         <div class="example"><b>Example:</b> “Card payments failing at checkout for EU customers”.</div>
       </article>
 
@@ -222,27 +221,15 @@
       </article>
 
       <article class="entry">
-        <h3><code>/cade mcp init</code> <code>/cade mcp status</code> <code>/cade mcp revoke</code></h3>
-        <div class="tags"><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
-        <p>Connects your own AI agent (Claude Code, Gemini CLI, Cursor, Codex, …) to Cade, so it can read your tasks and threads, change a task and post in its thread, with the model you already pay for. <code>init</code> gives you Cade's MCP endpoint and your API key, shown only to you and only once, each in a block you can copy, and a link to the guide for adding them to your agent; the agent sends the key in an <code>x-apikey</code> header with every request. It makes no new key while you have one, so to change it send <code>revoke</code>, then <code>init</code> again. <code>status</code> shows whether MCP is configured (on) for this Cade, whether you have a key (never the key itself), the endpoint and a link to the guide on the website (the MCP reference), which has the commands for each agent and lists every tool and flow. (<code>info</code> still works.) Tools read tasks, threads and people, and change a task's status, priority, due date, people and summary, or post a message in its thread, always after you approve what the agent proposes. Everything runs as you, so it can read only what you can read, and a message it posts says "Sent by" you. After you make a task from a message, Cade offers a short prompt to paste into your agent; a project can turn that off with <code>aiAgentSummary</code>, and <code>mcp: false</code> in <code>cade.config.json</code> turns all of MCP off.</p>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade project init</code> <code>/cade project settings</code> <code>/cade project</code></h3>
-        <div class="tags"><span class="where">Admin</span><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
-        <p><code>init</code>, sent in a channel, makes it a project, named after the channel or by <code>/cade project init &lt;name&gt;</code>, so its tasks are tracked there like a project in <code>cade.config.json</code>, and, if Google is set up, a Google Doc for its executive summaries is made for it. In a channel that is a project already it only warns. Its name and channel can't be changed afterwards. <code>settings</code> opens a form in Slack, with a list to pick the project, where its switches (task change detection, new task detection, active tasks pinning, summary canvas, AI agent summary) can be turned on or off over the config, or set back to it, without editing the file. <code>/cade project</code> tells whether the channel is a project. Only the people listed under <code>admins</code> in <code>cade.config.json</code> can use them.</p>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade web login</code> <code>/cade web logout</code></h3>
-        <div class="tags"><span class="where">Anywhere</span><span class="where">Only you see it</span></div>
-        <p><code>login</code> gives a private link that signs you in to Cade's web pages (a task's thread and notes): it works once, for ten minutes, and keeps you signed in on that browser for thirty days. <code>logout</code> signs you out in every browser and cancels any sign-in link you hadn't used.</p>
+        <h3>Configure, on the Home tab</h3>
+        <div class="tags"><span class="where">Cade's app page</span><span class="where">Only you see it</span></div>
+        <p>The <b>Configure</b> button on Cade's Home tab holds your own setup. <b>Web pages</b> gives a private link that signs you in to Cade's web pages (a task's thread and notes): it works once, for ten minutes, and keeps you signed in on that browser for thirty days, and signs you out of every browser when you want. <b>AI agent</b> connects your own AI agent (Claude Code, Gemini CLI, Cursor, Codex, …) to Cade, so it can read your tasks and threads, change a task and post in its thread, with the model you already pay for: it shows whether MCP is on, the endpoint and your key status, makes your API key (shown once, in a window that goes when you close it, to send in an <code>x-apikey</code> header) and revokes it. Everything runs as you, so it reads only what you can read, and its messages say "Sent by" you. After you make a task from a message, Cade offers a short prompt to paste into your agent; a project can turn that off with <code>aiAgentSummary</code>, and <code>mcp: false</code> in <code>cade.config.json</code> turns all of MCP off. Admins also see <b>Project settings</b> there.</p>
       </article>
 
       <article class="entry">
         <h3>The Home tab</h3>
         <div class="tags"><span class="where">Cade's app page</span><span class="where">Only you see it</span></div>
-        <p>Open Cade under Apps in Slack and its <b>Home</b> tab shows your open tasks, redrawn each time you open it or press <b>Refresh</b>. <b>My Tasks</b> groups yours by what you do on each: to work on, to review and to test, with the ones waiting on you first and an overdue count. <b>Unassigned</b> lists tasks with no one on them, each with <b>Assign to me</b>. <b>All Tasks</b> lists every open task, most urgent first. A project picker narrows it to one group, and Cade remembers your choice and tab. Closed and older tasks are in the group's Google Sheet, linked from the lists. Needs the app updated with <code>npm run slack:update</code>.</p>
+        <p>Open Cade under Apps in Slack and its <b>Home</b> tab shows your open tasks, redrawn each time you open it or press <b>Refresh</b>. <b>My Tasks</b> groups yours by what you do on each: to work on, to review and to test, with the ones waiting on you first and an overdue count. <b>Unassigned</b> lists tasks with no one on them, each with <b>Assign to me</b>. <b>All Tasks</b> lists every open task, most urgent first. The project picker at the top shows one project at a time (the first one until you pick), and Cade remembers your project and tab. The <b>Home</b> and <b>Configure</b> buttons switch between your tasks and your setup. Needs the app updated with <code>npm run slack:update</code>.</p>
       </article>
 
       <article class="entry">
@@ -261,42 +248,6 @@
   </div>
 </section>
 
-
-<section id="admin">
-  <div class="wrap">
-    <div class="eyebrow">Admin commands</div>
-    <h2>For tidying up</h2>
-    <p class="lede">Rarely needed, from anywhere, with Copy link on the message. Only you see the answer.</p>
-    <div class="entries">
-
-      <article class="entry">
-        <h3><code>/cade remove &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
-        <p>Deletes what the link points at, asking first, with a prominent <b>Cancel</b> and a plain <b>Delete</b> that asks again. A task's link deletes its card and Cade's replies in its thread, archived tasks too; a reply's link deletes the reply; any other message's link deletes Cade's replies in its thread, and the message too if Cade posted it. Slack only lets Cade remove its own messages, so people's replies stay under Slack's “This message was deleted”.</p>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade replace &lt;link&gt; "New wording"</code></h3>
-        <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
-        <p>Changes what one of Cade's messages says, such as a reply in a task's thread, in quotes or not. Slack formatting, mentions and links work as in any message, and an edited message notifies no one. A task's card is drawn from the task, so change it with its ⋯ → <b>Edit</b> instead.</p>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade retry &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Admin</span><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
-        <p>Runs the suggestions again for a message in a task's thread, with the link from Copy link on it, as if it had just been posted: for one Cade missed, or whose private question was dismissed. Whoever wrote the message is asked again, privately, if there is anything to suggest. Nothing changes until they answer.</p>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade resync &lt;link&gt;</code> <code>/cade resync summary</code></h3>
-        <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Dev channel</span><span class="where">Only you see it</span></div>
-        <p>With a task's link (several work too), redraws its card from what Cade has stored, quietly. It also gives the task its notes page and its history page, if it has none: the card links them as <i>Extra notes here</i> and <i>Full history here</i>. New tasks get theirs as they are created. The thread is read from Slack again and any message Cade hasn't kept is stored (Slack's free plan hides messages after 90 days, so run it while they are still there); from then on every reply is kept as it is sent. Both pages open for people who can read the channel and have signed in with <code>/cade web login</code>.</p>
-        <p><code>/cade resync summary</code> in a dev channel rewrites its summary canvas in full, as for one someone edited.</p>
-      </article>
-
-    </div>
-  </div>
-</section>
 
 <section id="owners" class="alt">
   <div class="wrap">

@@ -43,6 +43,7 @@ export const HOME_ACTION = "home:section:home";
 export const CONFIGURE_ACTION = "home:section:configure";
 export const CONFIGURE = "configure";
 export const SETTINGS_ACTION = "home:settings";
+export const ADD_PROJECT_ACTION = "home:project:add";
 
 // The buttons along the top, each a view of the open tasks. Slack has no
 // tabs in the Home tab, so a button draws the tab again with its view.
@@ -77,12 +78,13 @@ async function draw(env, user, tab) {
   // The person's last project, unless it is gone from the settings: then the first.
   const chosen = await getHomeProject(env, user);
   const project = all.find((group) => group.name === chosen) ?? all[0];
-  // The project picker and Refresh share a row, then the two parts of the tab, then (for tasks) the tabs.
+  // The project picker, Add project (for an admin) and Refresh share a row, then the two parts of the tab, then (for tasks) the tabs.
   const top = [
     {
       type: "actions",
       elements: [
         ...(project ? [projectPicker(all, project)] : []),
+        ...(isAdmin(env, user) ? [{ type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") }] : []),
         { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
       ],
     },
@@ -95,7 +97,7 @@ async function draw(env, user, tab) {
     },
   ];
   if (!project) {
-    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_There are no projects yet. An admin makes a channel one with `/cade project init`._")] }] };
+    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_There are no projects yet. An admin adds one with the Add project button._")] }] };
   }
   if (tab === CONFIGURE) return configureView(env, user, top, project);
   const open = await groupTasks(env, project, OPEN, url);

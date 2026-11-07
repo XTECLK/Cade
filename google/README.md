@@ -18,7 +18,7 @@ npm run group -- --name acme --workDoc new
 
 `new` has the web app make the file (yours, named "acme executive
 summaries"); `none` unlinks. It's saved on the group in `cade.config.json` as
-`workDoc`, and uploaded. A project added with `/cade project init` gets its Doc made for it (kept in
+`workDoc`, and uploaded. A project added with the Add project button gets its Doc made for it (kept in
 Cade's database, not in the file); nothing else makes one. A project without a Doc
 can't use `create_executive_summary` or `get_executive_summary_doc`, which say so. Without the Google web app,
 none is made and they say it isn't set up. Share the doc as **Editor**

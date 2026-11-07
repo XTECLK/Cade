@@ -227,9 +227,9 @@ export async function askPeople(slack, question) {
   return chooseMany(`${question} Type to search, Tab to tick, Enter when done`, options);
 }
 
-// Who the admins are (those who can run `/cade project init` and `/cade project settings`).
+// Who the admins are (those who can run Add project and Project settings (Configure on the Home tab)).
 export async function askAdmins(slack) {
-  return (await askPeople(slack, "Who should be admins (can run /cade project init and /cade project settings)?")) ?? [];
+  return (await askPeople(slack, "Who should be admins (can run Add project and Project settings)?")) ?? [];
 }
 
 // What to do for one of the group's channels, asked: an existing channel,

@@ -1,4 +1,4 @@
--- Projects added with `/cade project init`, besides those in cade.config.json (see
+-- Projects added with the Add project button, besides those in cade.config.json (see
 -- src/settings.js): the project's name and channel, which stay as they were set.
 CREATE TABLE projects (
   channel TEXT PRIMARY KEY,
@@ -7,7 +7,7 @@ CREATE TABLE projects (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- A project's settings changed in the form `/cade project settings` opens (see src/commands/project.js), over what
+-- A project's settings changed in the form the Project settings button opens (see src/commands/project.js), over what
 -- cade.config.json says. One row for each setting changed; the row is removed to go
 -- back to the config. `value` is JSON (true or false).
 CREATE TABLE project_settings (

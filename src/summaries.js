@@ -36,7 +36,7 @@ export function docProblem(env, project) {
     return "Executive summaries are kept in a Google Doc, and the Google web app isn't set up yet: run npm run google:create (see GETTING_STARTED.md).";
   }
   if (!workDocId(project)) {
-    return `${project.name} has no Google Doc yet. Every project has one, made when it's added with /cade project init.`;
+    return `${project.name} has no Google Doc yet. Every project has one, made when it's added from the Home tab.`;
   }
   return undefined;
 }

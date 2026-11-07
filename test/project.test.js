@@ -14,10 +14,10 @@ const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   PROJECTS: [{ name: "acme", channel: "CDEV", summaryCanvas: true }],
-  // Every project has a Google Doc, which /cade project init has the web app make.
+  // Every project has a Google Doc, which the Add project button has the web app make.
   GOOGLE_URL: "https://script.google.com/macros/s/test/exec",
   GOOGLE_SECRET: "g",
-  // Only these can run /cade project and open the settings form.
+  // Only these can add projects and open the settings form.
   ADMINS: JSON.stringify(["UADMIN"]),
 };
 const ORIGIN = "https://worker.example.net";
@@ -71,45 +71,112 @@ async function session(user) {
 const notes = (cookie) => worker.fetch(new Request(`${ORIGIN}/n/CDEV/1.1`, { headers: { cookie } }), env, { waitUntil() {} });
 
 // An interaction as Slack sends it: a button or a form submitted.
-async function interact(payload) {
+async function interact(payload, environment = env) {
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
   const waits = [];
-  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), env, { waitUntil: (promise) => waits.push(promise) });
+  const response = await worker.fetch(new Request(`${ORIGIN}/slack/interactions`, { method: "POST", headers: await sign(body), body }), environment, { waitUntil: (promise) => waits.push(promise) });
   await Promise.all(waits);
   return response.text();
 }
 
-test("/cade project init makes the channel a project, named after it, for a workspace admin", async (t) => {
-  mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } });
-  const reply = await slash("init");
-  assert.match(reply, /<#CNEW> is now the project \*payments\*/);
+// The Add project form (see commands/project.js), submitted as `user`: what its fields hold.
+const addForm = ({ channel = "CNEW", name = "", members = [], choices = {} } = {}, user = "UADMIN") => ({
+  type: "view_submission",
+  user: { id: user },
+  view: {
+    id: "VADD",
+    callback_id: "project:add",
+    state: {
+      values: {
+        channel: { value: { selected_conversation: channel } },
+        name: { value: { value: name } },
+        members: { value: { selected_users: members } },
+        ...Object.fromEntries(Object.entries(choices).map(([key, value]) => [`s_${key}`, { value: { selected_option: { value } } }])),
+      },
+    },
+  },
+});
+const textOf = (view) => view.blocks.map((block) => block.text?.text ?? "").join("\n");
+// What the form said last: Cade turns it into "Adding…" and then into how it went.
+const lastNotice = (calls) => textOf(JSON.parse(calls.findLast((call) => call.method === "views.update" && call.args.view_id === "VADD").args.view));
+const answer = async (payload, environment) => JSON.parse((await interact(payload, environment)) || "{}");
+const ADDING = { "views.update": {}, "views.publish": {}, "auth.test": { url: "https://acme.slack.com/" } };
+
+test("Add project makes the channel a project, named after it, tells the admin, and shows it on the Home tab", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING });
+  const reply = await answer(addForm());
+  // The form turns into a message that it is working, and then says how it went.
+  assert.equal(reply.response_action, "update");
+  assert.match(textOf(reply.view), /Adding \*payments\*/);
+  assert.match(lastNotice(calls), /<#CNEW> is now the project \*payments\*/);
   // The Worker reads it as a project from then on (see withSettings in settings.js).
   const { withSettings } = await import("../src/settings.js");
   assert.deepEqual(projects(await withSettings(env)).map((project) => [project.name, project.channel]), [["acme", "CDEV"], ["payments", "CNEW"]]);
-  // Again in the same channel, or in a project of the config, only warns.
-  assert.match(await slash("init"), /already the project \*payments\*, so there is nothing to add/);
-  assert.match(await slash("init", { channel: "CDEV" }), /already the project \*acme\*/);
-  assert.match(await slash("", { channel: "CNEW" }), /This channel is the project \*payments\*/);
-  assert.match(await slash("", { channel: "COTHER" }), /isn't a project yet/);
+  // It is the project the Home tab shows, drawn again for the admin.
+  assert.equal((await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UADMIN").first()).home_project, "payments");
+  assert.ok(calls.some((call) => call.method === "views.publish" && call.args.user_id === "UADMIN"));
+  // The same channel again is refused on its field.
+  assert.deepEqual((await answer(addForm())).errors, { channel: "This channel is the project payments already." });
+  assert.deepEqual((await answer(addForm({ channel: "CDEV" }))).errors, { channel: "This channel is the project acme already." });
 });
 
-test("/cade project init takes a name, and refuses a non-admin, a taken name, a bad name and a direct message", async (t) => {
+test("Add project keeps the people and the switches picked in the form", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING });
+  await answer(addForm({ members: ["UANN", "UBOB"], choices: { summaryCanvas: "on", newTaskDetection: "off", activeTasksPinning: "config" } }));
+  assert.match(lastNotice(calls), /is now the project/);
+  const { withSettings } = await import("../src/settings.js");
+  const added = projects(await withSettings(env)).find((project) => project.channel === "CNEW");
+  assert.deepEqual(added.members, ["UANN", "UBOB"]);
+  assert.equal(added.summaryCanvas, true);
+  assert.equal(added.newTaskDetection, false);
+  assert.equal("activeTasksPinning" in added, false);
+});
+
+test("Add project refuses a non-admin, a taken or bad name and a private channel Cade isn't in, each on its field; a public one is joined", async (t) => {
   const calls = mock(t, {
-    "conversations.info": (args) => ({ channel: args.channel === "CDM" ? { is_im: true } : args.channel === "CPRIV" ? { name: "secret", is_private: true, is_member: false } : { name: "general", is_member: false } }),
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true, is_member: false } : { name: "general", is_member: false } }),
     "conversations.join": {},
+    ...ADDING,
   });
-  assert.match(await slash("init", { user: "UMEMBER" }), /Only an admin can use `\/cade project`/);
-  assert.match(await slash("init Acme"), /project called \*Acme\* already/);
-  assert.match(await slash("init $$$"), /up to 40 letters/);
-  assert.match(await slash("init", { channel: "CDM" }), /not a direct message/);
-  assert.match(await slash("init", { channel: "CPRIV" }), /invite me with `\/invite @Cade`/i);
+  assert.deepEqual(await answer(addForm({}, "UMEMBER")), { response_action: "clear" });
+  assert.equal(calls.some((call) => call.method === "conversations.info"), false);
+  assert.match((await answer(addForm({ name: "Acme" }))).errors.name, /project called Acme already/);
+  assert.match((await answer(addForm({ name: "$$$" }))).errors.name, /up to 40 letters/);
+  assert.match((await answer(addForm({ channel: "CPRIV" }))).errors.channel, /invite me with \/invite @Cade/i);
+  assert.equal(calls.some((call) => call.method === "google:doc.create"), false);
   // A public channel Cade isn't in yet is joined.
-  assert.match(await slash("init Billing team"), /now the project \*Billing team\*/);
+  await answer(addForm({ name: "Billing team" }));
   assert.ok(calls.some((call) => call.method === "conversations.join" && call.args.channel === "CNEW"));
-  assert.match(await slash("nope"), /Send `\/cade project init`/);
-  assert.match(await slash("init", { user: "UMEMBER" }), /Only an admin can use `\/cade project`/);
-  // `settings` isn't a command any more: they are in Configure on the Home tab.
-  assert.match(await slash("settings"), /Send `\/cade project init`/);
+  assert.match(lastNotice(calls), /now the project \*Billing team\*/);
+});
+
+test("Add project makes the project's Google Doc first, and keeps it with the project", async (t) => {
+  const docId = "1PaymentsDocPaymentsDocPayments";
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING }, () => ({ ok: true, id: docId }));
+  await answer(addForm());
+  assert.match(lastNotice(calls), new RegExp(`https://docs\\.google\\.com/document/d/${docId}/edit\\|a Google Doc`));
+  assert.deepEqual(calls.filter((call) => call.method.startsWith("google:")).map((call) => [call.method, call.args.title]), [["google:doc.create", "payments executive summaries"]]);
+  const { withSettings } = await import("../src/settings.js");
+  assert.equal(projects(await withSettings(env)).find((p) => p.channel === "CNEW").workDoc, docId);
+});
+
+test("Add project needs Google set up, and adds nothing, saying why, when the doc can't be made", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING }, () => ({ ok: false, error: "quota" }));
+  const { withSettings } = await import("../src/settings.js");
+  // The doc can't be made: the project isn't added, and the admin is told in the form.
+  await answer(addForm());
+  assert.match(lastNotice(calls), /:x: I couldn't add \*payments\*: I couldn't make the project's Google Doc just now \(Google web app refused doc\.create: quota\)\. Nothing was added/);
+  assert.deepEqual(projects(await withSettings(env)).map((p) => p.name), ["acme"]);
+  // If the form was closed before then, the admin is told in a message from Cade instead.
+  const closed = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING, "views.update": new Error("not_found"), "chat.postMessage": {} }, () => ({ ok: false, error: "quota" }));
+  await answer(addForm());
+  const message = closed.find((call) => call.method === "chat.postMessage");
+  assert.match(message.args.text, /couldn't add \*payments\*/);
+  assert.equal(message.args.channel, "UADMIN");
+  // Without Google, it does not work, and nothing else is asked of Slack.
+  const bare = mock(t);
+  assert.match((await answer(addForm(), { ...env, GOOGLE_URL: undefined })).errors.channel, /Google web app isn't set up yet: run `npm run google:create`/);
+  assert.equal(bare.length, 0);
 });
 
 // The Project settings button in Configure on the Home tab (see home.js), pressed as `user`.
@@ -208,12 +275,12 @@ test("the project's people are picked in the form and kept, and emptying the lis
   assert.deepEqual(await members(), []);
 });
 
-test("picking another project in the form shows its settings, and a project added with /cade project init is one", async (t) => {
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, "views.update": {} });
-  await slash("init");
+test("picking another project in the form shows its settings, and a project added from the Home tab is one", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, "views.update": {}, "views.publish": {}, "auth.test": { url: "https://acme.slack.com/" } });
+  await interact(addForm());
   const pick = { type: "block_actions", user: { id: "UADMIN" }, view: { id: "V1", hash: "H1" }, actions: [{ action_id: "project:pick", selected_option: { value: "CNEW" } }] };
   await interact(pick);
-  const update = calls.find((call) => call.method === "views.update");
+  const update = calls.find((call) => call.method === "views.update" && call.args.view_id === "V1");
   assert.equal(update.args.view_id, "V1");
   assert.equal(update.args.hash, "H1");
   const view = JSON.parse(update.args.view);
@@ -253,30 +320,3 @@ test("the web pages modal's sign-out button ends every browser session of the pe
   assert.doesNotMatch(opened, /\/login\//);
 });
 
-test("/cade project init makes the project's Google Doc first, and keeps it with the project", async (t) => {
-  const docId = "1PaymentsDocPaymentsDocPayments";
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: true, id: docId }));
-  const reply = await slash("init");
-  assert.match(reply, /now the project \*payments\*/);
-  assert.match(reply, new RegExp(`https://docs\\.google\\.com/document/d/${docId}/edit\\|a Google Doc`));
-  assert.deepEqual(calls.filter((call) => call.method.startsWith("google:")).map((call) => [call.method, call.args.title]), [["google:doc.create", "payments executive summaries"]]);
-  const { withSettings } = await import("../src/settings.js");
-  assert.equal(projects(await withSettings(env)).find((p) => p.channel === "CNEW").workDoc, docId);
-});
-
-test("/cade project init needs Google set up, and adds nothing when the doc can't be made", async (t) => {
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } } }, () => ({ ok: false, error: "quota" }));
-  const { withSettings } = await import("../src/settings.js");
-  // The doc can't be made: the project isn't added.
-  assert.match(await slash("init"), /couldn't make the project's Google Doc just now \(Google web app refused doc\.create: quota\), so I haven't added it/);
-  assert.deepEqual(projects(await withSettings(env)).map((p) => p.name), ["acme"]);
-  // Without Google, it does not work.
-  const bare = { ...env, GOOGLE_URL: undefined };
-  const run = async (text) => {
-    const body = new URLSearchParams({ command: "/cade", text: `project ${text}`, user_id: "UADMIN", channel_id: "CNEW", trigger_id: "T1", response_url: "https://hooks.example/x" }).toString();
-    return (await (await worker.fetch(new Request(`${ORIGIN}/slack/commands`, { method: "POST", headers: await sign(body), body }), bare, { waitUntil() {} })).json()).text;
-  };
-  const before = calls.length;
-  assert.match(await run("init"), /Google web app isn't set up yet: run `npm run google:create`/);
-  assert.equal(calls.length, before);
-});

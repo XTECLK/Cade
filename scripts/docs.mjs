@@ -1,5 +1,5 @@
 // Writes the website's MCP pages from the tool definitions in src/mcp-tools.js, so the site and
-// the server can't disagree: docs/mcp.html (how to connect an agent, which `/cade mcp status` links to, and every tool, its
+// the server can't disagree: docs/mcp.html (how to connect an agent, which the AI agent window in Cade links to, and every tool, its
 // arguments and its result). `npm run docs` writes it; test/docs.test.js checks it is up to date.
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -92,7 +92,7 @@ export function mcpPage() {
 <section class="tool" id="connect">
   <div class="wrap">
     <h2>Connect your agent</h2>
-    <p><b>1.</b> In Slack send <code>/cade mcp init</code>. Cade shows the key to you only, once, with this Cade's MCP endpoint (<code>/cade mcp status</code> shows the endpoint again, and whether you have a key). <code>/cade mcp revoke</code> ends the key.</p>
+    <p><b>1.</b> In Slack open Cade's Home tab, press <b>Configure</b>, then <b>AI agent</b> and <b>Create key</b>. Cade shows the key to you only, once, with this Cade's MCP endpoint (the same window shows the endpoint again, and whether you have a key). <b>Revoke key</b> in the same window ends it.</p>
     <p><b>2.</b> Add Cade to your agent as a remote MCP server (Streamable HTTP), with the key in the header <code>x-apikey</code>. Replace the two placeholders with the endpoint and key from step 1:</p>
     <h3>Claude Code</h3>
     <pre class="term"><code>claude mcp add --transport http cade https://YOUR-CADE-WORKER/mcp --header "x-apikey: YOUR_API_KEY"</code></pre>

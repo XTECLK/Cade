@@ -1,73 +1,29 @@
 import { projects } from "../channels.js";
+import { addProject, setHomeProject } from "../db.js";
 import { ensureWorkDoc } from "../doc.js";
 import { googleEnabled } from "../google.js";
-import { addProject } from "../db.js";
-import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn } from "../settings.js";
-import { SETTINGS_ACTION } from "../home.js";
+import { ADD_PROJECT_ACTION, SETTINGS_ACTION, publishHome } from "../home.js";
+import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn, withSettings } from "../settings.js";
 import { callSlack, mrkdwn, plainText } from "../slack.js";
 
 const SETTINGS_VIEW = "project:settings";
+const ADD_VIEW = "project:add";
 const PICK_ACTION = "project:pick";
 
-// `/cade project init` makes the channel it's sent in a project, as one added to cade.config.json
-// would be: its tasks are tracked there (see channels.js). The project is named after the channel,
-// or by `/cade project init <name>`, and its name and channel can't be changed afterwards. In a
-// channel that is a project already it only warns. Every project has a Google Doc for its executive
-// summaries, made by `init` (so Google must be set up first). The Project settings button in Configure on
-// the Home tab (see home.js) opens a form in Slack with a project's switches (see settings.js), each
-// following the config or turned on or off, and a list to pick the project from. `/cade project`
-// tells which project the channel is. Only the admins listed in cade.config.json can use any of it.
+// Admins manage projects from Configure on the Home tab (see home.js), not with commands:
+//   Add project       opens a form: a channel, a name (the channel's own by default), the people who work on
+//                     it and each switch (see settings.js). Submitting checks them, and then makes the project
+//                     as one added to cade.config.json would be: its tasks are tracked in that channel (see
+//                     channels.js). Every project has a Google Doc for its executive summaries, made first
+//                     (so Google must be set up): without it nothing is added. The form turns into
+//                     "Adding…", then says whether it worked, and why not. The name and channel can't be
+//                     changed afterwards.
+//   Project settings  opens a form with a project's switches, each following the config or turned on or off,
+//                     and a list to pick the project from.
+// Only the admins listed in cade.config.json can use either.
 export default {
-  name: "project",
-  description: "Make this channel a project, so its tasks are tracked here: `init` adds it. Admins only",
-  slashUsage: "/cade project init",
-  admin: true,
-  async slash(command, { env }) {
-    if (!isAdmin(env, command.user)) return "Only an admin can use `/cade project`. Admins are listed under `admins` in cade.config.json.";
-    const [action, ...rest] = command.text.trim().split(/\s+/);
-    const existing = projects(env).find((project) => project.channel === command.channel);
-    if (!action) {
-      return existing
-        ? `This channel is the project *${existing.name}*. Its settings are in Configure on the Cade Home tab.`
-        : "This channel isn't a project yet. Send `/cade project init` here to make it one.";
-    }
-    if (action.toLowerCase() !== "init") return "Send `/cade project init` in a channel to make it a project, or `/cade project` to see if this channel is one.";
-
-    if (existing) {
-      return `:warning: This channel is already the project *${existing.name}*, so there is nothing to add. Its settings are in Configure on the Cade Home tab.`;
-    }
-    if (!googleEnabled(env)) return NO_GOOGLE;
-    let info;
-    try {
-      ({ channel: info } = await callSlack(env, "conversations.info", { channel: command.channel }));
-    } catch (error) {
-      return `I can't see this channel (${error.message}). Invite me with \`/invite @Cade\` and try again.`;
-    }
-    if (info.is_im || info.is_mpim) return "A project is a channel, not a direct message. Send this in the project's channel.";
-    if (!info.is_member) {
-      if (info.is_private) return "I'm not in this private channel yet. Invite me with `/invite @Cade`, then send `/cade project init` again.";
-      await callSlack(env, "conversations.join", { channel: command.channel });
-    }
-
-    const name = (rest.join(" ") || info.name || "").trim();
-    if (!/^[\w][\w .-]{0,39}$/.test(name)) return "A project name is up to 40 letters, numbers, spaces, dashes or dots. Send `/cade project init <name>`.";
-    if (projects(env).some((project) => project.name.toLowerCase() === name.toLowerCase())) {
-      return `:warning: There is a project called *${name}* already. Send \`/cade project init <another name>\`.`;
-    }
-    // Its Google Doc, for executive summaries, is made first: without it the project isn't added.
-    let doc;
-    try {
-      doc = await ensureWorkDoc(env, { name, channel: command.channel }, command.user);
-    } catch (error) {
-      console.error("Could not make a work doc", { name, error: error.message });
-      return `I couldn't make the project's Google Doc just now (${error.message}), so I haven't added it. Could you try again?`;
-    }
-    await addProject(env, command.channel, name, command.user);
-    console.log("Project added", { name, channel: command.channel, by: command.user });
-    return `:white_check_mark: <#${command.channel}> is now the project *${name}*. Tasks made from messages can be tracked here with \`/cade task\`, and its settings are in Configure on the Cade Home tab. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
-  },
-  views: { [SETTINGS_VIEW]: saveSettings },
-  actions: { [PICK_ACTION]: pickProject, [SETTINGS_ACTION]: openSettings },
+  views: { [SETTINGS_VIEW]: saveSettings, [ADD_VIEW]: addProjectSubmit },
+  actions: { [PICK_ACTION]: pickProject, [SETTINGS_ACTION]: openSettings, [ADD_PROJECT_ACTION]: openAddProject },
 };
 
 const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md), then try again.";
@@ -156,4 +112,139 @@ async function saveSettings(payload, context) {
     })(),
   );
   return { response_action: "clear" };
+}
+
+
+// ---- Add project ----
+
+const NAME = /^[\w][\w .-]{0,39}$/;
+const DEFAULT_CHOICES = { config: "Use the default", on: "On", off: "Off" };
+
+// The Add project form, with each switch as the default is now.
+function addView(env) {
+  const config = configEnv(env);
+  const option = (text, value) => ({ text: plainText(text), value });
+  return {
+    type: "modal",
+    callback_id: ADD_VIEW,
+    title: plainText("Add project"),
+    submit: plainText("Add project"),
+    close: plainText("Cancel"),
+    blocks: [
+      {
+        type: "input",
+        block_id: "channel",
+        label: plainText("Channel"),
+        hint: plainText("Where the team tracks this project's tasks. Cade must be in it (invite it with /invite @Cade in a private channel)."),
+        element: {
+          type: "conversations_select",
+          action_id: "value",
+          placeholder: plainText("Pick a channel"),
+          filter: { include: ["public", "private"], exclude_bot_users: true, exclude_external_shared_channels: true },
+        },
+      },
+      {
+        type: "input",
+        block_id: "name",
+        optional: true,
+        label: plainText("Name"),
+        hint: plainText("Up to 40 letters, numbers, spaces, dashes or dots. Left empty, the channel's name. It can't be changed later."),
+        element: { type: "plain_text_input", action_id: "value", max_length: 40 },
+      },
+      {
+        type: "input",
+        block_id: "members",
+        optional: true,
+        label: plainText("People who work on this project"),
+        hint: plainText("Availability asked for this project covers only these people. Leave it empty to cover everyone in the workspace."),
+        element: { type: "multi_users_select", action_id: "value", placeholder: plainText("Pick people") },
+      },
+      ...SETTINGS.map(({ key, label, about }) => {
+        const options = Object.entries(DEFAULT_CHOICES).map(([value, text]) => option(value === "config" ? `${text} (${state(settingOn(config, undefined, key))})` : text, value));
+        return {
+          type: "input",
+          block_id: `s_${key}`,
+          label: plainText(label),
+          hint: plainText(about.slice(0, 2000)),
+          element: { type: "static_select", action_id: "value", initial_option: options[0], options },
+        };
+      }),
+    ],
+  };
+}
+
+// A plain window with a message and a Close button: while adding, and what it came to.
+const notice = (title, text) => ({ type: "modal", title: plainText(title), close: plainText("Close"), blocks: [{ type: "section", text: mrkdwn(text) }] });
+
+// The Add project button: opens the form, within Slack's three seconds of the click.
+async function openAddProject(payload, { env }) {
+  if (!isAdmin(env, payload.user.id)) return;
+  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: addView(env) });
+}
+
+// The form submitted: what can be checked quickly is, and a problem is shown on its field. Then the form
+// turns into "Adding…" and the rest follows, as making the Google Doc can take longer than Slack waits.
+async function addProjectSubmit(payload, context) {
+  const { env } = context;
+  const user = payload.user.id;
+  if (!isAdmin(env, user)) return { response_action: "clear" };
+  const values = payload.view.state.values;
+  const channel = values.channel?.value?.selected_conversation;
+  const typed = (values.name?.value?.value ?? "").trim();
+  const members = values.members?.value?.selected_users ?? [];
+  const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, values[`s_${key}`]?.value?.selected_option?.value]));
+
+  const existing = projects(env).find((project) => project.channel === channel);
+  if (existing) return { response_action: "errors", errors: { channel: `This channel is the project ${existing.name} already.` } };
+  if (!googleEnabled(env)) return { response_action: "errors", errors: { channel: NO_GOOGLE } };
+  let info;
+  try {
+    ({ channel: info } = await callSlack(env, "conversations.info", { channel }));
+  } catch (error) {
+    return { response_action: "errors", errors: { channel: `I can't see this channel (${error.message}). Invite me with /invite @Cade and try again.` } };
+  }
+  if (!info.is_member && info.is_private) return { response_action: "errors", errors: { channel: "I'm not in this private channel yet. Invite me with /invite @Cade, then add it." } };
+  const name = typed || info.name || "";
+  if (!NAME.test(name)) return { response_action: "errors", errors: { name: "A name is up to 40 letters, numbers, spaces, dashes or dots." } };
+  if (projects(env).some((project) => project.name.toLowerCase() === name.toLowerCase())) {
+    return { response_action: "errors", errors: { name: `There is a project called ${name} already.` } };
+  }
+
+  context.waitUntil(createProject(env, { channel, name, members, choices, joined: info.is_member }, user, payload.view.id));
+  return { response_action: "update", view: notice("Add project", `:hourglass_flowing_sand: Adding *${name}*… This takes a few seconds, as its Google Doc is made first.`) };
+}
+
+// Makes the project and says how it went in the form, which Slack keeps showing until it's closed. If it
+// was closed already, the same goes to the person in a message from Cade. The Home tab is drawn again on
+// the new project.
+async function createProject(env, { channel, name, members, choices, joined }, user, viewId) {
+  let text;
+  try {
+    if (!joined) await callSlack(env, "conversations.join", { channel });
+    // Its Google Doc, for executive summaries, is made first: without it the project isn't added.
+    let doc;
+    try {
+      doc = await ensureWorkDoc(env, { name, channel }, user);
+    } catch (error) {
+      console.error("Could not make a work doc", { name, error: error.message });
+      throw new Error(`I couldn't make the project's Google Doc just now (${error.message})`);
+    }
+    await addProject(env, channel, name, user);
+    // The project is known to the rest of the code once the database says so.
+    const added = await withSettings(env);
+    await applyMembers(added, channel, members, user);
+    await applySettings(added, channel, choices, user);
+    await setHomeProject(env, user, name);
+    console.log("Project added", { name, channel, by: user });
+    text = `:white_check_mark: <#${channel}> is now the project *${name}*. Tasks made from messages can be tracked there with \`/cade task\`. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
+  } catch (error) {
+    console.error("Could not add the project", { name, channel, error: error.message });
+    text = `:x: I couldn't add *${name}*: ${error.message}. Nothing was added, so you can try again.`;
+  }
+  try {
+    await callSlack(env, "views.update", { view_id: viewId, view: notice("Add project", text) });
+  } catch {
+    await callSlack(env, "chat.postMessage", { channel: user, text }).catch((error) => console.error("Could not tell the admin", { error: error.message }));
+  }
+  await publishHome(env, user).catch((error) => console.error("Could not redraw the Home tab", { error: error.message }));
 }

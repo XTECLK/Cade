@@ -10,7 +10,7 @@
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             every project's Doc
 //   admins    the Slack user IDs of the people who can run        → ADMINS
-//             `/cade project init` and `/cade project settings`
+//             project settings from Slack
 //             (a Slack form); none without it
 //   aiModel   the Workers AI text model AI suggestions use (optional): a   → AI_MODEL_NAME
 //             name such as "@cf/google/gemma-4-26b-a4b-it"; the default
@@ -73,7 +73,7 @@ export function readConfig(json) {
   }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
-  // None is allowed when the projects are kept in the database (`/cade project init`).
+  // None is allowed when the projects are kept in the database (the Add project button).
   const list = projects({ PROJECTS: config.projects ?? [] });
   const ids = list.map((project) => project.channel);
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));

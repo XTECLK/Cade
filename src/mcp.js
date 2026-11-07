@@ -406,6 +406,8 @@ function taskData(env, channel, ts, task, link) {
     due_date: task.dueDate || "",
     incident: Boolean(task.incident),
     has_subtasks: Boolean(task.subtasks),
+    blocked: Boolean(task.blocked),
+    blocked_reason: task.blockedReason || "",
     link,
     owner: task.people.owner,
     reviewer: task.people.reviewer,
@@ -1220,6 +1222,13 @@ async function updateTask(env, user, args) {
     if (typeof args.has_subtasks !== "boolean") throw new ToolError("has_subtasks is true or false.");
     changes.subtasks = args.has_subtasks;
   }
+  if (args.blocked !== undefined || args.blocked_reason !== undefined) {
+    if (args.blocked !== undefined && typeof args.blocked !== "boolean") throw new ToolError("blocked is true or false.");
+    if (args.blocked_reason !== undefined && typeof args.blocked_reason !== "string") throw new ToolError("blocked_reason is text.");
+    if (args.blocked === false && args.blocked_reason) throw new ToolError("blocked_reason goes with blocked: true.");
+    if (args.blocked === undefined && !task.blocked) throw new ToolError("blocked_reason needs blocked: true, as the task isn't blocked.");
+    changes.blocked = args.blocked === false ? { on: false } : { on: true, reason: args.blocked_reason };
+  }
   for (const role of Object.keys(ROLES)) {
     if (args[role] === undefined) continue;
     const add = userIds(role, args[role].add);
@@ -1245,7 +1254,7 @@ async function updateTask(env, user, args) {
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
     refuseSecrets(summary, "The summary");
   }
-  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, has_subtasks, owner, reviewer, tester, prs or summary.");
+  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, has_subtasks, blocked, owner, reviewer, tester, prs or summary.");
 
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told = [];

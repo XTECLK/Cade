@@ -3,7 +3,7 @@ import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime } from "./format.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
-import { PRIORITIES, peopleLine, ROLES, STATUSES } from "./tasks.js";
+import { PRIORITIES, blockedLine, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
 // The Home tab of Cade's app: what the person has open, by what they do on
 // it, most urgent first. It is only another view of the tasks Cade already
@@ -183,7 +183,7 @@ function list({ ready, later, empty }, today, user) {
 function card({ task, link, incident, channel, ts }, today, viewer, claim = false) {
   const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
   const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
-  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], due].filter(Boolean).join("  ·  ");
+  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due].filter(Boolean).join("  ·  ");
   const people = peopleLine(task, viewer) || "_Unassigned_";
   if (claim) {
     return [

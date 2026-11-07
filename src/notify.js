@@ -1,4 +1,4 @@
-import { mentions } from "./slack.js";
+import { escapeSlack, mentions } from "./slack.js";
 import { PRIORITIES, STATUSES, prLink, unsentPrs } from "./tasks.js";
 
 // What Cade says in a task's thread when its people, pull requests or
@@ -81,6 +81,10 @@ export function subtasksChanged(user, on) {
     : `<@${user}> marked this as having no subtasks.`;
 }
 
+export function blockedChanged(user, on, reason) {
+  return on ? `<@${user}> marked this as blocked${reason ? `: ${escapeSlack(reason)}` : "."}` : `<@${user}> unblocked this.`;
+}
+
 // ---- From a change ----
 
 // A change is what changeTask (commands/changes.js) says it actually did:
@@ -92,7 +96,7 @@ export function subtasksChanged(user, on) {
 // nothing else.
 
 // The change log: a line for each thing that changed, who changed it.
-export function changeLog({ user, told, people, prs, priority, dueDate, status, subtasks }) {
+export function changeLog({ user, told, people, prs, priority, dueDate, status, subtasks, blocked }) {
   return [
     prs?.added.length && linked(user, prs.added),
     prs?.removed.length && unlinked(user, prs.removed),
@@ -104,6 +108,7 @@ export function changeLog({ user, told, people, prs, priority, dueDate, status, 
     dueDate && dueDateChanged(user, dueDate.to),
     status && statusChanged(user, status.to),
     subtasks && subtasksChanged(user, subtasks.to),
+    blocked && blockedChanged(user, blocked.to, blocked.reason),
   ].filter(Boolean);
 }
 

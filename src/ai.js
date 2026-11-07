@@ -1,5 +1,5 @@
 import { groupSetting } from "./channels.js";
-import { PRIORITIES, STATUSES } from "./tasks.js";
+import { PRIORITIES, STATUSES, cleanReason } from "./tasks.js";
 
 // Reading what a message in a task's thread asks to change, with a model on
 // Workers AI: who should develop, review or test it, and its status,
@@ -62,8 +62,10 @@ const SCHEMA = {
     status: { type: "string", enum: ["", ...Object.keys(STATUSES)] },
     priority: { type: "string", enum: ["", ...Object.keys(PRIORITIES)] },
     dueDate: { type: "string", description: "YYYY-MM-DD, \"clear\" to remove it, or \"\"" },
+    blocked: { type: "string", enum: ["", "block", "unblock"] },
+    blockedReason: { type: "string", description: "Why it is blocked, in a short phrase, when blocked is \"block\"; otherwise \"\"" },
   },
-  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate"],
+  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "blocked", "blockedReason"],
 };
 
 const INSTRUCTIONS = `You read one Slack message posted in the thread of a task, usually a software one, and say what it asks to change on the task. Reply with JSON only.
@@ -101,6 +103,11 @@ Examples (author UA):
 - "started on subtask 1", task hasSubtasks and TODO → status IN_PROGRESS.
 - "started on subtask 2", task hasSubtasks and already IN_PROGRESS → nothing.
 - "thanks <@UB>, cc <@UC>" → nothing.
+- "blocked on the payment API keys", task not blocked → blocked block, blockedReason "waiting on the payment API keys".
+- "keys arrived, unblocked", task blocked → blocked unblock.
+- "we're still blocked", task already blocked → nothing.
+- "this blocks the release" → nothing (this task blocks something else).
+- "are we blocked on design?" → nothing (a question).
 - "<@UB> already reviewed this" → nothing (about the past).
 - "is <@UB> testing it?" → nothing (a question).
 - "<@UB> is testing it right now" → nothing (about someone else's work).
@@ -111,6 +118,8 @@ Examples (author UA):
 - "let's ship it next week" → nothing (no date to read).
 - "needed by next Friday" → dueDate that date from "nextWeekDays".
 - ":rocket: :tada:" → nothing.
+
+blocked: the task's "blocked" says whether it is blocked now. Answer "block" (only when it isn't) when the message says the work can't go on because of something it waits for or that is in the way ("blocked on the API keys", "waiting for the client's design", "can't continue until staging is fixed"), with blockedReason as a short phrase of what blocks it, in the message's words, under 100 characters. Answer "unblock" (only when it is) when the message says that is over ("unblocked", "keys arrived, carrying on", "no longer waiting on design"). Otherwise "" and an empty blockedReason. A question ("are we blocked?"), a risk ("might get blocked"), a plan, or a task that blocks something else ("this blocks the release") changes nothing. A blocked task keeps its status.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
 
@@ -140,6 +149,8 @@ export async function readChanges(env, { message, task, today, allowed }) {
       hasSubtasks: Boolean(task.subtasks),
       priority: task.priority,
       dueDate: task.dueDate || "none",
+      blocked: Boolean(task.blocked),
+      blockedReason: task.blockedReason || "",
       people: task.people,
     },
     message: message.text,
@@ -223,6 +234,10 @@ export function checkChanges(raw, { task, message, allowed }) {
     if (add.length || remove.length) (changes.people ??= {})[role] = { add, remove };
   }
   if (allowed.status && isForward(task.status, raw?.status) && statusFits(raw.status, task, message.text ?? "")) changes.status = raw.status;
+  if (allowed.blocked && !/\?\s*$/.test(message.text ?? "")) {
+    if (raw?.blocked === "block" && !task.blocked) changes.blocked = { on: true, reason: cleanReason(raw.blockedReason) };
+    if (raw?.blocked === "unblock" && task.blocked) changes.blocked = { on: false };
+  }
   if (allowed.details && PRIORITIES[raw?.priority] && raw.priority !== task.priority) changes.priority = raw.priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);

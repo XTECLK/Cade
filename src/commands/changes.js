@@ -1,6 +1,6 @@
 import { changeMessage, changeRequests } from "../notify.js";
 import { acknowledge, callSlack } from "../slack.js";
-import { ROLES, loadTask, saveTask } from "../tasks.js";
+import { ROLES, cleanReason, loadTask, saveTask } from "../tasks.js";
 import { afterStatusChange, setStatusFields } from "./status.js";
 
 // Suggestions work in three steps:
@@ -14,7 +14,7 @@ import { afterStatusChange, setStatusFields } from "./status.js";
 //      acknowledges with a ✅ and posts only the second part (see
 //      acknowledged).
 // Changes are { people: { [role]: { add, remove } }, status, priority,
-// dueDate, prs: { add, remove } }, each optional; pull requests are links.
+// dueDate, prs: { add, remove }, blocked: { on, reason } }, each optional; pull requests are links.
 
 // The pull requests of `task` once `changes` are applied.
 export function prsAfter(task, changes) {
@@ -50,7 +50,7 @@ export async function changeTask(env, { channel, ts }, changes, user, { from, to
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
   const told = Object.fromEntries(mentioned.map((id) => [id, null]));
-  const change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, subtasks: null };
+  const change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, subtasks: null, blocked: null };
 
   // Only the roles there are now: a suggestion posted before owners were
   // called that names developers.
@@ -81,13 +81,24 @@ export async function changeTask(env, { channel, ts }, changes, user, { from, to
     change.subtasks = { to: task.subtasks };
   }
 
+  // Blocked, or no longer, with a reason when blocking; a new reason on a blocked task is a change too.
+  if (changes.blocked) {
+    const on = Boolean(changes.blocked.on);
+    const reason = on ? cleanReason(changes.blocked.reason ?? (task.blocked ? task.blockedReason : "")) : "";
+    if (on !== Boolean(task.blocked) || reason !== (task.blockedReason ?? "")) {
+      task.blocked = on;
+      task.blockedReason = reason;
+      change.blocked = { to: on, reason };
+    }
+  }
+
   const stale = from && task.status !== from;
   if (changes.status && changes.status !== task.status && !stale) {
     change.status = { from: task.status, to: changes.status };
     setStatusFields(task, changes.status);
   }
 
-  if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status && !change.subtasks) return null;
+  if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status && !change.subtasks && !change.blocked) return null;
   await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source);
   return change;

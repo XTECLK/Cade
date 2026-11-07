@@ -1,6 +1,6 @@
 import { readChanges, today } from "../ai.js";
 import { suggesting } from "../intents.js";
-import { callSlack, dismiss, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, loadTask, prLink } from "../tasks.js";
 import { applyChanges } from "./changes.js";
 import { editForm } from "./edit.js";
@@ -29,9 +29,11 @@ export async function suggestWithAi(env, message, { target, task }) {
     // a message about one part says nothing about the whole.
     status: (suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel)),
     details: suggesting(env, "details", message.channel) && !task.incident,
+    // Blocked and unblocked are progress on a task, so they follow the same setting as its status.
+    blocked: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
   };
   // Nothing for the model to read when only PR links are on.
-  const read = allowed.roles.length || allowed.status || allowed.details;
+  const read = allowed.roles.length || allowed.status || allowed.details || allowed.blocked;
   const changes = withPullRequests(env, message, task, read ? await readChanges(env, { message, task, today: today(env), allowed }) : null);
   if (changes) await askToChange(env, message, { target, task }, changes);
 }
@@ -104,6 +106,10 @@ export function summary(task, changes) {
   if (changes.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[changes.status]}`);
   if (changes.priority) lines.push(`*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`);
   if ("dueDate" in changes) lines.push(`*Due:* ${task.dueDate || "none"} → ${changes.dueDate || "none"}`);
+  if (changes.blocked) {
+    const { on, reason } = changes.blocked;
+    lines.push(on ? `*Blocked:* ${task.blocked ? "yes" : "no"} → yes${reason ? ` (${escapeSlack(reason)})` : ""}` : "*Blocked:* yes → no");
+  }
   return lines.join("\n");
 }
 

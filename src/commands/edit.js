@@ -1,5 +1,5 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.js";
-import { PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.js";
+import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.js";
 import { applyChanges, prsAfter } from "./changes.js";
 import { statusOption } from "./status.js";
 
@@ -11,6 +11,13 @@ const SUBTASKS_OPTION = {
   text: plainText("Has subtasks"),
   description: plainText("Cade won't suggest status changes from messages. Pull requests are still tracked."),
   value: "subtasks",
+};
+
+// The checkbox and reason for a blocked task: it keeps its status, and shows as blocked on its card.
+const BLOCKED_OPTION = {
+  text: plainText("Blocked"),
+  description: plainText("Shown on the task's card until it is unblocked."),
+  value: "blocked",
 };
 
 // The Edit form: everything on a task in one place, its owners,
@@ -27,6 +34,8 @@ const SUBTASKS_OPTION = {
 // mentioned, so saving doesn't notify them again (see applyChanges).
 export function editForm({ channel, ts }, task, { changes = {}, told, responseUrl } = {}) {
   const details = !task.incident;
+  const blockedNow = changes.blocked ? changes.blocked.on : task.blocked;
+  const blockedReason = changes.blocked?.on ? changes.blocked.reason ?? "" : task.blocked && !changes.blocked ? task.blockedReason : "";
   const peopleAfter = (role) => {
     const { add = [], remove = [] } = changes.people?.[role] ?? {};
     return [...task.people[role].filter((id) => !remove.includes(id)), ...add];
@@ -112,6 +121,30 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
       },
       {
         type: "input",
+        block_id: "blocked",
+        optional: true,
+        label: plainText("Blocked"),
+        element: {
+          type: "checkboxes",
+          action_id: "value",
+          options: [BLOCKED_OPTION],
+          ...(blockedNow && { initial_options: [BLOCKED_OPTION] }),
+        },
+      },
+      {
+        type: "input",
+        block_id: "blocked_reason",
+        optional: true,
+        label: plainText("Why it is blocked"),
+        element: {
+          type: "plain_text_input",
+          action_id: "value",
+          max_length: MAX_BLOCKED_REASON,
+          ...(blockedReason && { initial_value: blockedReason }),
+        },
+      },
+      {
+        type: "input",
         block_id: "prs",
         // Saving with none unlinks them all.
         optional: true,
@@ -160,6 +193,9 @@ function saveEdit(payload, context) {
         changes.dueDate = formatDueDate(values.due_date.value.selected_date);
       }
       changes.subtasks = (values.subtasks?.value.selected_options ?? []).length > 0;
+      changes.blocked = (values.blocked?.value.selected_options ?? []).length > 0
+        ? { on: true, reason: values.blocked_reason?.value.value ?? "" }
+        : { on: false };
       const wanted = [...new Set(urls)];
       changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
       await applyChanges(env, { channel, ts }, changes, payload.user.id, { told });

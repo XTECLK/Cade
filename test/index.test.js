@@ -3913,7 +3913,7 @@ test("an incident's priority and due date can't be changed, and its Edit form le
   const calls = mockSlack(t, { stored: [incidentTask()] });
   await send("/slack/interactions", cardMenuClick("edit"));
   const form = calls[0].args.view;
-  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "subtasks", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "subtasks", "blocked", "blocked_reason", "prs"]);
   assert.match(blockText(form.blocks[4]), /Incidents are always :red_circle: Urgent and due Immediate/);
 });
 
@@ -5039,7 +5039,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "blocked", "blocked_reason", "prs"]);
   assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
   assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
   assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
@@ -5200,7 +5200,7 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const form = calls[0].args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "blocked", "blocked_reason", "prs"]);
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
@@ -5354,6 +5354,44 @@ test("people assigned in several roles are asked only for the one the task is at
 });
 
 // ---- The update engine: what actually changed ----
+
+test("changeTask blocks and unblocks a task, keeping its status, and the thread is told", async (t) => {
+  mockSlack(t, { stored: [storedTask({ status: "IN_PROGRESS" })] });
+  const blocked = await changeTask(env, where, { blocked: { on: true, reason: "  waiting on\nAPI keys " } }, "UACTOR");
+  assert.deepEqual(blocked.blocked, { to: true, reason: "waiting on API keys" });
+  assert.deepEqual(changeLog(blocked), ["<@UACTOR> marked this as blocked: waiting on API keys"]);
+  const stored = await savedTask();
+  assert.deepEqual([stored.status, stored.blocked, stored.blockedReason], ["IN_PROGRESS", true, "waiting on API keys"]);
+  // The same again changes nothing; a new reason does.
+  assert.equal(await changeTask(env, where, { blocked: { on: true, reason: "waiting on API keys" } }, "UACTOR"), null);
+  assert.equal((await changeTask(env, where, { blocked: { on: true, reason: "waiting on design" } }, "UACTOR")).blocked.reason, "waiting on design");
+  const unblocked = await changeTask(env, where, { blocked: { on: false } }, "UACTOR");
+  assert.deepEqual(changeLog(unblocked), ["<@UACTOR> unblocked this."]);
+  assert.equal(await changeTask(env, where, { blocked: { on: false } }, "UACTOR"), null);
+});
+
+test("a blocked task's card and the Home tab show it, with its reason", async () => {
+  const { blockedLine, cleanReason, MAX_BLOCKED_REASON } = await import("../src/tasks.js");
+  assert.equal(blockedLine({ blocked: false, blockedReason: "x" }), "");
+  assert.equal(blockedLine({ blocked: true }), ":no_entry: *Blocked*");
+  assert.equal(blockedLine({ blocked: true, blockedReason: "waiting on <keys>" }), ":no_entry: *Blocked*: waiting on &lt;keys&gt;");
+  assert.equal(cleanReason("x".repeat(500)).length, MAX_BLOCKED_REASON);
+});
+
+test("AI blocks and unblocks only when the task's state and the message agree", async () => {
+  const { checkChanges } = await import("../src/ai.js");
+  const people = { owner: [], reviewer: [], tester: [] };
+  const allowed = { roles: [], blocked: true };
+  const run = (task, text, raw) => checkChanges(aiRead(raw), { task: { status: "IN_PROGRESS", people, ...task }, message: { user: "UA", mentions: [], text }, allowed })?.blocked ?? null;
+  assert.deepEqual(run({}, "blocked on the API keys", { blocked: "block", blockedReason: "waiting on the API keys" }), { on: true, reason: "waiting on the API keys" });
+  assert.deepEqual(run({ blocked: true }, "keys arrived, unblocked", { blocked: "unblock" }), { on: false });
+  // Already in that state, or a question: nothing.
+  assert.equal(run({ blocked: true }, "still blocked", { blocked: "block" }), null);
+  assert.equal(run({}, "unblocked", { blocked: "unblock" }), null);
+  assert.equal(run({}, "are we blocked on design?", { blocked: "block" }), null);
+  // Off when blocked suggestions are.
+  assert.equal(checkChanges(aiRead({ blocked: "block" }), { task: { status: "TODO", people }, message: { user: "UA", mentions: [], text: "blocked" }, allowed: { roles: [] } }), null);
+});
 
 const where = { channel: "CDEV", ts: "100.1" };
 

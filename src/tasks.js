@@ -136,7 +136,7 @@ export function taskMessage(task, { archivedBy } = {}) {
   ].filter(Boolean);
   const card = [
     ...(links.length ? [smallText([links.join("  ·  ")])] : []),
-    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && task.subtasks)] },
+    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && task.subtasks, !archivedBy && blockedLine(task))] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
@@ -176,8 +176,23 @@ export function smallText(lines) {
 
 // A card's line under its title, in small text: the status, the due date and, for a task done in
 // parts, a marker that its status is set by hand, leaving out those not set.
-export function metaLine(status, dueDate, subtasks) {
-  return mrkdwn([status, dueDate && `Due ${dueDate}`, subtasks && ":jigsaw: Has subtasks"].filter(Boolean).join("  ·  "));
+export function metaLine(status, dueDate, subtasks, blocked) {
+  return mrkdwn([status, blocked, dueDate && `Due ${dueDate}`, subtasks && ":jigsaw: Has subtasks"].filter(Boolean).join("  ·  "));
+}
+
+// Longest blocked reason kept, so a long message doesn't fill a card.
+export const MAX_BLOCKED_REASON = 100;
+
+// The marker on a blocked task's card, with its reason when it has one, or "" when it isn't blocked.
+export function blockedLine(task) {
+  if (!task.blocked) return "";
+  return `:no_entry: *Blocked*${task.blockedReason ? `: ${escapeSlack(task.blockedReason)}` : ""}`;
+}
+
+// A blocked reason as kept: one line, trimmed, cut to MAX_BLOCKED_REASON.
+export function cleanReason(reason) {
+  const line = String(reason ?? "").replace(/\s+/g, " ").trim();
+  return line.length > MAX_BLOCKED_REASON ? `${line.slice(0, MAX_BLOCKED_REASON - 1)}…` : line;
 }
 
 

@@ -10,16 +10,12 @@ The Worker reaches the docs through one Apps Script web app, this folder:
 docs. It's a standalone script, in no doc, serving every group, and runs as
 you. It only touches the IDs the Worker gives it.
 
-## Linking a group's Doc
+## A project's Doc
 
-```sh
-npm run group -- --name acme --workDoc new
-```
-
-`new` has the web app make the file (yours, named "acme executive
-summaries"); `none` unlinks. It's saved on the group in `cade.config.json` as
-`workDoc`, and uploaded. A project added with the Add project button gets its Doc made for it (kept in
-Cade's database, not in the file); nothing else makes one. A project without a Doc
+Adding a project with the **Add project** button on the app's Home tab makes
+its Doc through the web app (yours, named "acme executive summaries"; the link
+is kept in Cade's database). A project listed in `cade.config.json` can name
+one with `workDoc`. A project without a Doc
 can't use `create_executive_summary` or `get_executive_summary_doc`, which say so. Without the Google web app,
 none is made and they say it isn't set up. Share the doc as **Editor**
 with whoever goes through the summaries.
@@ -52,8 +48,8 @@ section's heading as it is: it's how Cade finds the section again (through a nam
 2. **Turn on the Apps Script API (person, once per Google account)** at
    <https://script.google.com/home/usersettings>.
 3. **Create the web app:** `npm run google:create`. It creates the
-   standalone script "Cade_<your Slack workspace>", generates a random secret (kept in `Secret.gs`, not committed, for
-   `npm run group`; the script moves it into its own properties on its first request), deploys it as a web app (running as you, reachable by
+   standalone script "Cade_<your Slack workspace>", generates a random secret (the Worker and the script each hold their
+   own copy, the script's in its `SECRET` property; no file keeps it), deploys it as a web app (running as you, reachable by
    anyone: the secret is what protects it), then gives the Worker its
    address (`googleUrl` in `cade.config.json`, uploaded with `npm run
    config`) and the secret (`GOOGLE_SECRET`). Its IDs are saved to
@@ -61,7 +57,7 @@ section's heading as it is: it's how Cade finds the section again (through a nam
 4. **Approve the script (person).** Open the script link it prints, choose
    `authorize` at the top, click **Run**, and allow access to your Google Docs
    (`documents`, `drive`). Until then, the web app can't use them.
-5. **Link each group's Doc** with `npm run group`, as above.
+5. **Add a project** from the Home tab; its Doc is made for it.
 
 If the scripts here change, `npm run google:update` pushes them and
 redeploys the same address. By hand: paste the new files, then **Deploy →
@@ -74,7 +70,7 @@ and the notes and thread tabs, which Cade no longer uses.
 The Worker logs `Could not add the executive summary to the doc` with the
 reason in `npx wrangler tail`:
 
-- `unauthorized`: `GOOGLE_SECRET` doesn't match the script's `SECRET` property (Apps Script → Project Settings → Script Properties).
+- `unauthorized`: `GOOGLE_SECRET` doesn't match the script's `SECRET` property (Apps Script → Project Settings → Script Properties). To change it, set both to the same new value.
 - `HTTP 401/403`: the web app's access isn't set to **Anyone**.
 - `You do not have permission`, or a file that can't be found: the group's
   `workDoc` address is wrong, or you (who deployed the script) can't edit it.

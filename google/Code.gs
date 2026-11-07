@@ -7,21 +7,21 @@
 // SECRET property, which `npm run google:create` makes along with the Worker's
 // GOOGLE_SECRET. A script made before that still has Secret.gs defining SECRET;
 // its first request moves it into the property, after which Secret.gs can go
-// (`npm run google:update` removes it). The actions:
+// (`npm run google:update` removes it). The actions (secret.status is answered
+// without the secret, as only `npm run google:update` asks it):
 //   doc.write     { docId, tab, key, blocks }      → { url }, a section of the
 //                                                    doc's tab (Doc.gs)
 //   doc.read      { docId, tab, key }              → { elements }, a section
 //                                                    as it now reads
 //   doc.create    { title }                        → { id }, a new doc
-//   secret.status {}                               → { stored: true }, once
-//                                                    the secret is the property
-// New docs are for `npm run group`, and are yours.
+//   secret.status {}                               → { stored }, whether the
+//                                                    secret is the property
+// New docs are for the Worker's Add project, and are yours.
 
 const ACTIONS = {
   "doc.write": (body) => ({ url: write(body.docId, body.tab, body.key, body.blocks) }),
   "doc.read": (body) => ({ elements: read(body.docId, body.tab, body.key) }),
   "doc.create": (body) => ({ id: createDoc(body.title) }),
-  "secret.status": () => ({ stored: true }),
 };
 
 // The secret requests are checked against: the SECRET property, filled from
@@ -39,6 +39,7 @@ function storedSecret() {
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
   const secret = storedSecret();
+  if (body.action === "secret.status") return reply({ ok: true, stored: Boolean(secret) });
   if (!secret || body.secret !== secret) {
     return reply({ ok: false, error: "unauthorized" });
   }

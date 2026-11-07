@@ -13,7 +13,6 @@
     "slack:create": "node scripts/slack-app.mjs create",
     "slack:update": "node scripts/slack-app.mjs update",
     "config": "node scripts/config.mjs",
-    "group": "node scripts/group.mjs",
     "google:create": "node scripts/google-app.mjs create",
     "google:update": "node scripts/google-app.mjs update",
     "demo:login": "node scripts/demo/login.mjs",

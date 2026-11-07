@@ -7,7 +7,7 @@
 
 const PREFIX = "cade:";
 
-// A new doc called `title`, for `npm run group`, and its ID.
+// A new doc called `title`, for the Worker's Add project, and its ID.
 function createDoc(title) {
   const id = DocumentApp.create(title).getId();
   shareToViewers(id);

@@ -21,7 +21,7 @@ It first asks which version of Cade to deploy: a release, or `main`, the
 latest development version.
 
 It takes you through steps 2 to 8 below: Cloudflare login, the Worker, the
-Slack app, a Google Doc for executive summaries, then your first group. It
+Slack app, a Google Doc for executive summaries, then the first admin. It
 is numbered ([1/5]…), uses arrow-key menus and Yes/No choices, offers to open the pages you need to click in, skips
 what's done already, ends with a summary of what was done, and can be run again
 to carry on. Tokens and secrets are asked for by the
@@ -52,9 +52,9 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: send the Add project button in a channel to add it (an `admins` person), the Project settings button to change its switches; projects there are kept in Cade's database (tables `projects` and `project_settings`), so `projects` can be left out of the file. | `npm run group` (step 8), or write them by hand, or leave it out and use the Add project button. |
-| `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `admins` | Optional (none) | The Slack user IDs of the people who can add projects and change each project's switches from Slack (Configure on the app's Home tab), without editing the file. Everyone else is told only an admin can. | `npm run group` asks for them the first time, from a list with emails. Or add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
+| `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: send the Add project button in a channel to add it (an `admins` person), the Project settings button to change its switches; projects there are kept in Cade's database (tables `projects` and `project_settings`), so `projects` can be left out of the file. | Write them by hand, or leave it out and use the Add project button on the app's Home tab (step 8). |
+| `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `admins` | Optional (none) | The Slack user IDs of the people who can add projects and change each project's switches from Slack (Configure on the app's Home tab), without editing the file. Everyone else is told only an admin can. | `npm run setup` asks for the first one. Or add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
 | `aiModel` | Optional | The Workers AI text model that reads messages for suggestions, one for every project, such as `"@cf/google/gemma-4-26b-a4b-it"`. Without it, the default, `@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read these messages well. | Set `"aiModel"` at the top of `cade.config.json`, then `npm run config`. |
 | `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (Configure → AI agent on the app's Home tab). `false` turns the MCP endpoint off: it answers 404, no keys are given and the new-task prompt for an agent isn't shown. Keys already made stop working, and can still be revoked. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
 | `googleUrl` | Required to add projects | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Every project has a Google Doc for its executive summaries, made for it by the Add project button; without Google set up, neither works. A project from the config file can name an existing Doc as `workDoc`. | Set for you by `npm run google:create` (step 7). |
@@ -64,7 +64,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | Key | Required? | What it is |
 | --- | --- | --- |
 | `name` | **Required** | The project's name, as the project picker and your agent's `get_projects` show it. |
-| `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). `npm run group` makes or finds it for you. |
+| `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). The Add project button on the Home tab asks for it. |
 | `workDoc` | Optional | The address of the project's Google Doc, where your agent's `create_executive_summary` tool writes its executive summaries. People edit it: share it as **Editor**. Without one, `create_executive_summary` and `get_executive_summary_doc` say so. |
 | `taskChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
 | `newTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskChangeDetection`. |
@@ -74,26 +74,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 Start from `cade.config.sample.json`, which lists the options at the top of the file (the options for each project are in the table above); copy it to `cade.config.json`, keep what you need and delete the rest. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
 
-To add or change a group without editing the file, `npm run group` takes
-you through it: the group's name, then each channel (a new one, which Cade
-makes and is then in, or one that exists: a public one Cade joins itself, a
-private one once you send `/invite @Cade` in it), people to add to them by
-email or member ID, and, once the Google web app is set up (step 7), the
-group's Doc. It says what it will do before doing it, then saves
-and uploads the file. It asks for Cade's bot token (or takes
-`SLACK_BOT_TOKEN`), and needs the app's channel permissions (`npm run
-slack:update`, then reinstall the app, if it was made before them).
-
-Or give the settings at once:
-
-```sh
-npm run group -- --name acme --channel C… --workDoc new
-```
-
-`--workDoc` takes
-`new` (made for you, named "acme executive summaries") or
-`none` to unlink; leave them out to keep what the group has. It checks and
-uploads the file, as `npm run config` does.
+To add a project without editing the file, use the **Add project** button on the app's Home tab (step 8).
 
 ### Secrets: in Cloudflare only
 
@@ -101,7 +82,7 @@ uploads the file, as `npm run config` does.
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
-| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 7), which also keeps it in `google/Secret.gs` for `npm run group`; the script stores its own copy in its properties, so `npm run google:update` never touches it. |
+| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 7), which keeps no copy in a file: the Worker and the script each hold their own (the script in its `SECRET` property), so `npm run google:update` never touches it. |
 
 ### Used once during setup, never stored
 
@@ -240,60 +221,43 @@ needs a Google account.
 3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
 
-Each group's Doc is made when you set the group up (step 8). The
+Each project's Doc is made when you add the project (step 8). The
 script needs Google's `documents` and `drive` access (the Docs service and
 link sharing need them). It only touches the files
-the Worker names. Skip this step for now and add them
-later with `npm run group`.
+the Worker names. Skip this step for now and set it up
+later with `npm run google:create`.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
 [google/README.md](google/README.md).
 
-## 8. Set up your first group (person)
+## 8. Add your first project (person)
 
-A **group** is a team or project, with its own **dev** channel (for example
+A **project** (a team or client) has its own **dev** channel (for example
 `#acme-dev`), where the team tracks its work: tasks with `/cade task`,
 setting each one's priority and due date, and incidents with `/cade
 incident`, always urgent and due immediately. Messages from anywhere else,
 a client's shared channel or a DM included, become tasks or incidents, or
 move into one, with the message shortcuts (⋯ → **More actions**); outside
-the dev channel, with more than one group, they ask which project, as
-groups are called there.
+the dev channel, with more than one project, they ask which project.
 
-`npm run group` takes you through it. It asks questions, so run it in a
-terminal window of your own, in this folder:
+Only an **admin** can add one. `npm run setup` asks for the first admin's Slack
+member ID (in Slack, click the person's name or picture, then ⋯ → **Copy
+member ID**, `U…`) and uploads it; by hand, put `"admins": ["U0123ABCD"]` in
+`cade.config.json` and run `npm run config`.
 
-```sh
-npm run group
-```
+In Slack:
 
-1. Cade's bot token, hidden: the `xoxb-…` token from step 6 (or set
-   `SLACK_BOT_TOKEN` first, to skip the question; `npm run setup` passes on
-   the one it was given).
-2. The group's name, then your team's time zone (the first time only).
-   Also the first time only, the **admins**: Cade lists the workspace's
-   people with their emails, and you search, tick (Tab) and confirm who can add projects and change their settings.
-   Enter for none.
-3. The dev channel, **existing or new**: an existing channel by its ID
-   (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins
-   if it's public, or waits for `/invite @Cade` in it if it's private; or a
-   new one by name, which Cade makes, public or private, and is then in.
-4. People to add to the channel: pick them from a searchable list of the workspace (with emails).
-5. With the Google web app (step 7), whether to turn on the group's Google
-   Doc. Cade makes it.
-6. What it will do (admins included), to confirm. It then does it, saves the group in
-   `cade.config.json` (git ignores it) and uploads it as the Worker secrets
-   `PROJECTS` and `TIMEZONE`.
+1. Create a channel for the project (public or private).
+2. Invite Cade to it: `/invite @Cade`.
+3. Open Cade's **Home** tab (**Apps** → **Cade** → **Home**).
+4. Click **Add project**, pick the channel and name the project. With the
+   Google web app (step 7), its work Doc is made for it.
 
-**Expect:** "Done", with the channel's link. Then share the group's work Doc
-as **Editor** with whoever goes through its summaries and notes, and its
-message exports Doc as **Viewer**.
-
-Run `npm run group` again for every other group, or to change one: Enter
-keeps what it has. To set the first group up later, skip this step and run
-it when you're ready. Editing `cade.config.json` by hand and running `npm
-run config` works too (see [Settings](#settings)).
+Then share the project's work Doc as **Editor** with whoever goes through its
+summaries and notes. Each project's switches are on the same tab (**Project
+settings**). Projects added there are kept in Cade's database; ones in
+`cade.config.json` work too (see [Settings](#settings)).
 
 ## 9. Check it works
 

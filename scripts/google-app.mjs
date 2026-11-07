@@ -9,16 +9,15 @@
 // Both need `npx clasp login`, and the Apps Script API turned on for your
 // Google account (https://script.google.com/home/usersettings).
 //
-// Creating makes a standalone script, in no doc, generates
-// the shared secret into google/Secret.gs (not committed), deploys the web
-// app, then gives the Worker its address (googleUrl in cade.config.json,
-// uploaded with npm run config) and the secret (GOOGLE_SECRET). The script's
-// IDs are saved to .cade/google-app.json, so updates redeploy to the same
-// address. Each group's doc is made with npm run group.
+// Creating makes a standalone script, in no doc, generates the shared secret,
+// deploys the web app, then gives the Worker its address (googleUrl in
+// cade.config.json, uploaded with npm run config) and the secret
+// (GOOGLE_SECRET). The script keeps its own copy in its properties; no file
+// of yours holds it. The script's IDs are saved to .cade/google-app.json, so
+// updates redeploy to the same address.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { callWebApp, secretIn } from "./google-call.mjs";
 import { HOME, ROOT } from "./paths.mjs";
@@ -26,10 +25,10 @@ import { askHidden } from "./prompt.mjs";
 import "./cloudflare.mjs";
 
 const DIR = `${ROOT}google`;
-// Kept in HOME for `npm run group` to call the web app with. It is pushed with
-// the script only to make a new web app, or to move an old one's secret into
-// its script properties (see update).
-const SECRET_FILE = `${HOME}google/Secret.gs`;
+// Secret.gs exists only while a new web app is pushed (it has no authorization
+// yet to store the secret itself), or in an older deployment, which kept it in
+// HOME (see update).
+const OLD_SECRET_FILE = `${HOME}google/Secret.gs`;
 const SCRIPT_SECRET_FILE = `${DIR}/Secret.gs`;
 const MANIFEST_FILE = `${DIR}/appsscript.json`;
 const APP_FILE = `${HOME}.cade/google-app.json`;
@@ -124,21 +123,16 @@ async function exists(file) {
 
 // clasp may replace appsscript.json with Google's default; this keeps ours,
 // which makes the script a web app anyone can reach, running as you.
-async function pushScript(manifest, { withSecret }) {
+// `secret` is the text of Secret.gs to push with it; without, the file is left
+// out, which takes it off the script (clasp removes what it isn't given).
+async function pushScript(manifest, { secret } = {}) {
   await writeFile(MANIFEST_FILE, manifest);
-  const same = SECRET_FILE === SCRIPT_SECRET_FILE; // working in Cade's own folder
-  if (withSecret) {
-    if (!same) await copyFile(SECRET_FILE, SCRIPT_SECRET_FILE);
-    return clasp("push", "--force");
-  }
-  // clasp removes from the script what it isn't given, so leaving the file out takes it off.
-  const aside = `${SCRIPT_SECRET_FILE}.off`;
-  if (await exists(SCRIPT_SECRET_FILE)) await rename(SCRIPT_SECRET_FILE, aside);
+  if (secret) await writeFile(SCRIPT_SECRET_FILE, secret);
+  else await rm(SCRIPT_SECRET_FILE, { force: true });
   try {
     await clasp("push", "--force");
   } finally {
-    if (same && (await exists(aside))) await rename(aside, SCRIPT_SECRET_FILE);
-    else await rm(aside, { force: true });
+    await rm(SCRIPT_SECRET_FILE, { force: true });
   }
 }
 
@@ -159,11 +153,10 @@ export async function create(args) {
   const project = JSON.parse(await readFile(`${DIR}/.clasp.json`, "utf8"));
 
   const secret = randomBytes(32).toString("hex");
-  await mkdir(dirname(SECRET_FILE), { recursive: true });
-  await writeFile(SECRET_FILE, secretFile(secret));
   // A new script has no authorization yet, so it can't store the secret itself:
-  // it comes as Secret.gs, and the script moves it into its properties on its first request.
-  await pushScript(manifest, { withSecret: true });
+  // it comes as Secret.gs, just for this push, and the script moves it into its
+  // properties on its first request.
+  await pushScript(manifest, { secret: secretFile(secret) });
 
   console.log("Deploying the web app…");
   const deployment = await clasp("create-deployment", "--description", "Cade");
@@ -194,17 +187,17 @@ Open it signed in as the Google account that made the script (the one you logged
 with). If Google says "Sorry, unable to open the file at this time", you're signed in as another
 account: open the link in an incognito (private) window and sign in as that account there.
 
-Then have each group's doc made with npm run group:
-  npm run group -- --name <group> --workDoc new
+Then add a project from the app's Home tab in Slack; its Doc is made for it.
 `);
 }
 
 // Redeploys the script without Secret.gs: the secret lives in the script's
-// properties, so an update never touches it. A script that still has its secret
-// in Secret.gs is moved over first, by one push that keeps the file, and a request
-// that makes the new Code.gs store it. `--skip-check` leaves out that check
-// when the secret isn't to hand (google/Secret.gs is gone) but the script is
-// known to hold it.
+// properties, so an update never needs it. A script made by an older Cade may
+// still hold it only in Secret.gs: its new Code.gs has to be live to move it
+// over, so that case is pushed once with the old google/Secret.gs from your
+// deployment, if you kept it. `--skip-check` skips the check when the script is
+// known to hold its secret already (Apps Script → Project Settings → Script
+// Properties → SECRET).
 export async function update(args = []) {
   let app;
   try {
@@ -220,24 +213,25 @@ export async function update(args = []) {
   const deploy = () => clasp("update-deployment", app.deploymentId, "--description", "Cade"); // same deployment, so the address doesn't change
 
   if (!args.includes("--skip-check")) {
-    const secret = secretIn(await readFile(SECRET_FILE, "utf8").catch(() => ""));
-    if (!secret) {
-      throw new Error(
-        "google/Secret.gs is missing, so I can't check the script has its secret stored.\n" +
-          "Put it back, or if the script's SECRET property is set (Apps Script → Project Settings → Script Properties), run with --skip-check.",
-      );
-    }
-    const stored = async () => (await callWebApp(app.url, secret, "secret.status").catch(() => ({}))).stored === true;
+    // Asking also makes the script move a secret in Secret.gs into its properties.
+    const stored = async () => (await callWebApp(app.url, undefined, "secret.status").catch(() => ({}))).stored === true;
     if (!(await stored())) {
-      console.log("Moving the script's secret into its properties first…");
-      await pushScript(manifest, { withSecret: true });
-      await deploy();
-      if (!(await stored())) {
-        throw new Error("The script didn't store its secret. Has it been approved (open it, choose authorize, Run)? Then try again.");
+      const old = await readFile(OLD_SECRET_FILE, "utf8").catch(() => "");
+      if (!secretIn(old)) {
+        throw new Error(
+          "I can't tell that the script has its secret stored. Has it been approved (open it, choose authorize, Run)?\n" +
+            "If it is an older script whose secret is only in its Secret.gs, put your old google/Secret.gs back, or set the SECRET\n" +
+            "property (Apps Script → Project Settings → Script Properties) and run with --skip-check.",
+        );
       }
+      console.log("Moving the script's secret into its properties first…");
+      await pushScript(manifest, { secret: old });
+      await deploy();
+      if (!(await stored())) throw new Error("The script didn't store its secret. Has it been approved (open it, choose authorize, Run)? Then try again.");
+      console.log("Done; google/Secret.gs is no longer needed, and can be deleted.");
     }
   }
-  await pushScript(manifest, { withSecret: false });
+  await pushScript(manifest);
   await deploy();
   console.log(`Updated the script at ${app.url}`);
 }

@@ -41,7 +41,7 @@
 //                 whether open tasks are pinned in the channel (optional, off)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
 //                 (optional, off)
-// `npm run group` adds or changes a project here (see group.mjs).
+// A project can also be added from the Home tab, which keeps it in the database.
 //
 // The real secrets (the bot token, the signing secret and GOOGLE_SECRET,
 // which the web app's address is useless without) are set once with

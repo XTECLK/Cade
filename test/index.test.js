@@ -2148,7 +2148,6 @@ test("the manifest asks for the scopes Cade uses", async () => {
   assert.deepEqual(template.oauth_config.scopes.bot, [
     "canvases:write",
     "channels:history",
-    // npm run group creates and joins channels, and adds people by email.
     "channels:join",
     "channels:manage",
     "channels:read",
@@ -2624,9 +2623,11 @@ test("the Google web app checks SECRET from Secret.gs, and each action has its f
   const all = [code, await read("Doc.gs")].join("\n");
   // The secret is checked from the SECRET property, which Secret.gs's SECRET fills on the first request.
   assert.match(code, /getProperty\("SECRET"\)[\s\S]*typeof SECRET !== "undefined"[\s\S]*setProperty\("SECRET"/);
+  // secret.status is answered before the secret is checked: it says only whether it is stored.
+  assert.match(code, /body\.action === "secret\.status"\) return reply\(\{ ok: true, stored: Boolean\(secret\) \}\)/);
   // Each action calls a function one of the files defines.
   const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["doc.write", "doc.read", "doc.create", "secret.status"]);
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["doc.write", "doc.read", "doc.create"]);
   for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
     assert.match(all, new RegExp(`function ${name}\\(`), name);
   }
@@ -4439,109 +4440,6 @@ test("/cade replace leaves task cards and other people's messages alone, and nee
   }
 });
 
-test("npm run group adds or changes a group in cade.config.json", async () => {
-  const { readArgs, withGroup } = await import("../scripts/group.mjs");
-  assert.deepEqual(readArgs(["--name", "acme", "--channel", "C0000000002", "--workDoc", "new"]), { name: "acme", channel: "C0000000002", workDoc: "new" });
-  assert.throws(() => readArgs(["--channel", "C1"]), /Give the group a --name/);
-  assert.throws(() => readArgs(["--name", "acme", "--colour", "red"]), /I don't know "--colour"/);
-  assert.throws(() => readArgs(["--name", "acme", "--channel"]), /--channel needs a value/);
-
-  const start = JSON.stringify({ timezone: "UTC", projects: [{ name: "acme", channel: "C0000000002", workDoc: "https://docs.google.com/document/d/D/edit" }] });
-  // A new group goes at the end, its settings in order.
-  const added = JSON.parse(withGroup(start, "beta", { workDoc: "https://docs.google.com/document/d/S/edit", channel: "C0000000003" }));
-  assert.equal(added.timezone, "UTC");
-  assert.deepEqual(added.projects[1], { name: "beta", channel: "C0000000003", workDoc: "https://docs.google.com/document/d/S/edit" });
-  // A group there already keeps what isn't given; `none` removes a setting.
-  const changed = JSON.parse(withGroup(start, "acme", { workDoc: "none" }));
-  assert.deepEqual(changed.projects, [{ name: "acme", channel: "C0000000002" }]);
-  assert.throws(() => withGroup(start, "gamma", { workDoc: "none" }), /gamma needs a --channel/);
-});
-
-test("npm run group's guided setup finds channels and people", async () => {
-  const { channelName, findChannel, memberIds, validChannelName } = await import("../scripts/group.mjs");
-  assert.equal(channelName(" #Acme-Dev "), "acme-dev");
-  assert.ok(validChannelName("acme-dev"));
-  assert.ok(!validChannelName("acme dev"));
-  assert.ok(!validChannelName("-acme"));
-
-  // A fake Slack: two pages of channels, one lookup by ID, one email.
-  const pages = [
-    { channels: [{ id: "C0000000001", name: "general", is_member: true }], response_metadata: { next_cursor: "next" } },
-    { channels: [{ id: "C0000000002", name: "acme-dev", is_member: false }] },
-  ];
-  const slack = async (method, args) => {
-    if (method === "conversations.list") return pages[args.cursor ? 1 : 0];
-    if (method === "conversations.info") {
-      if (args.channel === "G0000000003") return { channel: { id: "G0000000003", name: "acme-client", is_private: true, is_member: true } };
-      throw new Error("Slack conversations.info failed: channel_not_found");
-    }
-    if (method === "users.lookupByEmail") {
-      if (args.email === "ann@acme.test") return { user: { id: "U0000000001" } };
-      throw new Error("Slack users.lookupByEmail failed: users_not_found");
-    }
-    throw new Error(`unexpected ${method}`);
-  };
-  assert.deepEqual(await findChannel(slack, "#acme-dev"), { id: "C0000000002", name: "acme-dev", isPrivate: false, isMember: false });
-  assert.deepEqual(await findChannel(slack, "G0000000003"), { id: "G0000000003", name: "acme-client", isPrivate: true, isMember: true });
-  assert.equal(await findChannel(slack, "acme-other"), null);
-  assert.equal(await findChannel(slack, "C0000000009"), null);
-
-  assert.deepEqual(await memberIds(slack, "ann@acme.test, U0000000002"), ["U0000000001", "U0000000002"]);
-  await assert.rejects(memberIds(slack, "bob@acme.test"), /No one in this Slack workspace has the email bob@acme.test/);
-  await assert.rejects(memberIds(slack, "bob"), /isn't an email or a Slack member ID/);
-});
-
-test("npm run group asks for each channel, existing by ID or new by name", async () => {
-  const { channelPlan } = await import("../scripts/group.mjs");
-  const channels = {
-    C0000000001: { id: "C0000000001", name: "acme-dev", is_member: false },
-    C0000000002: { id: "C0000000002", name: "acme-client", is_member: true },
-  };
-  let invited = false;
-  const slack = async (method, args) => {
-    if (method === "conversations.info") {
-      // G0000000003 is private: Cade sees it only once invited.
-      const found = channels[args.channel] ?? (invited && args.channel === "G0000000003" && { id: "G0000000003", name: "acme-other", is_private: true, is_member: true });
-      if (!found) throw new Error("Slack conversations.info failed: channel_not_found");
-      return { channel: found };
-    }
-    if (method === "conversations.list") return { channels: Object.values(channels) };
-    throw new Error(`unexpected ${method}`);
-  };
-  // Answers in order, as typed; each question asked is recorded.
-  const answering = (answers, onAsk = () => {}) => {
-    const asked = [];
-    const ask = async (question, fallback = "") => {
-      asked.push(question);
-      onAsk(asked.length);
-      if (!answers.length) throw new Error(`ran out of answers at: ${question}`);
-      return answers.shift() || fallback;
-    };
-    return { ask, asked };
-  };
-  const role = { field: "tasks", suffix: "dev", required: true };
-  const log = console.log;
-  console.log = () => {};
-  try {
-    // An existing public channel Cade isn't in: joined.
-    let { ask } = answering(["e", "C0000000001"]);
-    assert.deepEqual(await channelPlan(slack, ask, role, "Acme", [], undefined), { field: "tasks", action: "join", id: "C0000000001", name: "acme-dev", isPrivate: false, isMember: false });
-    // A private one, seen once invited.
-    ({ ask } = answering(["e", "G0000000003", ""], (n) => n === 3 && (invited = true)));
-    assert.equal((await channelPlan(slack, ask, role, "Acme", [], undefined)).action, "use");
-    // A new one: a taken name is refused, then the suggested one is made, private.
-    const answers = answering(["n", "acme-dev", "n", "", "y"]);
-    assert.deepEqual(await channelPlan(slack, answers.ask, role, "Beta", [], undefined), { field: "tasks", action: "create", name: "beta-dev", isPrivate: true });
-    assert.ok(answers.asked.some((question) => question.includes("[beta-dev]")));
-    // Enter keeps the group's channel; - removes an optional one.
-    ({ ask } = answering([""]));
-    assert.deepEqual(await channelPlan(slack, ask, role, "Acme", [], "C0000000002"), { field: "tasks", action: "keep", id: "C0000000002" });
-    ({ ask } = answering(["-"]));
-    assert.deepEqual(await channelPlan(slack, ask, { ...role, required: false }, "Acme", [], "C0000000002"), { field: "tasks", action: "remove" });
-  } finally {
-    console.log = log;
-  }
-});
 // ---- Suggestions read with AI (see ai.js and ai-suggest.js) ----
 
 // An environment with AI on, whose model answers `answer` (an object, as the
@@ -4900,7 +4798,7 @@ test("suggestions can be set per group, over the setting for every group", async
   assert.equal(suggesting(split, "hand-offs", "CTESTDEV"), false);
 });
 
-test("npm run config checks each group's suggestions, and npm run group keeps them", async () => {
+test("npm run config checks each group's suggestions", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = [
     { name: "acme", channel: "C0000000002", taskChangeDetection: true },
@@ -4911,10 +4809,6 @@ test("npm run config checks each group's suggestions, and npm run group keeps th
     projects[1],
   ]);
   assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[1], taskChangeDetection: ["nope"] }] })), /test's taskChangeDetection is true or false/);
-
-  const { withGroup } = await import("../scripts/group.mjs");
-  const next = JSON.parse(withGroup(JSON.stringify({ projects }), "test", { workDoc: "https://docs.google.com/document/d/S/edit" }));
-  assert.deepEqual(next.projects[1], { name: "test", channel: "C0000000003", workDoc: "https://docs.google.com/document/d/S/edit", taskChangeDetection: false });
 });
 
 test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {

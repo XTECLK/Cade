@@ -2,8 +2,7 @@
 //
 //   ROOT  this checkout of Cade: the code, migrations, slack/ and google/.
 //   HOME  where your deployment keeps its own files: cade.config.json,
-//         .cade/ (the Cloudflare account, the Slack app, the Google web app)
-//         and google/Secret.gs.
+//         .cade/ (the Cloudflare account, the Slack app, the Google web app).
 //
 // They are the same folder when you work in Cade itself. A deployment repo
 // (the cade-deploy template) checks Cade out under its own folder and sets

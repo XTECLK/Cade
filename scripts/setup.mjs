@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Takes you through GETTING_STARTED.md in one command: Cloudflare login, the
-// Worker, the Slack app, optionally a Google Doc for executive summaries, then your first
-// group. It runs the same npm scripts the guide names, so each can also be
+// Worker, the Slack app, and optionally a Google Doc for executive summaries. It runs the same npm scripts the guide names, so each can also be
 // run alone, and it skips what's already done: run it again to carry on.
 //
 //   npm run setup
@@ -98,7 +97,7 @@ async function workspaceName() {
   console.log(`\nTo put your Slack workspace's name in Cade's Gmail name and script, paste Cade's bot token: the Bot User OAuth Token (xoxb-…) at\n  ${page}`);
   const token = process.env.SLACK_BOT_TOKEN || (await askHidden("Slack bot token (hidden), or Enter to skip: "));
   if (!token) return undefined;
-  process.env.SLACK_BOT_TOKEN ??= token; // the group step won't ask for it again
+  process.env.SLACK_BOT_TOKEN ??= token;
   try {
     const result = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
     if (!result.ok) throw new Error(result.error);
@@ -218,17 +217,38 @@ own, so Cade can only reach what it makes, not your personal Drive.`);
     await pause("Open the script link above, choose authorize, click Run and allow it. Press Enter when done… ");
   });
 
-  await step("First group", async () => {
-    if (!(await yes("Set up a group (its Slack channel, and its Doc) now?"))) {
-      console.log("Later, with npm run group.");
-      return "skipped, later with npm run group";
+  await step("Admin", async () => {
+    // Only an admin can add a project from the Home tab; without any, no one can.
+    const file = `${HOME}cade.config.json`;
+    let config = {};
+    try {
+      config = JSON.parse(await readFile(file, "utf8"));
+    } catch {}
+    const real = (config.admins ?? []).filter((id) => id !== "U0000000001");
+    if (real.length) {
+      console.log(`Admins are set already (${real.join(", ")}).`);
+      return "skipped, already set";
     }
-    // runLive pauses our prompt while group.mjs uses the terminal, then resumes it.
-    if ((await runLive("node", ["scripts/group.mjs"])) !== 0) process.exit(1);
+    console.log("An admin can add projects from Cade's Home tab. In Slack, click your name or picture, then ⋯ → Copy member ID (it starts with U).");
+    const ids = (await ask("Slack member ID of the first admin (more later in cade.config.json): ")).split(/[\s,]+/).filter(Boolean);
+    if (!ids.length || !ids.every((id) => /^[UW][A-Z0-9]{6,}$/.test(id))) fail("That isn't a Slack member ID, such as U0123ABCD.");
+    await writeFile(file, `${JSON.stringify({ ...config, admins: ids }, null, 2)}\n`);
+    if ((await runLive("node", ["scripts/config.mjs"])) !== 0) fail("Uploading cade.config.json failed. npm run config retries it.");
+    return `admin ${ids.join(", ")}`;
   });
 
   note(outcomes.join("\n"), "Summary");
-  outro("Setup finished. In Slack, invite Cade to the channel with /invite @Cade, then try /cade help.");
+  note(
+    [
+      "1. In Slack, create a channel for your first project (a team channel where tasks and incidents are tracked).",
+      "2. Invite Cade to it: /invite @Cade",
+      "3. Open Cade's Home tab (Apps → Cade → Home).",
+      "4. Click Add project and pick the channel; its Google Doc is made for it.",
+      "5. Try /cade help in the channel.",
+    ].join("\n"),
+    "Try it in Slack",
+  );
+  outro("Setup finished.");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

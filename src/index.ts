@@ -7,6 +7,7 @@ import { findIntent, intentsOn, plainMessage } from "./intents.ts";
 import { handleMcp } from "./mcp.ts";
 import { retryUnposted } from "./retry.ts";
 import { withSettings } from "./settings.ts";
+import { BadEnvelope, checkSlashCommand, readEvent, readInteraction } from "./envelopes.ts";
 import { OutdatedPayload } from "./payloads.ts";
 import { callSlack, messageBody, mrkdwn, plainText, respondLater, verifySlackRequest } from "./slack.ts";
 import { handleWeb } from "./web.ts";
@@ -65,7 +66,14 @@ export default {
           ),
         ),
     };
-    return route(body, request, context);
+    try {
+      return await route(body, request, context);
+    } catch (error) {
+      // Signed by Slack, but not something Cade can read: said, rather than failing halfway through.
+      if (!(error instanceof BadEnvelope)) throw error;
+      console.warn("Slack sent something Cade can't read", { path, problem: error.message });
+      return new Response("Bad request", { status: 400 });
+    }
   },
 
   // The cron in wrangler.toml, every minute; every fifth posts tasks Slack
@@ -79,7 +87,7 @@ export default {
 // Messages in channels Cade is in: commands such as `@Cade assign @person` are
 // run in the background and answered in the message's thread.
 async function handleEvent(body: string, request: Request, context: Context) {
-  const envelope = JSON.parse(body);
+  const envelope = readEvent(body);
   if (envelope.type === "url_verification") {
     return Response.json({ challenge: envelope.challenge });
   }
@@ -87,28 +95,29 @@ async function handleEvent(body: string, request: Request, context: Context) {
   // first delivery is already being handled.
   if (request.headers.has("x-slack-retry-num")) return respond();
   if (envelope.type !== "event_callback") return respond();
-  const botUserId = envelope.authorizations?.[0]?.user_id;
+  const botUserId = envelope.authorizations?.[0]?.user_id ?? "";
+  const event = envelope.event!;
 
   // An emoji added to a message can ask Cade to do something with it (see
   // the handlers' `reactions`). Cade's own reactions never do.
-  if (envelope.event.type === "reaction_added") {
-    const { event } = envelope;
+  if (event.type === "reaction_added") {
     if (event.item?.type === "message" && event.user !== botUserId) {
       for (const handle of reactions) context.waitUntil(handle(event, context));
     }
     return respond();
   }
   // Opening Cade's Home tab draws it (see home.ts).
-  if (envelope.event.type === "app_home_opened") {
-    if (envelope.event.tab === "home") context.waitUntil(publishHome(context.env, envelope.event.user));
+  if (event.type === "app_home_opened") {
+    // Slack says whose Home tab it is.
+    if (event.tab === "home") context.waitUntil(publishHome(context.env, event.user!));
     return respond();
   }
-  if (envelope.event.type !== "message") return respond();
+  if (event.type !== "message") return respond();
 
   // A reply in a task's thread is kept in the database (see recordMessage).
-  context.waitUntil(recordMessage(context.env, envelope.event).catch((error) => console.error("Could not keep a message", { error: error.message })));
+  context.waitUntil(recordMessage(context.env, event).catch((error) => console.error("Could not keep a message", { error: error.message })));
 
-  const command = parseMessage(envelope.event, botUserId);
+  const command = parseMessage(event, botUserId);
   if (command) {
     context.waitUntil(
       (async () => {
@@ -135,17 +144,17 @@ async function handleEvent(body: string, request: Request, context: Context) {
     );
   } else {
     // Plain messages can still mean something: see intents.ts.
-    const message = plainMessage(envelope.event, botUserId);
+    const message = plainMessage(event, botUserId);
     // Kinds turned off in `taskChangeDetection`, for the message's group or every
     // group, aren't considered (see suggesting).
     const meant = message && findIntent(intentsOn(context.env, intents, message.channel), message);
     console.log("Plain message", {
-      channel: envelope.event.channel,
-      ts: envelope.event.ts,
-      threadTs: envelope.event.thread_ts,
-      subtype: envelope.event.subtype,
-      botId: envelope.event.bot_id,
-      text: envelope.event.text,
+      channel: event.channel,
+      ts: event.ts,
+      threadTs: event.thread_ts,
+      subtype: event.subtype,
+      botId: event.bot_id,
+      text: event.text,
       acted: Boolean(message),
       inThread: message?.inThread,
       intent: meant?.name,
@@ -165,7 +174,9 @@ async function handleEvent(body: string, request: Request, context: Context) {
 // modal can be opened with the command's trigger_id, which expires after
 // three seconds. Replies are shown only to the person who sent the command.
 async function handleSlashCommand(body: string, request: Request, context: Context) {
-  const command = parseSlashCommand(new URLSearchParams(body));
+  const form = new URLSearchParams(body);
+  checkSlashCommand(form);
+  const command = parseSlashCommand(form);
   const reply = await dispatchSlash(command, context);
   return respond(reply && { response_type: "ephemeral", ...messageBody(reply) });
 }
@@ -174,7 +185,7 @@ async function handleSlashCommand(body: string, request: Request, context: Conte
 // message's ⋯ → More actions) go to the handler that registered the modal's
 // callback_id, the button's action_id or the shortcut's callback_id.
 async function handleInteraction(body: string, request: Request, context: Context) {
-  const payload: SlackPayload = JSON.parse(new URLSearchParams(body).get("payload")!);
+  const payload = readInteraction(body);
   let id: string | undefined;
   let handler: PayloadHandler | undefined;
   if (payload.type === "view_submission") {

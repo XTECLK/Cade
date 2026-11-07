@@ -3874,9 +3874,9 @@ test("events other than messages, and interactions Cade has no handler for, are 
   const reaction = JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "reaction_added" } });
   assert.equal((await send("/slack/events", reaction)).status, 200);
   for (const payload of [
-    { type: "view_closed", view: { callback_id: "track" } },
-    { type: "block_actions", actions: [{ action_id: "nobody:knows" }] },
-    { type: "view_submission", view: { callback_id: "nobody:knows" } },
+    { type: "view_closed", user: { id: "UACTOR" }, view: { callback_id: "track" } },
+    { type: "block_actions", user: { id: "UACTOR" }, actions: [{ action_id: "nobody:knows" }] },
+    { type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: "nobody:knows" } },
   ]) {
     assert.equal((await send("/slack/interactions", interaction(payload))).status, 200, payload.type);
   }
@@ -5450,4 +5450,23 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
   // What it does take is uploaded as it was.
   const members = { ...acme, members: ["UANN", "UBOB"], workDoc: "https://docs.google.com/document/d/abcdefghijklmnopqrstuvwxyz/edit", summaryCanvas: true };
   assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects: [members], mcp: true })).PROJECTS), [members]);
+});
+
+test("what Slack sends is checked for what Cade routes it by, and answered 400 if it can't be read", async (t) => {
+  const calls = mockSlack(t);
+  for (const [path, body, problem] of [
+    ["/slack/events", "not json", /event isn't JSON/],
+    ["/slack/events", JSON.stringify({ type: "event_callback" }), /Give event\./],
+    ["/slack/interactions", interaction({ type: "block_actions", user: { id: "UACTOR" }, actions: [] }), /actions needs at least 1 entry/],
+    ["/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: {} }), /Give view\.callback_id\./],
+    ["/slack/interactions", interaction({ type: "block_actions", actions: [{ action_id: "home:refresh" }] }), /Give user\./],
+    ["/slack/commands", new URLSearchParams({ command: "/cade", text: "help" }).toString(), /Give user_id\./],
+  ] as const) {
+    const logged = t.mock.method(console, "warn", () => {});
+    const response = await send(path, body);
+    assert.equal(response.status, 400, body);
+    assert.match(String(logged.mock.calls.at(-1)?.arguments[1]?.problem), problem, body);
+    logged.mock.restore();
+  }
+  assert.deepEqual(calls, []);
 });

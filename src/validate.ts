@@ -22,6 +22,7 @@ export interface Schema {
   maximum?: number;
   maxLength?: number;
   maxItems?: number;
+  minItems?: number;
   // A regular expression the text must match; `description` then says what is expected.
   pattern?: string;
 }
@@ -62,6 +63,8 @@ function explain(root: Schema, errors: OutputUnit[], value: unknown) {
       return `Give ${schema.anyOf!.map((option: Schema) => (option.required ?? []).map(named).join(" and ")).join(" or ")}.`;
     case "maxLength":
       return `${path} is ${[...String(valueAt(value, error))].length} characters; keep it to ${schema.maxLength} or fewer.`;
+    case "minItems":
+      return `${path || "The value"} needs at least ${schema.minItems} entr${schema.minItems === 1 ? "y" : "ies"}.`;
     case "pattern":
       return `${path || "The value"} ${JSON.stringify(valueAt(value, error))} isn't ${schema.description ?? "in the right form"}.`;
     case "maxItems":

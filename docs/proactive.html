@@ -80,13 +80,13 @@
       <div class="feature">
         <div class="bar"></div>
         <h3>3 · AI suggestions</h3>
-        <span class="where"><code>ai</code> · off by default</span>
+        <span class="where">On by default</span>
         <p>The proactive agent reads task threads with a small model on Cloudflare Workers AI, so one message can mean several changes.</p>
         <ul>
           <li>Several people across roles, added or removed</li>
-          <li>Status, priority and due date (“need it by Friday”)</li>
+          <li>Status, priority and due date (“need it by Friday”), and blocked or unblocked</li>
           <li>A summary to <b>Accept</b>, <b>Edit…</b> in the task's form, or <b>Reject</b></li>
-          <li>Needs the proactive agent on, and falls back to phrases if the model fails</li>
+          <li>Needs the proactive agent on, and suggests only PR links if the model fails</li>
         </ul>
       </div>
     </div>
@@ -126,7 +126,7 @@
         <ul>
           <li><b>Started:</b> “on it”, “started on this” from someone on the task offers <b>In progress</b>.</li>
           <li><b>Progress:</b> “lgtm” from a reviewer, “QA passed” from a tester, or “done” from anyone on it offers the next status.</li>
-          <li>Role and status suggestions come together as one private message: a summary of what Cade read, with <b>Accept</b>, <b>Edit…</b> (the task's Edit form, filled in with it) and <b>Reject</b>. The same as <a href="#ai">AI suggestions</a>, read by phrases instead.</li>
+          <li>Role and status suggestions come together as one private message: a summary of what Cade read, with <b>Accept</b>, <b>Edit…</b> (the task's Edit form, filled in with it) and <b>Reject</b>. </li>
         </ul>
         <div class="example"><b>Example:</b> “lgtm, approved the PR”</div>
       </article>
@@ -140,8 +140,8 @@
   <div class="wrap">
     <div class="eyebrow">AI suggestions</div>
     <h2>One message, every change, read with AI</h2>
-    <p class="lede">With AI suggestions on, the proactive agent reads messages in task threads with a small model on Cloudflare Workers AI, not by fixed phrases. That catches more ways of saying things, and several changes in one message.</p>
-    <p class="lede"><b>Off by default.</b> Turn it on with <code>"aiSuggestions": true</code> in <code>cade.config.json</code>, or name another Workers AI model, for every group or only some: <code>{ "name": "acme", …, "ai": true }</code> in <code>channels</code>. It needs the proactive agent on: with <code>"taskStatusChangeDetection": false</code>, AI is never asked.</p>
+    <p class="lede">The proactive agent reads messages in task threads with a small model on Cloudflare Workers AI. That catches many ways of saying things, and several changes in one message.</p>
+    <p class="lede"><b>On by default.</b> It needs the <code>AI</code> binding in <code>wrangler.toml</code>, and the proactive agent on: with <code>"taskStatusChangeDetection": false</code>, nothing is read. Name another Workers AI model with <code>"aiModel"</code> at the top of <code>cade.config.json</code>.</p>
     <div class="entries">
 
       <article class="entry">

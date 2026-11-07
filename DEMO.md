@@ -36,8 +36,8 @@ with the client; Cade doesn't need to be in it.
   shows; with one group, the shortcuts skip it.
 - In `cade.config.json`: `"pinning": true` and `"canvas": true` (both off by
   default; the pinned card and the summary canvas only show with them), and
-  `"ai": true` for step 9. Without `ai`, Cade reads phrases and only adds
-  people. Run `npm run config`.
+  nothing for step 9: Cade reads messages with AI whenever the `AI` binding
+  is there. Run `npm run config`.
 - The app updated (`npm run slack:update`) so the **Home** tab shows (Act 6).
 
 **What each kind of reply looks like**, so you record the right screen:

@@ -1,12 +1,10 @@
-import { groupSetting } from "./channels.js";
 import { PRIORITIES, STATUSES, cleanReason } from "./tasks.js";
 
 // Reading what a message in a task's thread asks to change, with a model on
 // Workers AI: who should develop, review or test it, and its status,
-// priority and due date. Turned on with a project's `aiSuggestions` in cade.config.json,
-// with the Workers AI binding `AI` (see wrangler.toml); without them, or if
-// the model fails, suggestions read messages by their phrases instead (see
-// suggest.js).
+// priority and due date, and whether it is blocked. It needs the Workers AI binding `AI` (see
+// wrangler.toml); without it, or if the model fails, only pull request links are suggested (see
+// suggest.js). Suggestions as a whole are turned off with `taskStatusChangeDetection`.
 //
 // The model only proposes: everything it returns is checked against the
 // message and the task here (see checkChanges), and nothing changes until
@@ -30,16 +28,10 @@ const SPEAKS_FOR_SELF =
 // A message waits this long for the model before falling back.
 const TIMEOUT_MS = 8000;
 
-// The model to read messages in `channel` with, or null when AI is off: the
-// project's `aiSuggestions` (true or false) with the one model for every project, `aiModel` in
-// cade.config.json (AI_MODEL_NAME), the default model if it has none. Before that, `ai` (now
-// `aiSuggestions`) could be "on", "off" or a model's name, as AI_MODEL still is for every project;
-// those are still read.
-export function aiModel(env, channel) {
-  let setting = groupSetting(env, channel, "aiSuggestions") ?? groupSetting(env, channel, "ai") ?? env.AI_MODEL;
-  if (typeof setting === "boolean") setting = setting ? "on" : "off";
-  if (!env.AI || !setting || setting === "off") return null;
-  if (setting !== "on") return setting;
+// The model that reads messages: `aiModel` in cade.config.json (AI_MODEL_NAME), the default
+// model if it has none, or null when there is no `AI` binding.
+export function aiModel(env) {
+  if (!env.AI) return null;
   return env.AI_MODEL_NAME || DEFAULT_MODEL;
 }
 
@@ -62,10 +54,18 @@ const SCHEMA = {
     status: { type: "string", enum: ["", ...Object.keys(STATUSES)] },
     priority: { type: "string", enum: ["", ...Object.keys(PRIORITIES)] },
     dueDate: { type: "string", description: "YYYY-MM-DD, \"clear\" to remove it, or \"\"" },
+    prs: {
+      type: "object",
+      properties: {
+        add: { type: "array", items: { type: "string" } },
+        remove: { type: "array", items: { type: "string" } },
+      },
+      required: ["add", "remove"],
+    },
     blocked: { type: "string", enum: ["", "block", "unblock"] },
     blockedReason: { type: "string", description: "Why it is blocked, in a short phrase, when blocked is \"block\"; otherwise \"\"" },
   },
-  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "blocked", "blockedReason"],
+  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "prs", "blocked", "blockedReason"],
 };
 
 const INSTRUCTIONS = `You read one Slack message posted in the thread of a task, usually a software one, and say what it asks to change on the task. Reply with JSON only.
@@ -103,6 +103,10 @@ Examples (author UA):
 - "started on subtask 1", task hasSubtasks and TODO → status IN_PROGRESS.
 - "started on subtask 2", task hasSubtasks and already IN_PROGRESS → nothing.
 - "thanks <@UB>, cc <@UC>" → nothing.
+- "PR is up: <link>" → prs add that link.
+- "see <link> for how they did it" → nothing (a reference).
+- "closed <linked 42>, new PR <link 43>" → prs remove 42, add 43.
+- "<linked 42> is abandoned" → prs remove 42.
 - "blocked on the payment API keys", task not blocked → blocked block, blockedReason "waiting on the payment API keys".
 - "keys arrived, unblocked", task blocked → blocked unblock.
 - "we're still blocked", task already blocked → nothing.
@@ -119,6 +123,7 @@ Examples (author UA):
 - "needed by next Friday" → dueDate that date from "nextWeekDays".
 - ":rocket: :tada:" → nothing.
 
+prs: "pullRequests.inMessage" are the pull request links found in the message by code, and "pullRequests.linked" those already on the task. Never write any other address. "add": the ones in the message that the message wants linked to this task, which is the usual reason to paste one. Leave a link out when it is only mentioned for reference ("see how they did it in <link>") or is about another task. "remove": the ones in "linked" that the message says no longer belong: closed, abandoned, replaced or linked by mistake ("closed this one, new PR is <link>", "wrong PR, unlink it"). A link in "linked" that the message merely mentions stays. Both empty when it says nothing about them.
 blocked: the task's "blocked" says whether it is blocked now. Answer "block" (only when it isn't) when the message says the work can't go on because of something it waits for or that is in the way ("blocked on the API keys", "waiting for the client's design", "can't continue until staging is fixed"), with blockedReason as a short phrase of what blocks it, in the message's words, under 100 characters. Answer "unblock" (only when it is) when the message says that is over ("unblocked", "keys arrived, carrying on", "no longer waiting on design"). Otherwise "" and an empty blockedReason. A question ("are we blocked?"), a risk ("might get blocked"), a plan, or a task that blocks something else ("this blocks the release") changes nothing. A blocked task keeps its status.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
@@ -127,8 +132,8 @@ Leave anything the message doesn't clearly ask for empty. Most messages change n
 // changes (see checkChanges), or null if it changes nothing. Throws when the
 // model can't be reached or answers with something that isn't JSON, so
 // whoever asked can fall back. `today` is { date: "YYYY-MM-DD", weekday }.
-export async function readChanges(env, { message, task, today, allowed }) {
-  const model = aiModel(env, message.channel);
+export async function readChanges(env, { message, task, today, allowed, pullRequests = [] }) {
+  const model = aiModel(env);
   const input = {
     today: `${today.weekday} ${today.date}`,
     // Small models get weekdays wrong when they work them out.
@@ -153,6 +158,7 @@ export async function readChanges(env, { message, task, today, allowed }) {
       blockedReason: task.blockedReason || "",
       people: task.people,
     },
+    pullRequests: { inMessage: pullRequests, linked: task.prs ?? [] },
     message: message.text,
   };
   const started = Date.now();
@@ -170,7 +176,7 @@ export async function readChanges(env, { message, task, today, allowed }) {
   );
   const raw = answerOf(result);
   console.log("AI read a message", { model, ms: Date.now() - started });
-  return checkChanges(raw, { task, message, allowed: { ...allowed, author: SPEAKS_FOR_SELF.test(message.text) } });
+  return checkChanges(raw, { task, message, allowed: { ...allowed, author: SPEAKS_FOR_SELF.test(message.text) }, pullRequests });
 }
 
 // The next seven days after `date` (YYYY-MM-DD), as { Wednesday: "2026-10-28", … }.
@@ -224,8 +230,15 @@ function answerOf(result) {
 //   - a due date must be a real date (YYYY-MM-DD, or "clear"), and differ.
 // `allowed` says which kinds may change: { roles, status, details }, and
 // `roles` which roles; and `author`, false when the author may not be added.
-export function checkChanges(raw, { task, message, allowed }) {
+export function checkChanges(raw, { task, message, allowed, pullRequests = [] }) {
   const changes = {};
+  if (allowed.prs) {
+    // Only addresses code found in the message can be linked, and only those on the task unlinked.
+    const linked = task.prs ?? [];
+    const remove = unique(raw?.prs?.remove).filter((url) => linked.includes(url));
+    const add = unique(raw?.prs?.add).filter((url) => pullRequests.includes(url) && !linked.includes(url) && !remove.includes(url));
+    if (add.length || remove.length) changes.prs = { add, remove };
+  }
   const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...message.mentions]);
   for (const role of allowed.roles ?? []) {
     const current = task.people[role] ?? [];

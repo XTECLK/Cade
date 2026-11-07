@@ -20,7 +20,7 @@ const REJECT_ACTION = "ai-suggest:reject";
 
 // Reads the message for `about` (the task its thread is about; see
 // threadTask in suggest.js) and, if it asks for changes, asks whoever wrote
-// it. Throws if the model fails, for suggest.js to fall back on phrases.
+// it. Throws if the model fails, for suggest.js to fall back on pull request links alone.
 export async function suggestWithAi(env, message, { target, task }) {
   const handOffs = suggesting(env, "hand-offs", message.channel) || suggesting(env, "started", message.channel);
   const allowed = {
@@ -31,23 +31,26 @@ export async function suggestWithAi(env, message, { target, task }) {
     details: suggesting(env, "details", message.channel) && !task.incident,
     // Blocked and unblocked are progress on a task, so they follow the same setting as its status.
     blocked: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
+    prs: suggesting(env, "pr-links", message.channel),
   };
-  // Nothing for the model to read when only PR links are on.
-  const read = allowed.roles.length || allowed.status || allowed.details || allowed.blocked;
-  const changes = withPullRequests(env, message, task, read ? await readChanges(env, { message, task, today: today(env), allowed }) : null);
+  // The links come from the text, and the model says which are meant to be linked, and which linked ones no longer belong.
+  const pullRequests = pullRequestsIn(message.text);
+  const read = allowed.roles.length || allowed.status || allowed.details || allowed.blocked || allowed.prs;
+  const changes = withPullRequests(env, message, task, read ? await readChanges(env, { message, task, today: today(env), allowed, pullRequests }) : null, { decided: read });
   if (changes) await askToChange(env, message, { target, task }, changes);
 }
 
-// `changes` with the message's pull requests that aren't linked yet added,
-// and the people it mentions, who are reviewers of them, unless pr-links is
-// off. Links come from the text, not the model. Shared with suggestions by
-// phrases (see suggest.js). Null when there's nothing to change.
-export function withPullRequests(env, message, task, changes) {
+// `changes` with the people the message mentions added as reviewers of the pull requests it links,
+// unless pr-links is off. Links come from the text, not the model: when the model has decided
+// (`decided`), `changes.prs` is its answer, checked; otherwise, with AI off or failed, every link in
+// the message that isn't linked yet is added. Shared with the fallback in suggest.js. Null when there's
+// nothing to change.
+export function withPullRequests(env, message, task, changes, { decided = false } = {}) {
   if (!suggesting(env, "pr-links", message.channel)) return changes;
-  const add = pullRequestsIn(message.text).filter((url) => !task.prs.includes(url));
-  if (!add.length) return changes;
-  const merged = { ...changes, prs: { add } };
-  const reviewers = message.mentions.filter((id) => !task.people.reviewer.includes(id));
+  const prs = decided ? changes?.prs : { add: pullRequestsIn(message.text).filter((url) => !task.prs.includes(url)) };
+  if (!prs?.add?.length && !prs?.remove?.length) return changes;
+  const merged = { ...changes, prs };
+  const reviewers = prs.add?.length ? message.mentions.filter((id) => !task.people.reviewer.includes(id)) : [];
   if (reviewers.length) {
     const current = changes?.people?.reviewer ?? { add: [], remove: [] };
     merged.people = {
@@ -63,7 +66,7 @@ export function withPullRequests(env, message, task, changes) {
 
 // Asks whoever wrote `message`, privately, whether to make `changes` (as
 // changes.js takes them) to `task`, with a summary and Accept, Edit… and
-// Reject. Shared with suggestions by phrases (see suggest.js).
+// Reject.
 export async function askToChange(env, message, { target, task }, changes) {
   const question = "Should I update the task? From your message:";
   // Whoever the message mentioned was notified by it, so applying it

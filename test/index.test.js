@@ -2512,7 +2512,7 @@ test("npm run config checks the suggestions setting", async () => {
   assert.throws(() => suggestions("off"), /acme's taskStatusChangeDetection is true or false/);
 });
 
-test("suggestions can be turned off, all or some, and a kind turned off doesn't hand the message to the next", async (t) => {
+test("suggestions can be turned off, all or some, and a kind turned off asks the model nothing about it", async (t) => {
   const record = () => {
     const task = ownTask({ owners: ["UDEV1"] });
     task.task.status = "IN_PROGRESS";
@@ -2523,12 +2523,10 @@ test("suggestions can be turned off, all or some, and a kind turned off doesn't 
     ["false", "<@UREX> please review this", false],
     ['["hand-offs"]', "<@UREX> please review this", true],
     ['["pr-links"]', "<@UREX> please review this", false],
-    // A report is "started": off, it doesn't fall through to the reviewer hand-off.
-    ['["hand-offs"]', "<@UREX> started working on the review comments", false],
   ]) {
-    const environment = suggestions === undefined ? env : { ...env, TASK_STATUS_CHANGE_DETECTION: suggestions };
+    const { environment } = aiEnv(aiRead({ reviewer: add("UREX") }));
     const calls = mockSlack(t, { stored: [record()] });
-    await send("/slack/events", threadEvent(text, { user: "UDEV1" }), {}, environment);
+    await send("/slack/events", threadEvent(text, { user: "UDEV1" }), {}, suggestions === undefined ? environment : { ...environment, TASK_STATUS_CHANGE_DETECTION: suggestions });
     assert.equal(calls.some((call) => call.method === "chat.postEphemeral"), offered, `${suggestions}: ${text}`);
   }
 });
@@ -3945,10 +3943,17 @@ const answerSuggestion = (question, index = 0, user = "UACTOR") => {
   });
 };
 
-test("asking for a role suggests adding whoever the request names, not someone only cc'd", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("IN_PROGRESS", { reviewers: ["URIA"] })] });
-  await send("/slack/events", threadReply("<@UMIA> can you review this? cc <@UREX>"));
-  const question = ephemeral(calls);
+// A suggestion read by AI: `text` sent in the task's thread, with the model answering `raw` (see
+// aiRead). Resolves to the calls made and the private question asked, if any.
+const aiSuggestion = async (t, text, record, raw, { user = "UACTOR", settings = {} } = {}) => {
+  const { environment, asked } = aiEnv(aiRead(raw));
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/events", threadReply(text, { user }), {}, { ...environment, ...settings });
+  return { calls, question: ephemeral(calls), asked };
+};
+
+test("a suggestion asks whoever wrote the message, privately, with Accept, Edit… and Reject", async (t) => {
+  const { question } = await aiSuggestion(t, "<@UMIA> can you review this? cc <@UREX>", taskWith("IN_PROGRESS", { reviewers: ["URIA"] }), { reviewer: add("UMIA") });
   assert.equal(question.user, "UACTOR");
   assert.equal(question.thread_ts, "100.1");
   assert.equal(question.text, "Should I update the task? From your message:");
@@ -3957,64 +3962,11 @@ test("asking for a role suggests adding whoever the request names, not someone o
   assert.deepEqual(question.blocks.at(-1).elements.map((button) => button.text.text), ["Accept", "Edit…", "Reject"]);
 });
 
-test("one message can ask for several roles, each for whoever it names", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UREX"] })] });
-  await send("/slack/events", threadReply("<@UREX> please pick this up, <@UMIA> can you review it and <@UTOM> test it"));
-  // UREX develops it already; developing it as well as testing it means the
-  // work hasn't reached testing.
-  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { reviewer: add("UMIA"), tester: add("UTOM") } });
-});
-
-test("asking someone to implement it while the author tests it suggests them as owner, and the author as tester", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("TODO")] });
-  await send("/slack/events", threadReply("<@UUDARA> can you implement this feature while i will try about ways to test this"));
-  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { owner: add("UUDARA"), tester: add("UACTOR") } });
-  assert.equal(ephemeral(calls).blocks[1].text.text, "*Owners:* <@UUDARA> (Add)\n*Testers:* <@UACTOR> (Add)");
-
-  // The author testing it, beside a review asked of someone else, doesn't
-  // move it to In testing.
-  const review = mockSlack(t, { stored: [taskWith("IN_REVIEW")] });
-  await send("/slack/events", threadReply("<@UMIA> please review it and I'll test it after"));
-  assert.deepEqual(suggestedChanges(ephemeral(review)), { people: { reviewer: add("UMIA"), tester: add("UACTOR") } });
-});
-
-test("asking only for testing also suggests In testing", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { testers: ["UTOM"] })] });
-  await send("/slack/events", threadReply("<@UTOM> please test it on staging"));
-  // UTOM tests it already, so only the status changes.
-  assert.deepEqual(suggestedChanges(ephemeral(calls)), { status: "IN_TESTING" });
-});
-
-test("the work starting suggests In progress, and adding as an owner someone not on the task", async (t) => {
-  for (const [text, people, changes] of [
-    ["on it", { owners: ["UACTOR"] }, { status: "IN_PROGRESS" }],
-    ["okay, started working on this", {}, { people: { owner: add("UACTOR") }, status: "IN_PROGRESS" }],
-    ["<@UREX> has started working on this", {}, { status: "IN_PROGRESS" }],
-  ]) {
-    const calls = mockSlack(t, { stored: [taskWith("TODO", people)] });
-    await send("/slack/events", threadReply(text));
-    assert.deepEqual(suggestedChanges(ephemeral(calls)), changes, text);
-  }
-});
-
-test("progress in words suggests the next status", async (t) => {
-  for (const [text, record, user, status] of [
-    ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", "IN_TESTING"],
-    ["qa passed", taskWith("IN_TESTING", { testers: ["UACTOR"] }), "UACTOR", "DONE"],
-    ["merged and deployed", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), "UACTOR", "DONE"],
-  ]) {
-    const calls = mockSlack(t, { stored: [record] });
-    await send("/slack/events", threadReply(text, { user }));
-    assert.deepEqual(suggestedChanges(ephemeral(calls)), { status }, text);
-  }
-});
-
 test("Accept applies the suggestion and tells the thread who changed what", async (t) => {
-  let calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
-  await send("/slack/events", threadReply("<@UTESS> please test it"));
-  const question = ephemeral(calls);
+  const record = () => taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] });
+  const { question } = await aiSuggestion(t, "<@UTESS> please test it", record(), { tester: add("UTESS"), status: "IN_TESTING" });
 
-  calls = mockSlack(t, { ...slackUsers, stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
+  const calls = mockSlack(t, { ...slackUsers, stored: [record()] });
   const sent = recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
   const saved = await savedTask();
@@ -4054,10 +4006,8 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
 
   // Accepting "started working on this" makes the writer an owner, and
   // asks no one.
+  const { question } = await aiSuggestion(t, "okay, started working on this", taskWith("TODO"), { owner: add("UACTOR"), status: "IN_PROGRESS" });
   let calls = mockSlack(t, { stored: [taskWith("TODO")] });
-  await send("/slack/events", threadReply("okay, started working on this"));
-  const question = ephemeral(calls);
-  calls = mockSlack(t, { stored: [taskWith("TODO")] });
   recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
   const post = calls.filter((call) => call.method === "chat.postMessage").at(-1).args;
@@ -4069,11 +4019,9 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
   assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UTOM>, could you give this a test when you get a chance? Thanks!");
 });
 
-test("Edit… on a suggestion by phrases opens the task's Edit form, filled in with it", async (t) => {
-  let calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"] })] });
-  await send("/slack/events", threadReply("<@UMIA> can you review this?"));
-  const question = ephemeral(calls);
-  calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"] })] });
+test("Edit… on a suggestion opens the task's Edit form, filled in with it", async (t) => {
+  const { question } = await aiSuggestion(t, "<@UMIA> can you review this?", taskWith("IN_REVIEW", { reviewers: ["URIA"] }), { reviewer: add("UMIA") });
+  const calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"] })] });
   await send("/slack/interactions", answerSuggestion(question, 1));
   const form = calls.find((call) => call.method === "views.open").args.view;
   assert.equal(form.callback_id, "task:edit");
@@ -4081,11 +4029,10 @@ test("Edit… on a suggestion by phrases opens the task's Edit form, filled in w
 });
 
 test("Accept leaves a suggested status alone once the task has moved, and Reject changes nothing", async (t) => {
-  let calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UACTOR"] })] });
-  await send("/slack/events", threadReply("on it"));
-  const question = ephemeral(calls);
+  const { question } = await aiSuggestion(t, "on it", taskWith("TODO", { owners: ["UACTOR"] }), { status: "IN_PROGRESS" });
 
   // Someone moved it to In review meanwhile.
+  let calls;
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { owners: ["UACTOR"] })] });
   let sent = recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
@@ -4100,51 +4047,6 @@ test("Accept leaves a suggested status alone once the task has moved, and Reject
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
-test("suggestions follow the kinds turned on", async (t) => {
-  for (const [kinds, text, record, user, changes] of [
-    ['["hand-offs"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", null],
-    ['["progress"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", { status: "IN_TESTING" }],
-    ['["progress"]', "<@UMIA> can you review this?", taskWith("IN_PROGRESS"), "UACTOR", null],
-    ['["hand-offs"]', "on it", taskWith("TODO", { owners: ["UACTOR"] }), "UACTOR", null],
-    // Asked for testing with progress off: the role, and the status with it.
-    ['["hand-offs"]', "<@UTOM> please test it", taskWith("IN_PROGRESS"), "UACTOR", { people: { tester: add("UTOM") }, status: "IN_TESTING" }],
-  ]) {
-    const calls = mockSlack(t, { stored: [record] });
-    await send("/slack/events", threadReply(text, { user }), {}, { ...env, TASK_STATUS_CHANGE_DETECTION: kinds });
-    const question = ephemeral(calls);
-    assert.deepEqual(question ? suggestedChanges(question) : null, changes, `${kinds}: ${text}`);
-  }
-});
-
-test("progress in words asks nothing for questions, doubts, people off the task or a task that's waiting", async (t) => {
-  for (const [text, record, overrides] of [
-    // Questions and doubts.
-    ["is it done?", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
-    ["not done yet", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
-    ["almost finished", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
-    ["I'll merge once it's approved", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
-    ["isn't merged", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
-    // Someone who isn't on the task.
-    ["done", taskWith("IN_PROGRESS", { owners: ["UREX"] }), {}],
-    // A reviewer approving a task that isn't in review.
-    ["LGTM", taskWith("IN_PROGRESS", { reviewers: ["UACTOR"] }), {}],
-    // A tester passing a task that isn't in testing.
-    ["QA passed", taskWith("IN_REVIEW", { testers: ["UACTOR"] }), {}],
-    // A owner "approving" in testing isn't the tester.
-    ["looks good", taskWith("IN_TESTING", { owners: ["UACTOR"] }), {}],
-    // The client decides, or it's done.
-    ["done", taskWith("CLIENT_REVIEW", { owners: ["UACTOR"] }), {}],
-    ["done", taskWith("DONE", { owners: ["UACTOR"] }), {}],
-    // Not a task thread.
-    ["done", null, {}],
-    ["done", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), { channel: "COTHER" }],
-  ]) {
-    const calls = mockSlack(t, { stored: record ? [record] : [] });
-    await send("/slack/events", threadReply(text, overrides));
-    assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), `${text} ${record?.task.status}`);
-  }
-});
-
 test("progressOptions reads the task, the writer and their words", async () => {
   const { progressOptions } = await import("../src/commands/status.js");
   const task = (status, people = {}) => taskWith(status, people).task;
@@ -4153,12 +4055,6 @@ test("progressOptions reads the task, the writer and their words", async () => {
   assert.deepEqual(progressOptions(task("IN_TESTING", { testers: ["U1"] }), "U1", says("lgtm")), ["DONE"]);
   assert.deepEqual(progressOptions(task("IN_PROGRESS", { owners: ["U1"] }), "U1", says("lgtm")), []);
   assert.deepEqual(progressOptions(task("DONE", { owners: ["U1"] }), "U1", says("done")), []);
-});
-
-test("a question about starting isn't taken as having started", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UACTOR"] })] });
-  await send("/slack/events", threadReply("should I start working on this?"));
-  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
 });
 
 // Paths that only run when something goes wrong, or at the edges.
@@ -4899,6 +4795,9 @@ const aiRead = (fields = {}) => ({
   status: "",
   priority: "",
   dueDate: "",
+  prs: { add: [], remove: [] },
+  blocked: "",
+  blockedReason: "",
   ...fields,
 });
 
@@ -5093,6 +4992,69 @@ test("AI isn't asked about the priority and due date of an incident", async (t) 
   assert.equal(ephemeral(calls), undefined);
 });
 
+test("with AI on, a message saying the task is blocked, or no longer, is read and asked about", async (t) => {
+  const blockedTask = () => {
+    const record = storedTask({ status: "IN_PROGRESS" });
+    record.task.blocked = true;
+    record.task.blockedReason = "waiting on design";
+    return record;
+  };
+  for (const [text, record, raw, changes, line] of [
+    // None of these words were in the phrases that decide what AI reads before.
+    ["we're waiting on the API keys", storedTask({ status: "IN_PROGRESS" }), { blocked: "block", blockedReason: "waiting on the API keys" }, { blocked: { on: true, reason: "waiting on the API keys" } }, "*Blocked:* no → yes (waiting on the API keys)"],
+    ["design arrived, unblocked", blockedTask(), { blocked: "unblock" }, { blocked: { on: false } }, "*Blocked:* yes → no"],
+  ]) {
+    const { environment, asked } = aiEnv(aiRead(raw));
+    const calls = mockSlack(t, { stored: [record] });
+    await send("/slack/events", threadEvent(text), {}, environment);
+    assert.equal(asked.length, 1, text);
+    const question = ephemeral(calls);
+    assert.deepEqual(suggestedChanges(question), changes, text);
+    assert.match(JSON.stringify(question.blocks), new RegExp(line.replace(/[*()]/g, "\\$&")), text);
+  }
+});
+
+test("pull request links are found by code, and the model says which to link and which linked ones to unlink", async () => {
+  const { checkChanges } = await import("../src/ai.js");
+  const people = { owner: [], reviewer: [], tester: [] };
+  const task = { status: "IN_PROGRESS", people, prs: [MR] };
+  const message = { user: "UA", mentions: [], text: "x" };
+  const allowed = { roles: [], prs: true };
+  const run = (prs, found = [PR], extra = {}) => checkChanges(aiRead({ prs }), { task: { ...task, ...extra }, message, allowed, pullRequests: found })?.prs ?? null;
+  assert.deepEqual(run({ add: [PR], remove: [MR] }), { add: [PR], remove: [MR] });
+  // The model can't invent an address, link one already linked, or unlink one the task doesn't have.
+  assert.equal(run({ add: ["https://github.com/acme/cade/pull/999"], remove: ["https://github.com/acme/cade/pull/998"] }), null);
+  assert.equal(run({ add: [MR], remove: [] }, [MR]), null);
+  // Removing a link blocks adding it again, as one of them.
+  assert.deepEqual(run({ add: [MR], remove: [MR] }, [MR], { prs: [MR] }), { add: [], remove: [MR] });
+  // A reference, left out of "add", isn't linked.
+  assert.equal(run({ add: [], remove: [] }), null);
+  // Off with pr-links.
+  assert.equal(checkChanges(aiRead({ prs: { add: [PR], remove: [] } }), { task, message, allowed: { roles: [] }, pullRequests: [PR] }), null);
+});
+
+test("with AI on, a pasted pull request is linked or left, and a closed one unlinked, as the model reads; without it, every new link is offered", async (t) => {
+  const withMr = () => {
+    const record = storedTask({ status: "IN_PROGRESS" });
+    record.task.prs = [MR];
+    return record;
+  };
+  for (const [text, raw, changes] of [
+    [`PR is up: ${PR}`, { prs: { add: [PR], remove: [] } }, { prs: { add: [PR], remove: [] } }],
+    [`see ${PR} for how they did it`, { prs: { add: [], remove: [] } }, null],
+    [`closed ${MR}, new PR is ${PR}`, { prs: { add: [PR], remove: [MR] } }, { prs: { add: [PR], remove: [MR] } }],
+    [`${MR} is abandoned`, { prs: { add: [], remove: [MR] } }, { prs: { add: [], remove: [MR] } }],
+  ]) {
+    const { question } = await aiSuggestion(t, text, withMr(), raw);
+    assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
+  }
+  // The model failing: the link is still offered, from the text.
+  const { environment } = aiEnv(new Error("model unavailable"));
+  const calls = mockSlack(t, { stored: [withMr()] });
+  await send("/slack/events", threadEvent(`PR is up: ${PR}`), {}, environment);
+  assert.deepEqual(suggestedChanges(ephemeral(calls)), { prs: { add: [PR] } });
+});
+
 test("with AI on, a message that changes nothing gets no question", async (t) => {
   const { environment, asked } = aiEnv(aiRead());
   const calls = mockSlack(t, { stored: [storedTask()] });
@@ -5109,13 +5071,15 @@ test("AI doesn't read messages in a task that's Done", async (t) => {
   assert.equal(ephemeral(calls), undefined);
 });
 
-test("when AI fails, the message is read by its phrases instead", async (t) => {
+test("when AI fails, nothing is suggested from the words, but a pull request link still is", async (t) => {
   const { environment } = aiEnv(new Error("model unavailable"));
-  const calls = mockSlack(t, { stored: [storedTask()] });
+  let calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, environment);
-  const question = ephemeral(calls);
-  assert.equal(question.text, "Should I update the task? From your message:");
-  assert.deepEqual(suggestedChanges(question), { people: { reviewer: add("UMIA") } });
+  assert.equal(ephemeral(calls), undefined);
+
+  calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent(`<@UMIA> please review ${PR}`), {}, environment);
+  assert.deepEqual(suggestedChanges(ephemeral(calls)).prs, { add: [PR] });
 });
 
 test("with suggestions off, AI isn't asked and only commands work", async (t) => {
@@ -5126,30 +5090,24 @@ test("with suggestions off, AI isn't asked and only commands work", async (t) =>
   assert.equal(ephemeral(calls), undefined);
 });
 
-test("aiSuggestions in cade.config.json turns AI on or off per project, and aiModel names the one model", async () => {
+test("AI reads messages whenever the binding is there, with aiModel naming the one model, and aiSuggestions is gone", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = (settings) => [{ name: "acme", channel: "C0000000002", ...settings }];
   const config = (top, settings) => readConfig(JSON.stringify({ projects: projects(settings), ...top }));
-  assert.equal(JSON.parse(config({}, { aiSuggestions: true }).PROJECTS)[0].aiSuggestions, true);
-  assert.equal(JSON.parse(config({}, { aiSuggestions: false }).PROJECTS)[0].aiSuggestions, false);
   // The model is one for every project, at the top of the file; without it, the secret is empty.
   assert.equal(config({ aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" }, {}).AI_MODEL_NAME, "@cf/qwen/qwen3-30b-a3b-fp8");
   assert.equal(config({}, {}).AI_MODEL_NAME, "");
   assert.throws(() => config({ aiModel: "gpt" }, {}), /aiModel is a Workers AI/);
-  // Not on a project, and `aiSuggestions` takes no model's name.
   assert.throws(() => config({}, { aiModel: "@cf/x/y" }), /acme's aiModel is set once at the top of the file/);
-  assert.throws(() => config({}, { aiSuggestions: "gpt" }), /acme's aiSuggestions is true or false; name the model with aiModel at the top/);
+  // The switch is gone: suggestions are turned off with taskStatusChangeDetection.
+  for (const removed of ["aiSuggestions", "ai"]) assert.throws(() => config({}, { [removed]: true }), new RegExp(`acme's ${removed} is gone`));
   const { aiModel } = await import("../src/ai.js");
-  const env = (settings, more = {}) => ({ AI: {}, CHANNEL_PAIRS: [{ name: "acme", channel: "CDEV", ...settings }], ...more });
-  assert.equal(aiModel(env({ aiSuggestions: true }), "CDEV"), "@cf/zai-org/glm-4.7-flash");
-  assert.equal(aiModel(env({ aiSuggestions: true }, { AI_MODEL_NAME: "@cf/x/y" }), "CDEV"), "@cf/x/y");
-  assert.equal(aiModel(env({}, { AI_MODEL_NAME: "@cf/x/y" }), "CDEV"), null, "aiModel alone does nothing");
-  assert.equal(aiModel({ AI_MODEL: "on" }), null, "no binding");
-  assert.equal(aiModel({ AI: {}, AI_MODEL: "off" }), null);
-  assert.equal(aiModel({ AI: {}, AI_MODEL: "@cf/x/y" }), "@cf/x/y");
+  assert.equal(aiModel({ AI: {} }), "@cf/zai-org/glm-4.7-flash");
+  assert.equal(aiModel({ AI: {}, AI_MODEL_NAME: "@cf/x/y" }), "@cf/x/y");
+  assert.equal(aiModel({ AI_MODEL_NAME: "@cf/x/y" }), null, "no binding");
 });
 
-test("suggestions and ai can be set per group, over the setting for every group", async (t) => {
+test("suggestions can be set per group, over the setting for every group", async (t) => {
   const pairs = (acme) => env.CHANNEL_PAIRS.map((pair) => (pair.name === "acme" ? { ...pair, ...acme } : pair));
 
   // acme turns the proactive agent off, though it's on for every group.
@@ -5157,35 +5115,32 @@ test("suggestions and ai can be set per group, over the setting for every group"
   await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...env, CHANNEL_PAIRS: pairs({ taskStatusChangeDetection: false }) });
   assert.equal(ephemeral(calls), undefined);
 
-  // acme turns AI on, though it's off for every group.
+  // acme turns it on, with a kind, though it's off for every group.
   const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
   calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, AI_MODEL: "off", CHANNEL_PAIRS: pairs({ aiSuggestions: true }) });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, TASK_STATUS_CHANGE_DETECTION: "false", CHANNEL_PAIRS: pairs({ taskStatusChangeDetection: true }) });
   assert.equal(asked.length, 1);
   assert.equal(ephemeral(calls).text, "Should I update the task? From your message:");
 
   // Another group keeps the setting for every group.
-  const { aiModel } = await import("../src/ai.js");
   const { suggesting } = await import("../src/intents.js");
-  const split = { AI: {}, AI_MODEL: "off", TASK_STATUS_CHANGE_DETECTION: "false", CHANNEL_PAIRS: pairs({ ai: "@cf/x/y", taskStatusChangeDetection: ["hand-offs"] }) };
-  assert.equal(aiModel(split, "CDEV"), "@cf/x/y");
-  assert.equal(aiModel(split, "CTESTDEV"), null);
+  const split = { AI: {}, TASK_STATUS_CHANGE_DETECTION: "false", CHANNEL_PAIRS: pairs({ taskStatusChangeDetection: ["hand-offs"] }) };
   assert.equal(suggesting(split, "hand-offs", "CDEV"), true);
   assert.equal(suggesting(split, "progress", "CDEV"), false);
   assert.equal(suggesting(split, "hand-offs", "CTESTDEV"), false);
 });
 
-test("npm run config checks each group's suggestions and ai, and npm run group keeps them", async () => {
+test("npm run config checks each group's suggestions, and npm run group keeps them", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const projects = [
-    { name: "acme", channel: "C0000000002", taskStatusChangeDetection: true, aiSuggestions: true },
+    { name: "acme", channel: "C0000000002", taskStatusChangeDetection: true },
     { name: "test", channel: "C0000000003", taskStatusChangeDetection: false },
   ];
   assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS), [
     projects[0],
     projects[1],
   ]);
-  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], aiSuggestions: "gpt" }] })), /acme's aiSuggestions is true or false/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], aiSuggestions: true }] })), /acme's aiSuggestions is gone/);
   assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[1], taskStatusChangeDetection: ["nope"] }] })), /test's taskStatusChangeDetection is true or false/);
 
   const { withGroup } = await import("../scripts/group.mjs");
@@ -5670,24 +5625,20 @@ test("AI doesn't move a task's status for work done on only a part of it", async
   assert.deepEqual(read("all done, ready for QA"), { status: "IN_TESTING" });
 });
 
-test("a task with subtasks gets no status suggestions, but its pull requests and people are still suggested", async (t) => {
+test("a task with subtasks gets no status suggestion for a part, but its pull requests and people are still suggested", async (t) => {
   const withSubtasks = (record) => {
     record.task.subtasks = true;
     return record;
   };
-  for (const [text, record, user, changes] of [
-    // Status moves by phrases are not offered.
-    ["lgtm", withSubtasks(taskWith("IN_REVIEW", { reviewers: ["UACTOR"] })), "UACTOR", null],
-    ["done", withSubtasks(taskWith("IN_PROGRESS", { owners: ["UACTOR"] })), "UACTOR", null],
-    ["on it", withSubtasks(taskWith("TODO", { owners: ["UACTOR"] })), "UACTOR", null],
+  for (const [text, record, raw, changes] of [
+    // A part reaching a stage isn't the whole task reaching it.
+    ["lgtm", withSubtasks(taskWith("IN_REVIEW", { reviewers: ["UACTOR"] })), { status: "IN_TESTING" }, null],
     // People still are, and the status that would come with asking for a test is left out.
-    ["<@UTOM> please test it", withSubtasks(taskWith("IN_PROGRESS")), "UACTOR", { people: { tester: add("UTOM") } }],
-    // Without the flag the same message moves the status.
-    ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", { status: "IN_TESTING" }],
+    ["<@UTOM> please test it", withSubtasks(taskWith("IN_PROGRESS")), { tester: add("UTOM"), status: "IN_TESTING" }, { people: { tester: add("UTOM") } }],
+    // Without the flag the same answer moves the status.
+    ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), { status: "IN_TESTING" }, { status: "IN_TESTING" }],
   ]) {
-    const calls = mockSlack(t, { stored: [record] });
-    await send("/slack/events", threadReply(text, { user }));
-    const question = ephemeral(calls);
+    const { question } = await aiSuggestion(t, text, record, raw);
     assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
   }
 });

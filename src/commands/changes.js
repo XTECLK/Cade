@@ -4,9 +4,9 @@ import { ROLES, cleanReason, loadTask, saveTask } from "../tasks.js";
 import { afterStatusChange, setStatusFields } from "./status.js";
 
 // Suggestions work in three steps:
-//   1. detecting what a message asks to change, by its phrases (suggest.js)
-//      or with AI (ai-suggest.js), each asking whoever wrote it, privately,
-//      in its own way;
+//   1. detecting what a message asks to change, with AI (ai-suggest.js),
+//      or a pasted pull request link, then asking whoever wrote it,
+//      privately;
 //   2. once confirmed, applying the changes, here;
 //   3. telling the thread, as one message made from what actually changed:
 //      the change log, then what it means for the people it names (see

@@ -67,7 +67,7 @@ export function withGroup(configJson, name, fields) {
   delete group.external;
   delete group.incidents;
   // Settings in a steady order, as the file shows them, then those set by
-  // hand, such as `taskStatusChangeDetection` and `aiSuggestions`.
+  // hand, such as `taskStatusChangeDetection`.
   const ordered = Object.fromEntries(["name", ...FIELDS].filter((field) => group[field]).map((field) => [field, group[field]]));
   for (const [field, value] of Object.entries(group)) if (!(field in ordered) && !FIELDS.includes(field)) ordered[field] = value;
   const next = at === -1 ? [...channels, ordered] : channels.map((other, i) => (i === at ? ordered : other));

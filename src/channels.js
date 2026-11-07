@@ -47,7 +47,7 @@ export function projectFor(env, channel) {
   return project;
 }
 
-// The project's own `taskStatusChangeDetection` or `aiSuggestions` (`key`) for `channel`, or undefined
+// The project's own setting `key`, such as `taskStatusChangeDetection`, for `channel`, or undefined
 // when it has none, or `channel` is in no project, so the setting for every
 // project applies (see suggesting in intents.js and aiModel in ai.js).
 export function groupSetting(env, channel, key) {

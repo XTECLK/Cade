@@ -27,9 +27,6 @@
 //                 the proactive agent: Cade reading messages in the threads
 //                 it manages and offering changes (optional, on): true, or
 //                 false for commands only
-//   aiSuggestions AI suggestions (optional, off): true to read people's
-//                 words with Workers AI, false to read them by their
-//                 phrases (see ai.js). Needs taskStatusChangeDetection on
 //   newMessageTaskDetection
 //                 whether Cade asks about a message posted on its own in the
 //                 channel: track it as a task, report it as an incident or
@@ -103,14 +100,12 @@ export function readConfig(json) {
         project.taskStatusChangeDetection ??= project.suggestions;
         delete project.suggestions;
       }
-      // `aiSuggestions` was `ai`, which used to be a model's name too: the model is `aiModel`
-      // at the top of the file now, one for every project.
-      if (project.ai !== undefined) {
-        project.aiSuggestions ??= project.ai;
-        delete project.ai;
+      // AI is how messages are read now, so there is nothing to switch: taskStatusChangeDetection turns
+      // suggestions off. The model is `aiModel`, once at the top of the file.
+      for (const removed of ["ai", "aiSuggestions"]) {
+        if (project[removed] !== undefined) throw new Error(`${removed} is gone: messages are always read with AI. Use taskStatusChangeDetection: false to turn suggestions off.`);
       }
       if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
-      if (project.aiSuggestions !== undefined) project.aiSuggestions = checkAiSuggestions(project.aiSuggestions);
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
       throw new Error(`${project.name}'s ${error.message}`);
@@ -147,17 +142,11 @@ export function readConfig(json) {
 const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection", "aiAgentSummary"];
 
 // What a project can set, which used to be allowed at the top of the file.
-const PROJECT_SETTINGS = ["aiSuggestions", ...SWITCHES];
+const PROJECT_SETTINGS = SWITCHES;
 
 function checkSwitch(key, value) {
   if (typeof value !== "boolean") throw new Error(`${key} is true or false.`);
   return value;
-}
-
-// `aiSuggestions` if it's true or false, else throws.
-export function checkAiSuggestions(aiSuggestions) {
-  if (typeof aiSuggestions === "boolean") return aiSuggestions;
-  throw new Error("aiSuggestions is true or false; name the model with aiModel at the top of the file.");
 }
 
 // `aiModel` if it's a Workers AI text model's name, else throws.
@@ -187,7 +176,7 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskStatusChangeDetection", "aiSuggestions", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskStatusChangeDetection", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
     const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
     console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }

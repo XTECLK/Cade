@@ -6,9 +6,8 @@ import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting 
 // A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS = [
-  { key: "taskStatusChangeDetection", label: "Task status change detection", about: "Cade reads messages in task threads and offers, privately, to link a PR, assign someone or move the status." },
+  { key: "taskStatusChangeDetection", label: "Task status change detection", about: "Cade reads messages in task threads with AI and offers, privately, to link a PR, assign someone, move the status or mark it blocked." },
   { key: "newMessageTaskDetection", label: "New message task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
-  { key: "aiSuggestions", label: "AI suggestions", about: "Cade reads messages with AI to make those offers; the model is aiModel in cade.config.json." },
   { key: "activeTasksPinning", label: "Active tasks pinning", about: "A message listing the open tasks is pinned in the channel until they're done." },
   { key: "summaryCanvas", label: "Summary canvas", about: "Each task's summary is kept in a Slack canvas as well." },
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
@@ -88,8 +87,6 @@ export function settingOn(env, channel, key) {
       return !groupDisabled(env, channel, key, "NEW_MESSAGE_TASK_DETECTION");
     case "aiAgentSummary":
       return !groupDisabled(env, channel, key, "AI_AGENT_SUMMARY");
-    case "aiSuggestions":
-      return aiModel(env, channel) !== null;
     case "activeTasksPinning":
       return groupEnabled(env, channel, key, "ACTIVE_TASKS_PINNING");
     case "summaryCanvas":

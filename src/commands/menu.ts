@@ -21,7 +21,7 @@ type Origin = { channel: string; ts: string };
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
 // before had other choices; they open Edit, which has everything.
-const FORMS: Record<string, (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
+const FORMS: Record<"edit" | "release", (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
   edit: (env, origin, task) => editForm(origin, task),
   release: async (env, origin) => {
     const { view, problem } = await releaseForm(env, origin);
@@ -47,7 +47,7 @@ export default {
         );
         return;
       }
-      const form = FORMS[choice] ?? FORMS.edit;
+      const form = FORMS[choice as keyof typeof FORMS] ?? FORMS.edit;
       const view = task ? await form(env, origin, task) : NOT_A_TASK;
       if (typeof view === "string") {
         await callSlack(env, "chat.postEphemeral", { channel: origin.channel, user: payload.user.id, text: view });

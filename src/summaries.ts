@@ -78,7 +78,7 @@ export function docProblem(env: AppEnv, project: Project) {
 // The instant a day (YYYY-MM-DD) starts in TIMEZONE, or with `end` the
 // last millisecond before it ends, as an ISO timestamp.
 export function dayBoundary(env: Pick<AppEnv, "TIMEZONE">, day: string, { end = false } = {}) {
-  const [year, month, date] = day.split("-").map(Number);
+  const [year, month, date] = day.split("-").map(Number) as [number, number, number];
   const wall = end ? Date.UTC(year, month - 1, date, 23, 59, 59, 999) : Date.UTC(year, month - 1, date);
   // How far the zone's clock is ahead of UTC at `at`; asked twice, in case
   // it changes between the guess and the answer.
@@ -97,7 +97,7 @@ export function dayBoundary(env: Pick<AppEnv, "TIMEZONE">, day: string, { end = 
         .formatToParts(at)
         .map(({ type, value }) => [type, Number(value)]),
     );
-    const local = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    const local = Date.UTC(parts.year!, parts.month! - 1, parts.day!, parts.hour!, parts.minute!, parts.second!);
     return local - Math.floor(at / 1000) * 1000;
   };
   const guess = wall - offset(wall);

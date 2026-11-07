@@ -196,11 +196,11 @@ function saveEdit(payload: SlackPayload, context: Context) {
           remove: task.people[role].filter((id) => !chosen.includes(id)),
         };
       }
-      const status = values.status.value.selected_option!.value as Status;
+      const status = values.status!.value.selected_option!.value as Status;
       if (status !== task.status) changes.status = status;
       if (details) {
-        changes.priority = (values.priority.value.selected_option?.value ?? task.priority) as Priority;
-        changes.dueDate = formatDueDate(values.due_date.value.selected_date);
+        changes.priority = (values.priority!.value.selected_option?.value ?? task.priority) as Priority;
+        changes.dueDate = formatDueDate(values.due_date!.value.selected_date);
       }
       changes.subtasks = (values.subtasks?.value.selected_options ?? []).length > 0;
       changes.blocked = (values.blocked?.value.selected_options ?? []).length > 0

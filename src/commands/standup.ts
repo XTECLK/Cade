@@ -161,7 +161,7 @@ async function render(env: AppEnv, walk: Walk) {
     return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
   }
 
-  const step = all[walk.i];
+  const step = all[walk.i]!;
   const of = `${walk.i + 1} of ${all.length}`;
   let title;
   if (step.person) title = `*Standup: <@${step.person}>*  ·  ${of}`;

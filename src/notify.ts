@@ -159,7 +159,7 @@ export function changeRequests({ user, told, task, people, prs, status }: Pick<C
   }
 
   return [
-    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)]), (who, what) => `${who}, could you ${what}?`),
+    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)!]), (who, what) => `${who}, could you ${what}?`),
     ...grouped([...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]), (who, what) => `${who}, there's no need to ${what} anymore.`),
   ];
 }

@@ -77,7 +77,8 @@ export interface InputValue {
   selected_channel?: string | null;
   rich_text_value?: SlackBlock;
 }
-export type ViewValues = Record<string, Record<string, InputValue>>;
+// Every Cade form names its input's action "value".
+export type ViewValues = Record<string, { value: InputValue; [actionId: string]: InputValue }>;
 
 // A Slack message, as events and conversations.replies give them.
 export interface SlackMessage {
@@ -88,6 +89,16 @@ export interface SlackMessage {
   subtype?: string;
   text?: string;
   files?: { name?: string; title?: string; permalink?: string; [key: string]: any }[];
+  [key: string]: any;
+}
+
+// A button, menu or picker used, in a click's `actions`.
+export interface SlackAction {
+  action_id: string;
+  block_id: string;
+  value: string;
+  selected_option: { value: string };
+  selected_user?: string;
   [key: string]: any;
 }
 
@@ -105,7 +116,8 @@ export interface SlackPayload {
   channel: { id: string; name?: string };
   message: SlackMessage;
   container?: { channel_id?: string; message_ts?: string; thread_ts?: string; type?: string; [key: string]: any };
-  actions: { action_id: string; block_id: string; value: string; selected_option: { value: string }; selected_user?: string; [key: string]: any }[];
+  // A click carries the action clicked: at least one.
+  actions: [SlackAction, ...SlackAction[]];
   view: { id: string; callback_id: string; private_metadata: string; hash?: string; state: { values: ViewValues }; [key: string]: any };
   trigger_id: string;
   response_url: string;

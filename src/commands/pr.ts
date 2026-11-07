@@ -1,6 +1,6 @@
 import { assigned, onTheirPlate, request, toAsk } from "../notify.ts";
 import { acknowledged, changeTask } from "./changes.ts";
-import { acknowledge, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.ts";
+import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
@@ -49,7 +49,7 @@ export default {
     const adding = action.toLowerCase() === "add";
     if (!adding && action.toLowerCase() !== "remove") return HOW;
 
-    const links = [...command.text.slice(action.length).matchAll(LINK)].map((match) => match[1] ?? match[2]);
+    const links = [...command.text.slice(action.length).matchAll(LINK)].map((match) => (match[1] ?? match[2])!);
     if (!links.length) return `Which pull request? Paste its link. ${HOW}`;
     const prs = links.map(parsePullRequest);
     const notPr = links.find((link, i) => !prs[i]);
@@ -107,7 +107,7 @@ export function pullRequestsIn(text: string | undefined): string[] {
   return [
     ...new Set(
       [...(text ?? "").matchAll(LINK)]
-        .map((match) => parsePullRequest(match[1] ?? match[2])?.url)
+        .map((match) => parsePullRequest((match[1] ?? match[2])!)?.url)
         .filter(Boolean) as string[],
     ),
   ];

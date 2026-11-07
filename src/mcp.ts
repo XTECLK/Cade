@@ -115,7 +115,12 @@ function apiKeyOf(request: Request) {
 
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 const RUNNERS: Record<string, ToolRunner> = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
-const TOOLS = TOOL_DEFS.map((tool) => ({ ...tool, run: RUNNERS[tool.name] }));
+// A tool with no function to run it is a mistake made here, so the Worker refuses to start.
+const TOOLS = TOOL_DEFS.map((tool) => {
+  const run = RUNNERS[tool.name];
+  if (!run) throw new Error(`The MCP tool ${tool.name} has no runner in RUNNERS`);
+  return { ...tool, run };
+});
 
 // The version of the tool set: a short hash of everything a client loads when it connects, so it changes
 // with any change to a tool, its description, the instructions or the summary, and can't be forgotten.
@@ -249,7 +254,7 @@ const USER_MENTION = /<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>/g;
 function userIdsIn(value: unknown, found = new Set<string>()) {
   if (typeof value === "string") {
     if (USER_ID_VALUE.test(value)) found.add(value);
-    for (const mention of value.matchAll(USER_MENTION)) found.add(mention[1]);
+    for (const mention of value.matchAll(USER_MENTION)) found.add(mention[1]!);
   } else if (Array.isArray(value)) {
     for (const item of value) userIdsIn(item, found);
   } else if (value && typeof value === "object") {
@@ -279,7 +284,8 @@ async function requestApprovalTool(env: AppEnv, user: string, args: ToolArgs) {
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
   if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
-  const [approver] = userIds("approver", [args.approver]);
+  // One ID in, one out: userIds throws for anything else.
+  const [approver] = userIds("approver", [args.approver]) as [string];
   await requireActiveUsers(env, [approver]);
   if (task.status !== "CLIENT_REVIEW") throw new ToolError(`This task is ${statusName(task.status)}, so there's nothing to approve. Move it to Client review with update_task first.`);
   const problem = await requestApproval(env, channel, ts, approver, user);
@@ -313,7 +319,7 @@ function threadOf(link: unknown) {
 function threadIdOf(threadId: unknown) {
   const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(threadId).trim());
   if (!match) throw new ToolError("A thread ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100.");
-  return { channel: match[1], ts: match[2] };
+  return { channel: match[1]!, ts: match[2]! };
 }
 
 // Reads a thread: every message of it, oldest first, up to MAX_PAGES pages.
@@ -541,7 +547,7 @@ function taskRef({ task_id: taskId }: ToolArgs) {
   if (taskId === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
   const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(taskId).trim());
   if (!match) throw new ToolError("A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them.");
-  return { channel: match[1], ts: match[2] };
+  return { channel: match[1]!, ts: match[2]! };
 }
 
 // The first message of a task's thread, when it was made from another
@@ -552,7 +558,7 @@ const MOVED_FROM = /^Moved from <@[UW][A-Z0-9]+>'s <([^|>]+)\|message>/;
 // moved message among its kept ones, or null.
 function sourceThreadOf(messages: { text?: string }[]) {
   const found = messages.map((message) => MOVED_FROM.exec(message.text ?? "")).find(Boolean);
-  return found ? { ...linkedThread(found[1])!, link: found[1].replace(/&amp;/g, "&") } : null;
+  return found ? { ...linkedThread(found[1]!)!, link: found[1]!.replace(/&amp;/g, "&") } : null;
 }
 
 // The releases (PRs sent to the client for approval) of the tasks `user` can read, oldest first.
@@ -925,7 +931,7 @@ async function workspacePeople(env: AppEnv, keep: (names: string[]) => boolean, 
       if (lines.length < max) {
         const person: Record<string, string> = { user_id: member.id, name: names[0], username: member.name ?? names.at(-1) };
         const shown = fields ?? USER_FIELDS;
-        const label = shown.includes("name") && shown.includes("username") ? `${person.name} (${person.username}): ` : shown.length ? `${person[shown[0]]}: ` : "";
+        const label = shown.includes("name") && shown.includes("username") ? `${person.name} (${person.username}): ` : shown.length ? `${person[shown[0]!]}: ` : "";
         lines.push(`${label}${member.id}`);
         users.push(fields ? Object.fromEntries(["user_id", ...fields].map((field) => [field, person[field]])) : person);
       }
@@ -1095,7 +1101,7 @@ async function sendTaskMessage(env: AppEnv, user: string, args: ToolArgs) {
     if (item.informedAt) throw new ToolError(`That task's thread was already told about summary #${summaryId} on ${timeOf(item.informedAt)} UTC, so I haven't sent it again. Send without summary_id to post anyway.`);
   }
   refuseSecrets(message, "The message");
-  await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]));
+  await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
   const body = plainMessage(message);
   const from = `<@${user}> sent:`;
   const via = "_(via AI agent)_";

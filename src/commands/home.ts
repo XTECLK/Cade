@@ -1,6 +1,5 @@
 import { setHomeProject } from "../db.ts";
 import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PROJECT_ACTION, REFRESH_ACTION, TABS, publishHome } from "../home.ts";
-import { callSlack } from "../slack.ts";
 import { loadTask } from "../tasks.ts";
 import { changeTask } from "./changes.ts";
 import type { Handler } from "../types.ts";
@@ -32,7 +31,7 @@ export default {
     // alone. The card shows the new owner, so nothing is posted.
     [CLAIM_ACTION]: async (payload, { env }) => {
       const user = payload.user.id;
-      const [channel, ts] = payload.actions[0].action_id.split(":").slice(2);
+      const [channel, ts] = payload.actions[0].action_id.split(":").slice(2) as [string, string];
       const task = await loadTask(env, channel, ts);
       if (task && !Object.values(task.people).some((ids) => ids.length)) {
         await changeTask(env, { channel, ts }, { people: { owner: { add: [user] } } }, user);

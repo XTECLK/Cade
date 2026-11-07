@@ -27,7 +27,7 @@ function explain(root: Schema, errors: OutputUnit[], value: unknown) {
     own.find((one) => one.keyword === "additionalProperties") ??
     own.find((one) => one.keyword === "anyOf") ??
     own[0] ??
-    errors[0];
+    errors[0]!;
   const schema = at(root, parts(error.keywordLocation).slice(0, -1));
   const path = pathOf(error.instanceLocation);
   const named = (key: string) => (path ? `${path}.${key}` : key);

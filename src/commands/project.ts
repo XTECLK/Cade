@@ -39,7 +39,8 @@ const state = (on: boolean | "some") => (on === "some" ? "partly on" : on ? "on"
 // switch between, and a choice for each setting. Name and channel stay as they were set.
 async function settingsView(env: AppEnv, channel: string) {
   const list = projects(env);
-  const project = list.find((candidate) => candidate.channel === channel) ?? list[0];
+  // The button that opens it is only shown with a project, so there is one.
+  const project = (list.find((candidate) => candidate.channel === channel) ?? list[0])!;
   const config = configEnv(env);
   const choices = await choicesOf(env, project.channel);
   const option = (text: string, value: string) => ({ text: plainText(text.slice(0, 75)), value });

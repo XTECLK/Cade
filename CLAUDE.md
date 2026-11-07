@@ -1,0 +1,38 @@
+# Cade
+
+A Slack app for tracking a team's tasks, as one Cloudflare Worker (`src/index.ts`) with D1, plus an MCP server for
+people's own AI agents (`src/mcp.ts`). How it works, and where each part lives: [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Before saying a change is done
+
+- Run `npm run check` (the type check, then the whole test suite, without Slack, in seconds). Both must pass. Say so
+  plainly if they don't, with the output.
+- A change in behaviour comes with a test (`test/*.test.ts`) that would fail without it.
+
+## TypeScript
+
+- Strict, with `noUncheckedIndexedAccess` and `noUnusedLocals`. Never get past an error with `any`, `@ts-ignore`,
+  `@ts-expect-error` or a cast: fix the type. Where a value really can't be missing (a regex group that always
+  matches, a block the form always has), a `!` is fine with a comment saying why.
+- No build step of its own: wrangler bundles `src/`, and Node runs the tests and scripts by stripping the types. So
+  only erasable syntax (no `enum`, `namespace` or parameter properties), and imports name the `.ts` file.
+- Use the shared types: `src/types.ts` (task, release, change, command, handler, Slack's payloads), `src/env.ts`
+  (the Worker's settings and secrets), `src/db.ts` (D1's rows). Add to them rather than redefining a shape locally.
+- After changing `wrangler.toml`, run `npm run types`.
+
+## Input from outside is checked at runtime
+
+- An MCP tool's arguments are checked against its `inputSchema` in `src/mcp-tools.ts` before it runs: change the
+  schema with the tool, and run `npm run docs` after changing a tool (a test fails while `docs/mcp.html` is stale).
+- What a button, menu or form carries is read with `readPayload` and a schema in `src/payloads.ts`. When you change
+  what one carries, change its schema, and keep older messages working: a schema asks only for what the reader uses.
+- An MCP tool that changes something is shown to the person and approved first; the rules agents are given are in
+  `src/guardrails.ts`.
+
+## Style
+
+- Follow the code around yours: small functions, plain words, and comments that say why, not what.
+- A command, setting or message people see is documented where they'll look: see "Adding a command" in
+  DEVELOPMENT.md, and `docs/notifications.html` for what Cade posts.
+- Database changes are a new file in `migrations/`, never an edit to an old one.
+- Commit or push only when asked.

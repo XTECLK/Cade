@@ -34,9 +34,10 @@ export async function loginLink(env: AppEnv, user: string) {
 export async function handleWeb(request: Request, env: AppEnv) {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
-  const [kind, channel, ts] = parts;
+  // Each is there by the time it is used: the checks below go by how many parts there are.
+  const [kind, channel, ts] = parts as [string, string, string];
 
-  if (kind === "login" && parts.length === 2) return signIn(request, env, parts[1]);
+  if (kind === "login" && parts.length === 2) return signIn(request, env, parts[1]!);
   if (kind === "logout" && parts.length === 1) return signOut(request, env);
   if (!["t", "n"].includes(kind) || parts.length !== 3 || !CHANNEL.test(channel) || !TS.test(ts)) return page(404, "Not found", "<p>There's no page here.</p>");
 
@@ -139,7 +140,7 @@ async function saveNotes(request: Request, env: AppEnv, channel: string, ts: str
 const methodNotAllowed = (allow: string) => new Response("Method not allowed", { status: 405, headers: { allow } });
 
 export function escapeHtml(value: unknown) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[char]);
+  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[char]!);
 }
 
 const STYLE = `

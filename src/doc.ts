@@ -72,5 +72,5 @@ export async function ensureWorkDoc(env: AppEnv, project: Project, user: string 
 // is an ID already, or "" if it is neither.
 export function docId(value: string | null | undefined) {
   const match = /\/document\/d\/([\w-]{20,})/.exec(value ?? "") ?? /^([\w-]{20,})$/.exec(value ?? "");
-  return match ? match[1] : "";
+  return match ? match[1]! : "";
 }

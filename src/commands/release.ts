@@ -166,8 +166,8 @@ function releaseView(origin: Origin & { responseUrl?: string }, prs: string[]) {
 
 async function submit(payload: SlackPayload, context: Context) {
   const values = payload.view.state.values;
-  const prs = (values.prs.value.selected_options ?? []).map((option) => option.value);
-  const note = values.note.value.value?.trim() ?? "";
+  const prs = (values.prs!.value.selected_options ?? []).map((option) => option.value);
+  const note = values.note!.value.value?.trim() ?? "";
   const approver = readApprover(values);
   const errors: Record<string, string> = {};
   if (!prs.length) errors.prs = "Please choose at least one PR.";

@@ -16,6 +16,10 @@
     "strict": true,
     // Every catch block reads error.message; Error is all Cade ever throws.
     "useUnknownInCatchVariables": false,
+    // An import or variable nothing uses is an error, so they don't pile up.
+    "noUnusedLocals": true,
+    // list[i] and record[key] may be undefined: say why one can't be (a ! with a comment), or check it.
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true
   },
   "include": ["worker-configuration.d.ts", "src/**/*"]

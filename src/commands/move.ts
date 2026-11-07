@@ -229,7 +229,7 @@ async function tell(env: AppEnv, payload: SlackPayload, text: string) {
 function knownProject(env: AppEnv, channel: string) {
   if (roleOf(env, channel) === "channel") return channel;
   const groups = projects(env);
-  return groups.length === 1 ? groups[0].channel : undefined;
+  return groups.length === 1 ? groups[0]!.channel : undefined;
 }
 
 // New task and New incident: their form, named from the message's first
@@ -311,7 +311,7 @@ function submitMoveForm(payload: SlackPayload, context: Context) {
 // alone. Only messages posted in the channel itself count, and anything
 // stopping it is said only to them.
 async function reacted(env: AppEnv, event: SlackEvent) {
-  const emoji = event.reaction!.split("::")[0];
+  const emoji = event.reaction!.split("::")[0]!;
   const { channel, ts } = event.item!;
   const action = { [REACTIONS.convert]: "convert", [REACTIONS.move]: "move" }[emoji];
   if (!action) return;

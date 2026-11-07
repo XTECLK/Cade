@@ -82,7 +82,7 @@ export function plain(text: string, names: Map<string, string>) {
 export function userIds(messages: { user?: string; text?: string }[], ids = new Set<string>()) {
   for (const message of messages) {
     if (message.user) ids.add(message.user);
-    for (const [, id] of (message.text ?? "").matchAll(MENTION)) ids.add(id);
+    for (const [, id] of (message.text ?? "").matchAll(MENTION)) ids.add(id!);
   }
   return ids;
 }

@@ -1,7 +1,7 @@
 import { isQuestion, phraseTest } from "../intents.ts";
 import { changeMessage } from "../notify.ts";
 import { acknowledged, changeTask } from "./changes.ts";
-import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.ts";
+import { callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.ts";
 import {
   NOT_A_TASK,
   STATUSES,

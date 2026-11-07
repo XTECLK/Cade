@@ -1,6 +1,6 @@
 import { projects, groupEnabled } from "./channels.ts";
 import { getTask, putTask } from "./db.ts";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.ts";
+import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { MessageBody, People, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
@@ -207,7 +207,7 @@ const PULL_REQUEST = /^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)+?([^/\s]+)\/(?:pull|-\/
 // is the request's own address, without a tab such as /files after it.
 export function parsePullRequest(url: string) {
   const match = PULL_REQUEST.exec(url);
-  return match ? { url: match[0], repo: match[1], number: match[2] } : null;
+  return match ? { url: match[0], repo: match[1]!, number: match[2]! } : null;
 }
 
 // A pull request as reponame/number, linking to it.
@@ -311,7 +311,7 @@ export function taskFormBlocks(titleLabel: string, initial: { title?: string; du
 // modal's response_action "errors" expects, or null when there are none. A
 // form without details gives no priority or due date.
 export function readTaskForm(values: ViewValues, titleError: string) {
-  const title = values.title.value.value?.trim() ?? "";
+  const title = values.title!.value.value?.trim() ?? "";
   // The date picker gives YYYY-MM-DD, or null when no date was chosen.
   const dueDate = formatDueDate(values.due_date?.value.selected_date);
   const priority = values.priority?.value.selected_option?.value as Priority | undefined;

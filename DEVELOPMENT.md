@@ -232,35 +232,29 @@ or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 
 ## AI agents
 
-Cade is also an [MCP](https://modelcontextprotocol.io) server at
-`/mcp`, so a person's own AI agent can summarize a thread into a task
-(`src/mcp.ts`). Every request carries the person's API key in the `x-apikey`
-header, never in the address. Configure → AI agent on the Home tab gives the person a key of
-their own, shown only to them with the endpoint and the commands to add it to
-their agent, and revoking it there ends it; only a hash is kept, in
-`mcp_tokens`. Its tools are `get_flows()`, which lists the flows Cade
-supports (`src/flows.js`: `summarize_task`, `triage_tasks`, `explain_task`, `check_prs`, `report_progress`, `plan_my_work`, `create_task_from_thread`, `create_task_from_scratch`, `browse_channels`), and `get_flow(name, task_id?)`, which gives the steps of one as text and as the chain of tools to call (with where each argument comes from), so a client that doesn't show MCP prompts can follow them
-too; `get_task(task_id, fields?)`, which reads one task from D1 (details, summary and notes, without its threads, but naming the thread it was made from, found in the first message of its own thread, for `get_thread_history`); and `get_thread_history(thread_id | link)`, which reads a
-thread straight from Slack, as it is, kept or not (a private channel's only for someone in it);
-`get_task_history(task_id)`, which reads the messages Cade kept of a tracked
-task's thread from D1 (the ID, `channel:ts`, is what `get_tasks` lists) (`messages`) with the same channel rule, so it still
-has what Slack's free plan hides after 90 days; `get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)`, open tasks by default, most urgent
-first, the person's own or every project's in channels they can read, each with a task ID to give to the other tools; 
-`get_user(user_id)`, which gives a Slack user's name; (The website's tool list and `docs/mcp.html` are generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool; a test fails when they are stale.) (`get_tasks`, `get_task`, `get_users` and `find_user_by_name` take `fields` to pick what is returned, GraphQL-style: `summary`, `notes` and the others are given only when asked for. Every tool has an `inputSchema` and an `outputSchema`; a result comes as text and as `structuredContent` matching the schema, so IDs chain into the next call.) `get_releases(status?, task_id?, project?, limit?)`, which lists the partial releases (PRs sent to the client for approval: waiting by default) with their task, PRs, note and who sent and decided them (approving is done in Slack by the approver, with no tool), and `update_release(release_id, prs?, note?)`, which adds PRs to or removes them from a release still waiting for approval (never approves or rejects it; it edits the approver's request, the card and tells the thread); `get_task` also gives a task's `prs`, each pending, pending approval or approved with the release it went with, and its `releases`, and `get_tasks` gives `prs` when asked for in `fields`; `update_task` links and unlinks PRs with `prs: { add, remove }` (one already sent to the client can't be unlinked); `get_channels(limit?)`, which lists the channels Cade is in that the person can read (project channels first); `get_channel_threads(channel_id, days?, with_replies?, limit?)`, which lists a channel's recent root messages from people that aren't tracked (Cade's own task cards and messages already moved into a task are left out), each with a `thread_id` for `get_thread_history` and `create_task`; `create_task(title, project?, priority?, due_date?, incident?, summary?, thread_id | link?)`, which makes a task or incident for the person, from a thread (its first message is moved into the task's thread, as the New task shortcut does) or from scratch, and saves the summary (the agent is told to suggest the fields, take the person's input, show the final version and get approval first; the `create_task_from_thread`, `create_task_from_scratch` and `browse_channels` flows do this, and `get_flow`/prompts take a `thread` link or ID); `get_projects()`, which lists the projects and their channels (get_tasks groups tasks by project and takes a `project` name to show only one); `get_users(limit?)`, which lists the workspace's people with their IDs; `find_user_by_name(name)`, which gives a Slack user ID for assigning; `send_task_message(task_id, text)`, which posts a message in the task's thread as Cade, with a line saying "Sent by @person" (the agent is told to show the text and get approval first; only people's mentions are kept, not @channel); `update_task(task_id, status?, priority?, due_date?, owner?, reviewer?, tester?, summary?)`, all optional but the task: it changes those fields and tells the task's thread, and saves the summary on the notes page (the agent is told to show the changes and get approval first). The summary is of the issue only,
-from the thread the task was made from; what was done and how it ended are in
-the task's own thread. The same flows are MCP prompts, which Claude Code lists as slash commands such
-as `/mcp__cade__summarize_task`, and the form after a task is made shows the
-summary flow's text. To add a flow, add it to `FLOWS` in `src/flows.js`. The summary goes to the top of the
-task's notes page, a page of the Worker (`/n/<channel>/<ts>`) where the team
-also types notes by hand; it is kept in `task_notes`, marked as generated by
-the person.
-After a task is made from a message, its form gives way to a
-second one with a short prompt to paste into the agent, naming the task by
-its ID, and a line pointing to the Home tab's AI agent button for an agent that isn't
-connected (in `src/commands/track.ts`); `aiAgentSummary: false` on a project
-turns that off. the AI agent window shows whether MCP is on, the endpoint, whether you have a key (never the key) and a link to the setup guide on the website (`docs/mcp.html`, made from the tool definitions), and the tools and flows; `/cade mcp init` replies with the MCP endpoint and the API key
-to add to the agent, once; to change the key, revoking it and then
-`init` again.
+Cade is also an [MCP](https://modelcontextprotocol.io) server at `/mcp` (`src/mcp.ts`), so a person's own AI agent
+reads threads and tasks and works on them as that person. It speaks Streamable HTTP in its simplest form: each POST is
+one JSON-RPC message (or a batch), answered with JSON, with no sessions or streams.
+
+- **Keys.** Configure → AI agent on the Home tab (`src/commands/configure.ts`) makes the person's API key, shown once,
+  with the endpoint and a link to the setup guide; revoking it there ends it. Only a hash is kept, in `mcp_tokens`. The
+  key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
+- **Access.** Everything runs as the key's owner: a private channel's threads and tasks only for its members, and never
+  a direct message.
+- **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
+  above) and `outputSchema`. A result is text and `structuredContent` matching the schema, so IDs chain into the next
+  call. The tools read tasks, threads, people, projects, availability, releases and executive summaries, and write
+  tasks, task messages, releases, approval requests and summaries. The full list, with every argument, is
+  [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
+  fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`.
+- **Rules for the agent.** What it is told when it connects is in `src/guardrails.ts`: above all, to show the person
+  exactly what it will write and get their approval before any tool that changes something.
+- **Versions.** A session ID names the tool set it loaded (a hash of the tools, the rules and the description); a tool
+  called from an older session says so, and `get_server_info` reports it.
+- **Summaries.** A task's summary, written by `create_task` or `update_task`, goes to the top of its notes page on the
+  Worker (`/n/<channel>/<ts>`), kept in `task_notes` and marked as written by the person. After a task is made from a
+  message, its form shows a short prompt to paste into the agent, naming the task by its ID (`src/commands/track.ts`);
+  `aiAgentSummary: false` on a project turns that off.
 
 ## Tests
 

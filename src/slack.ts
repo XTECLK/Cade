@@ -23,7 +23,7 @@ export async function verifySlackRequest(request: Request, body: string, signing
     ["verify"],
   );
   const expected = new Uint8Array(
-    match[1].match(/../g)!.map((byte) => parseInt(byte, 16)),
+    match[1]!.match(/../g)!.map((byte) => parseInt(byte, 16)),
   );
   // crypto.subtle.verify compares in constant time.
   return crypto.subtle.verify(
@@ -153,7 +153,7 @@ export function linkedMessage(text: string) {
   if (!match) return null;
   const ts = `${match[2]}.${match[3]}`;
   const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");
-  return { channel: match[1], ts, threadTs: threadTs && threadTs !== ts ? threadTs : null };
+  return { channel: match[1]!, ts, threadTs: threadTs && threadTs !== ts ? threadTs : null };
 }
 
 // A form's answer that closes it and any forms under it, such as the task

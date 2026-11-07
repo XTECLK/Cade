@@ -38,7 +38,7 @@ export default {
 function newText(input: string) {
   const rest = input.replace(FIRST_LINK, "").trim();
   const quoted = /^["“](.*)["”]$/s.exec(rest);
-  return (quoted ? quoted[1] : rest).trim();
+  return (quoted ? quoted[1]! : rest).trim();
 }
 
 // Changes the message at `link` to say `text`, and says how it went.

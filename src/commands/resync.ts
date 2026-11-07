@@ -33,7 +33,7 @@ export default {
   slashChannel: [],
   async slash(command, context) {
     if (/^summary$/i.test(command.text.trim())) return resyncSummary(command, context);
-    const links = [...command.text.matchAll(LINK)].map((match) => linkedThread(match[1] ?? match[2])).filter(Boolean) as { channel: string; ts: string }[];
+    const links = [...command.text.matchAll(LINK)].map((match) => linkedThread((match[1] ?? match[2])!)).filter(Boolean) as { channel: string; ts: string }[];
     if (!links.length) return NO_LINK;
     // Redrawing can take longer than Slack waits for a slash command's
     // answer, so the reply follows.

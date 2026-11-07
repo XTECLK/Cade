@@ -1,4 +1,3 @@
-import { aiModel } from "./ai.ts";
 import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.ts";
 import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.ts";
 import type { AppEnv } from "./env.ts";

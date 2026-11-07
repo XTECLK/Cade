@@ -63,7 +63,7 @@ export function isQuestion(message: { text: string }) {
 //   botUserId  Cade's own user ID
 export function plainMessage(event: SlackEvent, botUserId: string): PlainMessage | null {
   if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || !event.text) return null;
-  const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id))].filter(
+  const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id!))].filter(
     (id) => id !== botUserId,
   );
   return {

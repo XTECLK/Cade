@@ -16,3 +16,6 @@ google/.clasp.json
 # Demo recording: .demo/ holds logged-in sessions and raw video.
 .demo/
 .playwright-mcp
+
+# macOS folder settings.
+.DS_Store

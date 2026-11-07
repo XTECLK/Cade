@@ -21,7 +21,8 @@
     "demo:record": "node scripts/demo/record.mjs",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "bundle-diff": "node scripts/bundle-diff.mjs"
   },
   "devDependencies": {
     "@clack/prompts": "^1.8.1",

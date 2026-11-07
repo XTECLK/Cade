@@ -45,6 +45,11 @@ it), and imports name the `.ts` file. The shapes the modules share (a task, a re
 a handler) are in `src/types.ts`; D1's rows are in `src/db.ts`; the Worker's bindings and settings in `src/env.ts`.
 After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
 
+For a change that shouldn't change what the Worker does, such as a refactor or new types, `npm run bundle-diff`
+(or `npm run bundle-diff -- <ref>`) builds the Worker as wrangler deploys it, now and at the last commit (or the
+ref), and says whether its code is the same, ignoring formatting, comments and file extensions. The same code means
+nothing changed, whether the tests cover it or not.
+
 JSON that comes back in is checked against a JSON Schema at runtime (`src/validate.ts`, with
 `@cfworker/json-schema`, pinned to an exact version):
 

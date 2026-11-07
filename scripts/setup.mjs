@@ -15,17 +15,10 @@ import { ask, askHidden, choose, confirm, intro, log, note, outro, pause } from 
 
 const SLACK_APP = `${HOME}.cade/slack-app.json`;
 const GOOGLE_APP = `${HOME}.cade/google-app.json`;
-const WRANGLER_TOML = `${ROOT}wrangler.toml`;
 
 // The Worker's URL in what `wrangler deploy` printed.
 export function workerUrlIn(output) {
   return /https:\/\/[\w.-]+\.workers\.dev/.exec(output)?.[0];
-}
-
-// wrangler.toml with the Worker named `name`.
-export function withWorkerName(toml, name) {
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new Error("A Worker name is lowercase letters, digits and -, such as cade.");
-  return toml.replace(/^name = ".*"$/m, `name = "${name}"`);
 }
 
 // The account IDs in what `wrangler whoami` printed.
@@ -159,14 +152,6 @@ async function main() {
 
   let workerUrl;
   await step("Worker", async () => {
-    const toml = await readFile(WRANGLER_TOML, "utf8");
-    const current = /^name = "(.*)"$/m.exec(toml)?.[1] ?? "cade";
-    if (!(await exists(SLACK_APP))) {
-      const name = await ask(`Worker name, unique in your Cloudflare account [${current}]: `, current);
-      await writeFile(WRANGLER_TOML, withWorkerName(toml, name));
-      // Kept with your deployment, which puts it back into wrangler.toml after any change of version.
-      (await import("./cloudflare.mjs")).save({ workerName: name });
-    }
     console.log("Deploying; Wrangler may ask to confirm creating the database tables.");
     const deployed = await run("npm", ["run", "deploy"]);
     if (deployed.code !== 0) fail("The deploy failed. If only the tables step failed, npm run db:migrate retries it.");

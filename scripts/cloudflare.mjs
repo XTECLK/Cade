@@ -24,7 +24,7 @@ function read() {
   }
 }
 
-// Saves `patch` in the file with the rest of it, such as { workerName }.
+// Saves `patch` in the file with the rest of it.
 export function save(patch) {
   mkdirSync(dirname(FILE), { recursive: true });
   writeFileSync(FILE, `${JSON.stringify({ ...read(), ...patch }, null, 2)}\n`);

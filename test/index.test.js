@@ -5254,11 +5254,9 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   assert.equal(scriptTitle("A/B <x>"), "Cade_A-B -x-");
   assert.equal(scriptTitle(undefined), "Cade");
 
-  // npm run setup reads the Worker's URL from the deploy, and names the Worker.
-  const { workerUrlIn, withWorkerName } = await import("../scripts/setup.mjs");
+  // npm run setup reads the Worker's URL from the deploy, and .
+  const { workerUrlIn } = await import("../scripts/setup.mjs");
   assert.equal(workerUrlIn("Deployed cade (1s)\n  https://cade.acme.workers.dev\n"), "https://cade.acme.workers.dev");
-  assert.equal(withWorkerName('name = "cade"\nmain = "x"', "acme-cade"), 'name = "acme-cade"\nmain = "x"');
-  assert.throws(() => withWorkerName('name = "cade"', "Bad Name"), /lowercase/);
 });
 
 test("AI moves a task's status forward only, never back or sideways", async () => {

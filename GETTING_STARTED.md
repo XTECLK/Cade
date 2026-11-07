@@ -131,11 +131,11 @@ npm script: `CLOUDFLARE_ACCOUNT_ID=<its ID> npm run deploy`. It's saved to
 `.cade/cloudflare.json` (commit it with your deploy repo), and every npm script
 uses it from then on.
 
-## 3. Name and deploy the Worker
+## 3. Deploy the Worker
 
-Choose the Worker's name (for example `cade`): `npm run setup` asks, or put
-`"workerName": "cade"` in `.cade/cloudflare.json`. It must be unique in your
-Cloudflare account, and becomes part of the URL.
+The Worker is always named `cade` (`wrangler.toml`), so its URL is
+`https://cade.<your-subdomain>.workers.dev`, and one Cloudflare account holds one
+Cade.
 
 All other settings are Worker secrets, set in later steps, so nothing else
 needs changing.

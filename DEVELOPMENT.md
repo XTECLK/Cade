@@ -25,9 +25,8 @@ npm test            # the whole suite, in a few seconds, without Slack
 npm run setup       # Cloudflare login, the Worker, the Slack app, your first group
 ```
 
-`npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and sets up a first group (a dev channel)
-in your workspace. Name the Worker something of your own (such as `cade-dev`) when it asks. The Google Doc step is optional; skip
-it unless you're working on the executive summary tools. Then invite Cade to the channel with `/invite @Cade` and try `/cade help`.
+`npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and asks for the first admin. The Worker is named `cade`, so use a Cloudflare account of its own for development. The Google Doc step is optional; skip
+it unless you're working on the executive summary tools. Then create a channel, invite Cade with `/invite @Cade`, and add it as a project from the app's Home tab.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
 When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in it, ignored by git. A team's real deployment keeps them in its own repo, made from the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, which sets `CADE_DEPLOY_DIR` to point the scripts there (see `scripts/paths.mjs`).

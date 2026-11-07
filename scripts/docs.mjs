@@ -1,6 +1,7 @@
 // Writes the website's MCP pages from the tool definitions in src/mcp-tools.ts, so the site and
 // the server can't disagree: docs/mcp.html (how to connect an agent, which the AI agent window in Cade links to, and every tool, its
-// arguments and its result). `npm run docs` writes it; test/docs.test.ts checks it is up to date.
+// arguments and its result), and src/mcp-args.ts, the tools' argument types. `npm run docs` writes them;
+// test/docs.test.ts checks they are up to date.
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
@@ -132,8 +133,69 @@ ${sections}
 `;
 }
 
+// ---- The tools' argument types ----
+
+// src/mcp-args.ts: a TypeScript type for each tool's arguments, made from its inputSchema, so the code
+// that runs a tool is typed by the same schema the agent is shown and its arguments are checked
+// against (see validate.ts). The tools take them in RUNNERS in src/mcp.ts.
+const typeName = (tool) => `${tool.replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase())}Args`;
+
+function typeOf(schema, indent) {
+  if (schema.enum) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+  const one = (type) => {
+    switch (type) {
+      case "string":
+        return "string";
+      case "integer":
+      case "number":
+        return "number";
+      case "boolean":
+        return "boolean";
+      case "null":
+        return "null";
+      case "array":
+        return `${wrap(typeOf(schema.items ?? {}, indent))}[]`;
+      case "object":
+        return schema.properties ? objectOf(schema, indent) : "Record<string, unknown>";
+      default:
+        return "unknown";
+    }
+  };
+  return schema.type === undefined ? "unknown" : [schema.type].flat().map(one).join(" | ");
+}
+
+// A union inside an array's brackets: (A | B)[].
+const wrap = (type) => (/[|&]/.test(type) && !/^\{[\s\S]*\}$/.test(type) ? `(${type})` : type);
+
+function objectOf(schema, indent) {
+  const required = new Set(schema.required ?? []);
+  const inner = `${indent}  `;
+  const lines = Object.entries(schema.properties).map(([key, property]) => {
+    const note = property.description ? `${inner}// ${property.description.replace(/\s+/g, " ")}\n` : "";
+    return `${note}${inner}${key}${required.has(key) ? "" : "?"}: ${typeOf(property, inner)};`;
+  });
+  return `{\n${lines.join("\n")}\n${indent}}`;
+}
+
+export function argTypes() {
+  const types = TOOL_DEFS.map((tool) => `export type ${typeName(tool.name)} = ${typeOf(tool.inputSchema, "")};`);
+  const map = TOOL_DEFS.map((tool) => `  ${tool.name}: ${typeName(tool.name)};`);
+  return `// Made by \`npm run docs\` from the inputSchema of each tool in src/mcp-tools.ts: don't edit it by hand.
+// Each tool's arguments, as its schema says and as they are once checked against it (see validate.ts).
+
+${types.join("\n\n")}
+
+// Each tool's arguments, by its name.
+export interface ToolArgs {
+${map.join("\n")}
+}
+`;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const docs = new URL("../docs/", import.meta.url);
   writeFileSync(new URL("mcp.html", docs), mcpPage());
   console.log("Wrote docs/mcp.html");
+  writeFileSync(new URL("../src/mcp-args.ts", import.meta.url), argTypes());
+  console.log("Wrote src/mcp-args.ts");
 }

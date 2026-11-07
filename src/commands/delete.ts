@@ -3,7 +3,6 @@ import { callSlack, escapeSlack, linkedMessage, mrkdwn, plainText, respondLater 
 import { refreshSummary } from "../tasks.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
-import type { SlackMessage } from "../types.ts";
 import { DELETE_BUTTON, readPayload, type DeleteButton } from "../payloads.ts";
 
 
@@ -205,7 +204,7 @@ async function deleteReplies(env: AppEnv, channel: string, ts: string) {
       if (GONE.test(error.message)) return;
       throw error;
     }
-    own.push(...page.messages.filter((message: SlackMessage) => message.bot_id && message.ts !== ts));
+    own.push(...(page.messages ?? []).filter((message) => message.bot_id && message.ts !== ts));
     cursor = page.response_metadata?.next_cursor || undefined;
   } while (cursor);
 

@@ -53,15 +53,20 @@ export interface Release {
   messageTs: string | null;
 }
 
-// Slack's Block Kit is large and loose; blocks are built as plain objects.
-export type SlackBlock = { [key: string]: any };
+// Slack's Block Kit is large and loose; blocks are built as plain objects. The one field read
+// back is a section's text (see review in commands/release.ts).
+export type SlackBlock = { text?: { type?: string; text?: string; emoji?: boolean }; [key: string]: unknown };
 
 // A message body Cade posts or answers with.
 export interface MessageBody {
   text?: string;
   blocks?: SlackBlock[];
   attachments?: SlackBlock[];
-  [key: string]: any;
+  // A reply in a thread, and what a response_url answer replaces or deletes.
+  thread_ts?: string;
+  response_type?: "ephemeral" | "in_channel";
+  replace_original?: boolean;
+  delete_original?: boolean;
 }
 
 // What a form's inputs hold when it is sent: values[block_id][action_id].
@@ -80,16 +85,24 @@ export interface InputValue {
 // Every Cade form names its input's action "value".
 export type ViewValues = Record<string, { value: InputValue; [actionId: string]: InputValue }>;
 
-// A Slack message, as events and conversations.replies give them.
+// A Slack message, as events and conversations.replies give them: only what Cade reads.
 export interface SlackMessage {
   ts: string;
   thread_ts?: string;
   user?: string;
+  // A bot's or app's post, and its name.
   bot_id?: string;
+  username?: string;
+  bot_profile?: { name?: string };
   subtype?: string;
   text?: string;
-  files?: { name?: string; title?: string; permalink?: string; [key: string]: any }[];
-  [key: string]: any;
+  blocks?: SlackBlock[];
+  files?: { name?: string; title?: string; permalink?: string }[];
+  pinned_to?: string[];
+  reactions?: { name: string }[];
+  // A thread's root: how many replies it has, and when the last came.
+  reply_count?: number;
+  latest_reply?: string;
 }
 
 // A button, menu or picker used, in a click's `actions`.
@@ -99,7 +112,7 @@ export interface SlackAction {
   value: string;
   selected_option: { value: string };
   selected_user?: string;
-  [key: string]: any;
+  selected_users?: string[];
 }
 
 // What Slack sends for a click, a shortcut or a form (block_actions,
@@ -115,14 +128,15 @@ export interface SlackPayload {
   team?: { id: string; domain?: string };
   channel: { id: string; name?: string };
   message: SlackMessage;
-  container?: { channel_id?: string; message_ts?: string; thread_ts?: string; type?: string; [key: string]: any };
+  container?: { channel_id?: string; message_ts?: string; thread_ts?: string; type?: string };
   // A click carries the action clicked: at least one.
   actions: [SlackAction, ...SlackAction[]];
-  view: { id: string; callback_id: string; private_metadata: string; hash?: string; state: { values: ViewValues }; [key: string]: any };
+  view: { id: string; callback_id: string; private_metadata: string; hash?: string; state: { values: ViewValues } };
+  // The inputs in the message a click came from, such as a picker beside its buttons.
+  state?: { values: ViewValues };
   trigger_id: string;
   response_url: string;
   callback_id?: string;
-  [key: string]: any;
 }
 
 // What every handler is given with a request (see index.ts).
@@ -220,20 +234,16 @@ export interface Handler {
   intents?: Intent[];
 }
 
-// An event from Slack's Events API (message, reaction_added, app_home_opened).
-export interface SlackEvent {
+// An event from Slack's Events API: a message (with a message's fields), reaction_added or
+// app_home_opened. Only what Cade reads.
+export interface SlackEvent extends Partial<SlackMessage> {
   type: string;
-  user?: string;
   channel?: string;
-  ts?: string;
-  thread_ts?: string;
-  text?: string;
-  subtype?: string;
-  bot_id?: string;
+  // reaction_added: the emoji, and the message it was added to.
   reaction?: string;
   item?: { type: string; channel: string; ts: string };
+  // app_home_opened: which tab.
   tab?: string;
-  [key: string]: any;
 }
 
 // Changes to make to a task, each optional (see changeTask in

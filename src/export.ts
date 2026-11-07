@@ -146,6 +146,6 @@ export async function recordMessage(env: AppEnv, event: SlackEvent) {
     userId: event.user,
     username: event.username ?? event.bot_profile?.name,
     text: event.text,
-    files: event.files?.map((file: { name?: string; permalink?: string }) => ({ name: file.name, permalink: file.permalink })),
+    files: event.files?.map((file) => ({ name: file.name, permalink: file.permalink })),
   });
 }

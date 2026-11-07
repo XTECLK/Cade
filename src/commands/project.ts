@@ -224,7 +224,7 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
 // the new project.
 async function createProject(
   env: AppEnv,
-  { channel, name, members, choices, joined }: { channel: string; name: string; members: string[]; choices: Record<string, string | undefined>; joined: boolean },
+  { channel, name, members, choices, joined }: { channel: string; name: string; members: string[]; choices: Record<string, string | undefined>; joined?: boolean },
   user: string,
   viewId: string,
 ) {

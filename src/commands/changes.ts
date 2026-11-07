@@ -76,10 +76,14 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     change.prs = { added, removed };
   }
 
-  for (const name of task.incident ? [] : (["priority", "dueDate"] as const)) {
-    if (name in changes && (task[name] ?? "") !== changes[name]) {
-      (change as any)[name] = { from: task[name], to: changes[name] };
-      (task as any)[name] = changes[name];
+  if (!task.incident) {
+    if ("priority" in changes && task.priority !== changes.priority) {
+      change.priority = { from: task.priority, to: changes.priority! };
+      task.priority = changes.priority!;
+    }
+    if ("dueDate" in changes && (task.dueDate ?? "") !== changes.dueDate) {
+      change.dueDate = { from: task.dueDate, to: changes.dueDate! };
+      task.dueDate = changes.dueDate;
     }
   }
 

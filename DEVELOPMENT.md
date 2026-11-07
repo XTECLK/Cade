@@ -246,7 +246,9 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   call. The tools read tasks, threads, people, projects, availability, releases and executive summaries, and write
   tasks, task messages, releases, approval requests and summaries. The full list, with every argument, is
   [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
-  fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`.
+  fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`: it takes its arguments as
+  `src/mcp-args.ts` types them, which `npm run docs` also makes from the `inputSchema`, so the schema the agent
+  sees, the check its arguments pass and the code's types can't disagree.
 - **Rules for the agent.** What it is told when it connects is in `src/guardrails.ts`: above all, to show the person
   exactly what it will write and get their approval before any tool that changes something.
 - **Versions.** A session ID names the tool set it loaded (a hash of the tools, the rules and the description); a tool

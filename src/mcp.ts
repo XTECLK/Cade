@@ -11,7 +11,7 @@ import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summarie
 import { publicUrl } from "./links.ts";
 import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
-import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn } from "./slack.ts";
+import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn, type SlackChannel, type SlackUser } from "./slack.ts";
 import { nameMap } from "./export.ts";
 import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
@@ -19,21 +19,24 @@ import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { releaseRequest } from "./commands/release.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.ts";
 import { validate } from "./validate.ts";
+import type { CreateExecutiveSummaryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetExecutiveSummaryArgs, GetExecutiveSummaryDocArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendTaskMessageArgs, UpdateExecutiveSummaryAfterCallArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
 import type { Summary, SummaryItem } from "./db.ts";
-import type { Priority, Release, Role, SlackMessage, Status, Task } from "./types.ts";
+import type { Changes, Priority, Release, ReleaseStatus, Role, SlackMessage, Status, Task } from "./types.ts";
 
-// A tool's arguments, as the agent sent them: JSON, checked by each tool before it is used.
-type ToolArgs = Record<string, any>;
 // What a tool gives: its text, or its text and its data (structuredContent).
-type ToolResult = string | { text: string; data: Record<string, any> };
-type ToolRunner = (env: AppEnv, user: string, args: ToolArgs, extra: { loaded: string }) => Promise<ToolResult>;
+type ToolResult = string | { text: string; data: Record<string, unknown> };
+type ToolRunner<Args> = (env: AppEnv, user: string, args: Args, extra: { loaded: string }) => Promise<ToolResult>;
 // A JSON-RPC request's id.
 type RpcId = string | number | null;
+// A JSON-RPC message as an agent sends it. Nothing in it is trusted until answer and callTool have
+// checked it, so its fields are unknown.
+type RpcParams = { name?: unknown; arguments?: unknown; protocolVersion?: unknown };
+type RpcMessage = { jsonrpc?: unknown; id?: RpcId; method?: unknown; params?: RpcParams };
 // A message of a thread: from Slack, or as Cade kept it.
-type ThreadMessage = { ts: string; user?: string; username?: string; bot_id?: string; text?: string; files?: any[] };
+type ThreadMessage = { ts: string; user?: string; username?: string; bot_id?: string; text?: string; files?: { name?: string }[] };
 // A task in a list, before it has its link (see taskLines).
 type ListedTask = Omit<TaskEntry, "link">;
 
@@ -114,10 +117,14 @@ function apiKeyOf(request: Request) {
 
 
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
-const RUNNERS: Record<string, ToolRunner> = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
+// The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
+// made from the same inputSchema they are checked against before it is called (see callTool).
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
-  const run = RUNNERS[tool.name];
+  // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
+  // what its runner's argument type is made from.
+  const run = RUNNERS[tool.name as keyof ToolArgs] as ToolRunner<unknown> | undefined;
   if (!run) throw new Error(`The MCP tool ${tool.name} has no runner in RUNNERS`);
   return { ...tool, run };
 });
@@ -167,35 +174,36 @@ export async function handleMcp(request: Request, env: AppEnv) {
   const user = await tokenUser(env, apiKeyOf(request));
   if (!user) return new Response("Unauthorized", { status: 401, headers });
 
-  let body: any;
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
     return Response.json(failure(null, -32700, "Parse error"), { status: 400, headers });
   }
   const batch = Array.isArray(body);
-  const messages: any[] = batch ? body : [body];
+  const messages: unknown[] = Array.isArray(body) ? body : [body];
   const loaded = loadedVersionOf(request);
   const answers = (await Promise.all(messages.map((message) => answer(env, user, message, loaded)))).filter(Boolean);
   // Notifications and answers to us need none.
   if (!answers.length) return new Response(null, { status: 202, headers });
   // A session that connects is given an ID that names the tool set it loads.
-  const connecting = messages.some((message) => message?.method === "initialize");
+  const connecting = messages.some((message) => (message as RpcMessage | null)?.method === "initialize");
   return Response.json(batch ? answers : answers[0], { headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor() }) } });
 }
 
 const success = (id: RpcId, result: unknown) => ({ jsonrpc: "2.0", id, result });
 const failure = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function answer(env: AppEnv, user: string, message: any, loaded: string) {
-  if (!message || typeof message !== "object" || message.jsonrpc !== "2.0") return failure(null, -32600, "Invalid request");
+async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
+  if (!raw || typeof raw !== "object" || (raw as RpcMessage).jsonrpc !== "2.0") return failure(null, -32600, "Invalid request");
+  const message = raw as RpcMessage;
   // No id: a notification, or an answer to a request of ours (there are none).
   if (message.id === undefined || message.id === null) return null;
   const { id, method, params } = message;
   switch (method) {
     case "initialize":
       return success(id, {
-        protocolVersion: PROTOCOLS.includes(params?.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
+        protocolVersion: typeof params?.protocolVersion === "string" && PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
         capabilities: { tools: {} },
         serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${TOOLSET_VERSION}`, description: SERVER_DESCRIPTION },
         instructions: INSTRUCTIONS,
@@ -218,15 +226,15 @@ const staleNotice = (loaded: string) =>
     ? `\n\nCade's tools were updated after this session started (it loaded ${loaded}, the server has ${TOOLSET_VERSION}). Tell the person to disconnect and connect Cade again to load them.`
     : "";
 
-async function callTool(env: AppEnv, user: string, id: RpcId, params: any, loaded: string) {
+async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams | undefined, loaded: string) {
   const tool = TOOLS.find((candidate) => candidate.name === params?.name);
   if (!tool) return failure(id, -32602, `Unknown tool: ${params?.name}`);
   const notice = tool.name === "get_server_info" ? "" : staleNotice(loaded);
-  const reply = (text: string, isError?: boolean, data?: Record<string, any>) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
+  const reply = (text: string, isError?: boolean, data?: Record<string, unknown>) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
   // The arguments are checked against the tool's inputSchema, the one the agent was shown, before it
   // runs: an unknown argument, a wrong type or a value out of range is refused, saying which, so the
   // agent can correct it. The tool still checks what the schema can't say.
-  const args = params.arguments ?? {};
+  const args = params?.arguments ?? {};
   const problem = validate(tool.inputSchema, args);
   if (problem) {
     console.log("MCP arguments refused", { tool: tool.name, problem });
@@ -265,7 +273,7 @@ function userIdsIn(value: unknown, found = new Set<string>()) {
 
 // `result` with `user_names` in its data (at most MAX_NAMES people), and each of those people in its text
 // as "Name (ID)", or "@Name (ID)" for a mention. The IDs stay: the other tools take them.
-async function withUserNames(env: AppEnv, result: { text: string; data: Record<string, any> }) {
+async function withUserNames(env: AppEnv, result: { text: string; data: Record<string, unknown> }) {
   const ids = [...userIdsIn(result.data)].slice(0, MAX_NAMES);
   // The names kept in the database; Slack is asked only for a person not seen before. An ID with no name
   // (not a person Slack knows) stands in for itself there, and is left out here.
@@ -279,7 +287,7 @@ async function withUserNames(env: AppEnv, result: { text: string; data: Record<s
 }
 
 // Asks a person to approve a task in Client review, in its thread, with Approve and Not approve buttons only they can click.
-async function requestApprovalTool(env: AppEnv, user: string, args: ToolArgs) {
+async function requestApprovalTool(env: AppEnv, user: string, args: SendApprovalRequestArgs) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
@@ -298,7 +306,7 @@ async function requestApprovalTool(env: AppEnv, user: string, args: ToolArgs) {
 }
 
 // Which version of the tool set this session loaded, against the one the server has now.
-async function getServerInfo(env: AppEnv, user: string, args: ToolArgs, { loaded = "" } = {}) {
+async function getServerInfo(env: AppEnv, user: string, args: GetServerInfoArgs, { loaded = "" } = {}) {
   const status = !loaded ? "UNKNOWN" : loaded === TOOLSET_VERSION ? "CURRENT" : "OUTDATED";
   const text = [`Cade ${SERVER_VERSION}, tool set ${TOOLSET_VERSION}.`];
   if (status === "CURRENT") text.push("This session has the latest tools.");
@@ -335,14 +343,14 @@ async function readReplies(env: AppEnv, channel: string, ts: string) {
   return messages;
 }
 
-async function getThreadHistory(env: AppEnv, user: string, { thread_id: threadId, link }: ToolArgs) {
+async function getThreadHistory(env: AppEnv, user: string, { thread_id: threadId, link }: GetThreadHistoryArgs) {
   const { channel, ts } = threadId !== undefined ? threadIdOf(threadId) : threadOf(link);
   return readSlackThread(env, user, channel, ts);
 }
 
 // The channel's info from Slack when `user` may read it, or a ToolError for why not.
 async function readableChannel(env: AppEnv, user: string, channel: string) {
-  let info: any;
+  let info: SlackChannel;
   try {
     ({ channel: info } = await callSlack(env, "conversations.info", { channel }));
   } catch (error) {
@@ -402,7 +410,7 @@ function messageLines(messages: ThreadMessage[]) {
 }
 
 // The messages Cade kept of a task's thread. Nothing is asked of Slack.
-async function getTaskHistory(env: AppEnv, user: string, args: ToolArgs) {
+async function getTaskHistory(env: AppEnv, user: string, args: GetTaskHistoryArgs) {
   const { channel, ts } = taskRef(args);
   const title = await taskTitleOf(env, channel, ts);
   if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
@@ -482,7 +490,7 @@ function prData(task: Task, releases: Release[] = task.releases ?? []) {
 
 // One task: its details, summary and notes, without its threads, or only the `fields` asked
 // for. Nothing is asked of Slack.
-async function getTaskView(env: AppEnv, user: string, args: ToolArgs) {
+async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
   const { channel, ts } = taskRef(args);
   const { fields } = args;
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_VIEW_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_VIEW_FIELDS.join(", ")}.`);
@@ -491,7 +499,7 @@ async function getTaskView(env: AppEnv, user: string, args: ToolArgs) {
   const where = await readableName(env, channel, user);
   if (where === null) throw new ToolError("You can't read that task's channel, so I can't read it for you.");
   // Only what is asked for is read.
-  const want = (...names: string[]) => !fields || names.some((name) => fields.includes(name));
+  const want = (...names: NonNullable<GetTaskArgs["fields"]>) => !fields || names.some((name) => fields.includes(name));
   const [notes, kept] = await Promise.all([
     want("summary", "summary_by", "notes") ? getNotes(env, channel, ts) : ({} as Partial<Awaited<ReturnType<typeof getNotes>>>),
     want("original_thread", "original_thread_state") ? threadMessages(env, channel, ts) : [],
@@ -543,7 +551,7 @@ async function getTaskView(env: AppEnv, user: string, args: ToolArgs) {
 }
 
 // The channel and ts of the task a call names by its `task_id`, or a ToolError.
-function taskRef({ task_id: taskId }: ToolArgs) {
+function taskRef({ task_id: taskId }: { task_id?: string }) {
   if (taskId === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
   const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(taskId).trim());
   if (!match) throw new ToolError("A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them.");
@@ -562,9 +570,9 @@ function sourceThreadOf(messages: { text?: string }[]) {
 }
 
 // The releases (PRs sent to the client for approval) of the tasks `user` can read, oldest first.
-async function getReleases(env: AppEnv, user: string, { status, task_id: taskId, project, limit }: ToolArgs = {}) {
+async function getReleases(env: AppEnv, user: string, { status, task_id: taskId, project, limit }: GetReleasesArgs) {
   const wanted = status ?? "PENDING_APPROVAL";
-  const statuses = wanted === "all" ? ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] : ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"].includes(wanted) ? [wanted] : null;
+  const statuses: ReleaseStatus[] | null = wanted === "all" ? ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] : ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"].includes(wanted) ? [wanted] : null;
   if (!statuses) throw new ToolError("status is PENDING_APPROVAL, APPROVED, NOT_APPROVED or all.");
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
   const only = taskId === undefined ? null : taskRef({ task_id: taskId });
@@ -595,10 +603,10 @@ async function getReleases(env: AppEnv, user: string, { status, task_id: taskId,
 }
 
 // The channels Cade is in that `user` can read, project channels first.
-async function getChannels(env: AppEnv, user: string, { limit }: ToolArgs = {}) {
+async function getChannels(env: AppEnv, user: string, { limit }: GetChannelsArgs) {
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_CHANNELS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_CHANNELS}.`);
   const names = new Map(projects(env).map((project) => [project.channel, project.name]));
-  const found: any[] = [];
+  const found: SlackChannel[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const data = await callSlack(env, "users.conversations", { types: "public_channel,private_channel", exclude_archived: true, limit: PAGE, cursor });
@@ -624,7 +632,7 @@ const utc = (ts: string) => new Date(Number(ts) * 1000).toISOString().slice(0, 1
 
 // A channel's recent root messages from people that aren't tracked: Cade's own posts (the task
 // cards) are skipped, and so are those already moved into a task, marked with MOVED_REACTION.
-async function getChannelThreads(env: AppEnv, user: string, { channel_id: channel, days, with_replies: withReplies, limit }: ToolArgs = {}) {
+async function getChannelThreads(env: AppEnv, user: string, { channel_id: channel, days, with_replies: withReplies, limit }: GetChannelThreadsArgs) {
   if (!/^[CG][A-Z0-9]+$/.test(String(channel ?? ""))) throw new ToolError("channel_id is a channel's ID such as C0123ABCD. get_channels gives them.");
   if (days !== undefined && !(Number.isInteger(days) && days >= 1 && days <= MAX_DAYS)) throw new ToolError(`days is a whole number from 1 to ${MAX_DAYS}.`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_THREADS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_THREADS}.`);
@@ -681,7 +689,7 @@ async function getChannelThreads(env: AppEnv, user: string, { channel_id: channe
 }
 
 // Makes a task or incident for the person, from a thread or from scratch.
-async function createTaskTool(env: AppEnv, user: string, args: ToolArgs) {
+async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   const title = String(args.title ?? "").trim().replace(/\s+/g, " ");
   if (!title) throw new ToolError("The title is empty.");
   if (title.length > MAX_TITLE) throw new ToolError(`The title is ${title.length} characters; keep it to ${MAX_TITLE} or fewer.`);
@@ -737,7 +745,7 @@ async function createTaskTool(env: AppEnv, user: string, args: ToolArgs) {
 }
 
 // The projects whose channel `user` can read, one per line.
-async function getProjects(env: AppEnv, user: string) {
+async function getProjects(env: AppEnv, user: string, _args: GetProjectsArgs) {
   const seen: { name: string; channel_id: string }[] = [];
   for (const project of projects(env)) {
     if ((await readableName(env, project.channel, user)) !== null) seen.push({ name: project.name, channel_id: project.channel });
@@ -754,8 +762,12 @@ function projectChannel(env: AppEnv, name: unknown) {
   return found.channel;
 }
 
+// get_tasks' arguments, with what it works out from them for getMyTasks and getAllTasks: the project's
+// channel, which tasks done in the days asked count, and whether those not done come first.
+type ListArgs = GetTasksArgs & { channel?: string; completed?: (task: Task) => boolean; openFirst?: boolean };
+
 // The tasks the arguments ask for: the person's own, or everyone's they can read.
-async function getTasks(env: AppEnv, user: string, args: ToolArgs = {}) {
+async function getTasks(env: AppEnv, user: string, args: ListArgs) {
   const { mine, role, assignee, unassigned, limit, project, fields } = args;
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_FIELDS.join(", ")}.`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
@@ -788,7 +800,7 @@ async function getTasks(env: AppEnv, user: string, args: ToolArgs = {}) {
 const byOpenFirst = (a: { task: Task }, b: { task: Task }) => Number(!OPEN.includes(a.task.status)) - Number(!OPEN.includes(b.task.status));
 
 // The tasks `user` has a role in.
-async function getMyTasks(env: AppEnv, user: string, { role, status, limit, channel, fields, completed, openFirst }: ToolArgs = {}) {
+async function getMyTasks(env: AppEnv, user: string, { role, status, limit, channel, fields, completed, openFirst }: ListArgs) {
   if (role !== undefined && !ROLES[role as Role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
   const { wanted, statuses } = statusFilter(status);
   const found = (await tasksOfUser(env, user, { roles: role ? [role] : (Object.keys(ROLES) as Role[]), statuses }))
@@ -806,7 +818,7 @@ async function getMyTasks(env: AppEnv, user: string, { role, status, limit, chan
 }
 
 // Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env: AppEnv, user: string, { limit, status, assignee, unassigned, channel, fields, completed, openFirst }: ToolArgs = {}) {
+async function getAllTasks(env: AppEnv, user: string, { limit, status, assignee, unassigned, channel, fields, completed, openFirst }: ListArgs) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task: Task) => (Object.keys(ROLES) as Role[]).flatMap((role) => task.people[role]);
@@ -875,7 +887,7 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
     lines.push(`${n + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
     const page = pages.get(`${channel}:${ts}`);
-    const all: Record<string, any> = {
+    const all: Record<string, unknown> = {
       ...taskData(env, channel, ts, task, link),
       summary: page?.summary ?? "",
       summary_by: page?.summaryBy ?? "",
@@ -888,12 +900,12 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
     // Only the fields asked for, or the base ones.
     const item = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : Object.fromEntries(Object.entries(all).filter(([field]) => !(field in EXTRA_FIELDS)));
     items.push(item);
-    for (const field of ["summary", "notes"]) if (fields?.includes(field)) lines.push(`   ${field === "summary" ? "Summary" : "Notes"}: ${(all[field] || "(none)").replace(/\n/g, "\n   ")}`);
+    for (const field of ["summary", "notes"]) if (fields?.includes(field)) lines.push(`   ${field === "summary" ? "Summary" : "Notes"}: ${String(all[field] || "(none)").replace(/\n/g, "\n   ")}`);
   }
   return { lines, items };
 }
 
-async function resolveUserName(env: AppEnv, user: string, { user_id: id, profile: withProfile }: ToolArgs) {
+async function resolveUserName(env: AppEnv, user: string, { user_id: id, profile: withProfile }: GetUserArgs) {
   const match = /\b[UW][A-Z0-9]{2,}\b/.exec(String(id ?? ""));
   if (!match) throw new ToolError("That isn't a Slack user ID. They look like U0123ABCD.");
   try {
@@ -925,11 +937,11 @@ async function workspacePeople(env: AppEnv, keep: (names: string[]) => boolean, 
     });
     for (const member of result.members ?? []) {
       if (member.deleted || member.is_bot || member.id === "USLACKBOT") continue;
-      const names = [member.real_name, member.profile?.real_name, member.profile?.display_name, member.name].filter(Boolean);
+      const names = [member.real_name, member.profile?.real_name, member.profile?.display_name, member.name].filter((name): name is string => Boolean(name));
       if (!keep(names)) continue;
       total++;
       if (lines.length < max) {
-        const person: Record<string, string> = { user_id: member.id, name: names[0], username: member.name ?? names.at(-1) };
+        const person: Record<string, string | undefined> = { user_id: member.id, name: names[0], username: member.name ?? names.at(-1) };
         const shown = fields ?? USER_FIELDS;
         const label = shown.includes("name") && shown.includes("username") ? `${person.name} (${person.username}): ` : shown.length ? `${person[shown[0]!]}: ` : "";
         lines.push(`${label}${member.id}`);
@@ -948,7 +960,7 @@ function checkUserFields(fields: unknown) {
 }
 
 // Slack users whose name matches, to give a user ID to assign.
-async function findUser(env: AppEnv, user: string, { name, fields }: ToolArgs) {
+async function findUser(env: AppEnv, user: string, { name, fields }: FindUserByNameArgs) {
   checkUserFields(fields);
   const wanted = String(name ?? "").trim().toLowerCase().replace(/^@/, "");
   if (wanted.length < 2) throw new ToolError("Give at least two letters of the person's name.");
@@ -958,7 +970,7 @@ async function findUser(env: AppEnv, user: string, { name, fields }: ToolArgs) {
 }
 
 // The people of the workspace, by name, with their user IDs.
-async function getUsers(env: AppEnv, user: string, { limit, fields }: ToolArgs = {}) {
+async function getUsers(env: AppEnv, user: string, { limit, fields }: GetUsersArgs) {
   checkUserFields(fields);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_USERS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_USERS}.`);
   const { lines, users, total } = await workspacePeople(env, () => true, limit ?? DEFAULT_USERS, fields);
@@ -970,7 +982,7 @@ async function getUsers(env: AppEnv, user: string, { limit, fields }: ToolArgs =
 const AWAY_STATUS = /vacation|holiday|leave|sick|ill\b|ooo|out of office|off work|away|travell?ing|day off|pto/i;
 
 // One person's room for work, as getTeamAvailability gives it for the team.
-async function getAvailability(env: AppEnv, user: string, { user_id, project, fields }: ToolArgs = {}) {
+async function getAvailability(env: AppEnv, user: string, { user_id, project, fields }: GetAvailabilityArgs) {
   if (!/^[UW][A-Z0-9]{2,}$/.test(String(user_id ?? ""))) throw new ToolError("user_id is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   const result = await getTeamAvailability(env, user, { users: [user_id], project, fields });
   if (!result.data.people.length) throw new ToolError(project !== undefined && projectMembers(env, projectChannel(env, project)).length ? `${user_id} isn't one of the people who work on ${project}, or isn't an active person in the workspace.` : `There is no active person ${user_id} in the workspace.`);
@@ -978,7 +990,7 @@ async function getAvailability(env: AppEnv, user: string, { user_id, project, fi
 }
 
 // Who in the team has room for work: each person's open tasks, their Slack status and, if asked, presence.
-async function getTeamAvailability(env: AppEnv, user: string, { users, project, fields, limit }: ToolArgs = {}) {
+async function getTeamAvailability(env: AppEnv, user: string, { users, project, fields, limit }: GetTeamAvailabilityArgs) {
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => AVAILABILITY_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${AVAILABILITY_FIELDS.join(", ")}.`);
   const presence = fields?.includes("presence") ?? false;
   const shown = fields ?? AVAILABILITY_FIELDS.filter((field) => field !== "presence");
@@ -989,7 +1001,7 @@ async function getTeamAvailability(env: AppEnv, user: string, { users, project, 
   const team = channel ? projectMembers(env, channel) : [];
   const wanted = users || team.length ? new Set<string>((users ?? team).filter((id: string) => !team.length || team.includes(id))) : null;
 
-  const members: any[] = [];
+  const members: SlackUser[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const result = await callSlack(env, "users.list", { limit: PAGE, ...(cursor && { cursor }) }).catch((error) => {
@@ -1050,7 +1062,7 @@ async function getTeamAvailability(env: AppEnv, user: string, { users, project, 
   });
   const total = people.length;
   // Booleans subtract as 0 and 1: those away go last.
-  people.sort((a, b) => (a.away as unknown as number) - (b.away as unknown as number) || a.open_tasks - b.open_tasks || a.urgent_or_high - b.urgent_or_high || a.overdue - b.overdue || a.name.localeCompare(b.name));
+  people.sort((a, b) => Number(a.away) - Number(b.away) || a.open_tasks - b.open_tasks || a.urgent_or_high - b.urgent_or_high || a.overdue - b.overdue || a.name.localeCompare(b.name));
   people = people.slice(0, limit ?? DEFAULT_USERS);
 
   if (presence) {
@@ -1085,7 +1097,7 @@ function plainMessage(text: string) {
 }
 
 // Posts the person's message in a task's thread, as Cade, led by who sent it and ending with (via AI agent).
-async function sendTaskMessage(env: AppEnv, user: string, args: ToolArgs) {
+async function sendTaskMessage(env: AppEnv, user: string, args: SendTaskMessageArgs) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
@@ -1188,7 +1200,7 @@ function prLinksOf(list: unknown, name: string): string[] {
 
 // Changes the PRs, or what it completes, of a release waiting for approval, and tells its thread. It
 // is never decided here: that is the approver's click (see release.ts).
-async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, note }: ToolArgs = {}) {
+async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, note }: UpdateReleaseArgs) {
   if (!Number.isInteger(id) || id < 1) throw new ToolError("release_id is the number get_releases gives each release.");
   const found = await releaseById(env, id);
   if (!found) throw new ToolError("There is no such release, or its task is gone. get_releases lists them.");
@@ -1235,13 +1247,13 @@ async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, n
 }
 
 // Changes a task's fields for the person, and tells its thread.
-async function updateTask(env: AppEnv, user: string, args: ToolArgs) {
+async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
   if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't change it for you.");
 
-  const changes: Record<string, any> = {};
+  const changes: Changes = {};
   if (args.status !== undefined) {
     const status = parseStatus(String(args.status));
     if (!status) throw new ToolError(`status is one of ${Object.keys(STATUSES).join(", ")}.`);
@@ -1271,9 +1283,10 @@ async function updateTask(env: AppEnv, user: string, args: ToolArgs) {
     if (add.some((id) => remove.includes(id))) throw new ToolError(`${role}: the same person is in add and remove.`);
     changes.people = { ...changes.people, [role]: { add, remove } };
   }
-  await requireActiveUsers(env, Object.values(changes.people ?? {}).flatMap(({ add }: any) => add));
-  if (args.prs !== undefined) {
-    const links = (name: string) => prLinksOf(args.prs[name], `prs.${name}`);
+  await requireActiveUsers(env, Object.values(changes.people ?? {}).flatMap(({ add = [] }) => add));
+  const prs = args.prs;
+  if (prs !== undefined) {
+    const links = (name: "add" | "remove") => prLinksOf(prs[name], `prs.${name}`);
     const add = links("add");
     const remove = links("remove");
     if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");
@@ -1353,7 +1366,7 @@ async function summaryData(env: AppEnv, summary: Summary) {
 const said = (version: { included?: boolean; health?: string | null; progress?: string; notes?: string } | null | undefined) => (version ? `${version.included ? "" : "left out · "}${[version.health, version.progress].filter(Boolean).join(" · ")}${version.notes ? ` — ${version.notes.replace(/\n+/g, " / ")}` : ""}` || "included" : "—");
 
 // An executive summary Cade kept: the last, or the one in force on a day, with what it said before and after the call.
-async function getExecutiveSummary(env: AppEnv, user: string, { project, date }: ToolArgs = {}) {
+async function getExecutiveSummary(env: AppEnv, user: string, { project, date }: GetExecutiveSummaryArgs) {
   const group = await readableProject(env, user, project);
   const found = date === undefined ? await lastSummary(env, group.name) : (await summariesOf(env, group.name, { onOrBefore: dayBoundary(env, dayOf(date, "date"), { end: true }), limit: 1 }))[0];
   const others = (await summariesOf(env, group.name, { limit: MAX_EARLIER_SUMMARIES + 1 })).filter((other) => other.id !== found?.id).slice(0, MAX_EARLIER_SUMMARIES);
@@ -1379,7 +1392,7 @@ async function getExecutiveSummary(env: AppEnv, user: string, { project, date }:
 }
 
 // A summary's section as it reads in the Google Doc now.
-async function getExecutiveSummaryDoc(env: AppEnv, user: string, { project, summary_id: id }: ToolArgs = {}) {
+async function getExecutiveSummaryDoc(env: AppEnv, user: string, { project, summary_id: id }: GetExecutiveSummaryDocArgs) {
   const group = await readableProject(env, user, project);
   docError(env, group);
   const found = id === undefined ? await lastSummary(env, group.name) : await getSummary(env, Number.isInteger(id) ? id : 0);
@@ -1391,7 +1404,7 @@ async function getExecutiveSummaryDoc(env: AppEnv, user: string, { project, summ
 }
 
 // The health, progress and notes an agent gave a task, checked, with only what it gave.
-function choiceOf(item: ToolArgs) {
+function choiceOf(item: { included?: boolean; health?: string; progress?: string; notes?: string }) {
   refuseSecrets(`${item.progress ?? ""}\n${item.notes ?? ""}`, "The progress or notes");
   if (item.health !== undefined && !HEALTH[item.health as keyof typeof HEALTH]) throw new ToolError(`health is one of ${Object.keys(HEALTH).join(", ")}.`);
   return {
@@ -1403,7 +1416,7 @@ function choiceOf(item: ToolArgs) {
 }
 
 // Writes an executive summary to the project's Google Doc, with what the person chose for each task.
-async function createExecutiveSummary(env: AppEnv, user: string, { project, from, to, items = [] }: ToolArgs = {}) {
+async function createExecutiveSummary(env: AppEnv, user: string, { project, from, to, items = [] }: CreateExecutiveSummaryArgs) {
   const group = await readableProject(env, user, project);
   docError(env, group);
   if (!Array.isArray(items)) throw new ToolError("items is a list of { task_id, included?, health?, progress?, notes? }.");
@@ -1411,7 +1424,7 @@ async function createExecutiveSummary(env: AppEnv, user: string, { project, from
   const base = await defaultPeriod(env, group);
   const days = { from: from === undefined ? base.from : dayOf(from, "from"), to: to === undefined ? base.to : dayOf(to, "to") };
   if (days.from > days.to) throw new ToolError(`The period starts ${days.from}, after it ends ${days.to}. Give from and to, YYYY-MM-DD, with from first.`);
-  const choices = items.map((item: ToolArgs) => ({ ...taskRef(item), ...choiceOf(item) }));
+  const choices = items.map((item) => ({ ...taskRef(item), ...choiceOf(item) }));
   const { url } = await callSlack(env, "auth.test", {});
   let written: Awaited<ReturnType<typeof writeSummary>>;
   try {
@@ -1430,7 +1443,7 @@ async function createExecutiveSummary(env: AppEnv, user: string, { project, from
 }
 
 // Records the summary as agreed in the client call, next to the one that was written.
-async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, items = [], added = [], notes }: ToolArgs = {}) {
+async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, items = [], added = [], notes }: UpdateExecutiveSummaryAfterCallArgs) {
   const summary = Number.isInteger(id) ? await getSummary(env, id) : null;
   if (!summary || !summary.publishedAt) throw new ToolError("There is no such summary. get_executive_summary lists them.");
   const group = projects(env).find((pair) => pair.name === summary.project);
@@ -1440,7 +1453,7 @@ async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, item
   if (added.length > MAX_ADDED_ITEMS) throw new ToolError(`added has ${added.length} entries; give at most ${MAX_ADDED_ITEMS}.`);
 
   const { before } = await summaryItems(env, id);
-  const overrides = new Map(items.map((item: ToolArgs): [string, ReturnType<typeof choiceOf>] => {
+  const overrides = new Map(items.map((item): [string, ReturnType<typeof choiceOf>] => {
     const { channel, ts } = taskRef(item);
     if (!before.some((was) => was.channel === channel && was.ts === ts)) throw new ToolError(`${item.task_id} isn't in summary #${id}. Something the call added goes in added.`);
     return [`${channel}:${ts}`, choiceOf(item)];

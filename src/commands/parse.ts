@@ -5,7 +5,7 @@
 const MESSAGE_PREFIX = /^\s*<@([A-Z0-9]+)>(?:\s+(.*))?$/s;
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
-import type { Command, SlackMessage, SlashCommand } from "../types.ts";
+import type { Command, SlackEvent, SlashCommand } from "../types.ts";
 
 export type { Command };
 
@@ -14,7 +14,7 @@ export type { Command };
 //   text       everything after the name
 //   mentions   users mentioned in `text`, excluding the bot
 //   user, channel, ts, threadTs
-export function parseMessage(event: SlackMessage, botUserId: string): Command | null {
+export function parseMessage(event: SlackEvent, botUserId: string): Command | null {
   // Edits, deletions and bot posts (including Cade's own) are not commands.
   if (event.subtype || event.bot_id) return null;
 
@@ -33,7 +33,7 @@ export function parseMessage(event: SlackMessage, botUserId: string): Command | 
     text,
     mentions,
     user: event.user!,
-    channel: event.channel,
+    channel: event.channel!,
     ts: event.ts,
     threadTs: event.thread_ts,
   };

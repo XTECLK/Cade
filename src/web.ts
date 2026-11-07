@@ -97,7 +97,7 @@ async function threadPage(env: AppEnv, channel: string, ts: string, title: strin
     const who = message.user ? names.get(message.user) : (message.username ?? "Someone");
     const when = formatTime(env, new Date(Number(message.ts) * 1000));
     let text = plain(message.text ?? "", names);
-    if (message.files?.length) text += `${text ? "\n" : ""}(attachment: ${message.files.map((file: any) => file.name).join(", ")})`;
+    if (message.files?.length) text += `${text ? "\n" : ""}(attachment: ${message.files.map((file) => file.name).join(", ")})`;
     return `<article><header><strong>${escapeHtml(who!)}</strong> <time>${escapeHtml(when)}</time></header><p>${escapeHtml(text || "(no text)")}</p></article>`;
   });
   const body = items.length ? items.join("") : "<p>No messages are stored for this task yet. A workspace admin can send <code>/cade resync</code> with the task's link to read them from Slack.</p>";

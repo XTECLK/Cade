@@ -2,8 +2,19 @@
 // through one Apps Script web app (google/Code.gs), a standalone script serving
 // every group: GOOGLE_URL, with GOOGLE_SECRET. Each request names its `action`.
 import type { AppEnv } from "./env.ts";
+import type { DocElement } from "./doc.ts";
 
 type GoogleEnv = Pick<AppEnv, "GOOGLE_URL" | "GOOGLE_SECRET">;
+
+// What Cade reads of the web app's reply to each action (see google/Code.gs).
+export interface GoogleAnswers {
+  // The address of the tab written.
+  "doc.write": { url: string };
+  // The section as it reads now, or none if it is gone.
+  "doc.read": { elements?: DocElement[] };
+  // The new doc's ID.
+  "doc.create": { id: string };
+}
 
 export function googleEnabled(env: GoogleEnv) {
   return Boolean(env.GOOGLE_URL && env.GOOGLE_SECRET);
@@ -14,7 +25,11 @@ export function googleEnabled(env: GoogleEnv) {
 // that holds its reply, which is followed here. On some Google accounts that
 // page returns 404 even though doPost completed; with `lenient`, for what
 // needs no reply, the redirect then counts as done.
-export async function callGoogle(env: GoogleEnv, request: { action: string; [key: string]: unknown }, { lenient = false } = {}): Promise<{ [key: string]: any }> {
+export async function callGoogle<A extends keyof GoogleAnswers>(
+  env: GoogleEnv,
+  request: { action: A; [key: string]: unknown },
+  { lenient = false } = {},
+): Promise<GoogleAnswers[A]> {
   const response = await fetch(env.GOOGLE_URL!, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -25,10 +40,12 @@ export async function callGoogle(env: GoogleEnv, request: { action: string; [key
   if (response.status === 302) {
     reply = await fetch(response.headers.get("location")!).catch(() => null);
     const isJson = reply?.ok && reply.headers.get("content-type")?.includes("json");
-    if (!isJson && lenient) return {};
+    // Only for an action whose reply isn't read, so there is nothing in it to miss.
+    if (!isJson && lenient) return {} as GoogleAnswers[A];
   }
   if (!reply?.ok) throw new Error(`Google web app returned HTTP ${reply?.status ?? "nothing"}`);
-  const result = await reply.json<any>();
+  const result = await reply.json<{ ok: boolean; error?: string }>();
   if (!result.ok) throw new Error(`Google web app refused ${request.action}: ${result.error}`);
-  return result;
+  // The web app's reply for the action: GoogleAnswers says which of its fields Cade reads.
+  return result as unknown as GoogleAnswers[A];
 }

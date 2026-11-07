@@ -109,7 +109,7 @@ export function parseRole(text: string): Role | null {
 }
 
 export function noPeople(): People {
-  return Object.fromEntries(Object.keys(ROLES).map((role) => [role, []])) as unknown as People;
+  return { owner: [], reviewer: [], tester: [] };
 }
 
 // Who has each role on the task, as "Owner @a  ·  Review @b", leaving out

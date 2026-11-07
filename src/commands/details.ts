@@ -76,13 +76,14 @@ function cannotChange(found: Awaited<ReturnType<typeof findTask>>) {
 // Reads DD/MM/YYYY (or D/M/YYYY, or YYYY-MM-DD) as DD/MM/YYYY, or "" when it
 // is not a real date.
 export function parseDate(input: string) {
-  let day: any, month: any, year: any;
+  let day: string, month: string, year: string;
   let match = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(input);
-  if (match) [, day, month, year] = match;
-  else if ((match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input))) [, year, month, day] = match;
+  // Each pattern's three groups always match when it does.
+  if (match) [day, month, year] = [match[1]!, match[2]!, match[3]!];
+  else if ((match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input))) [year, month, day] = [match[1]!, match[2]!, match[3]!];
   else return "";
 
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCDate() !== Number(day) || date.getUTCMonth() !== month - 1) return "";
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (date.getUTCDate() !== Number(day) || date.getUTCMonth() !== Number(month) - 1) return "";
   return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
 }

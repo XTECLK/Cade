@@ -78,8 +78,9 @@ export const AVAILABILITY_FIELDS = ["name", "open_tasks", "owner", "reviewer", "
 
 // ── Builders for a field ─────────────────────────────────────────────────────────────────────
 
-// A JSON Schema, as the tools' inputSchema and outputSchema hold them.
-export type Schema = { [key: string]: any };
+// A JSON Schema, as the tools' inputSchema and outputSchema hold them (see validate.ts).
+import type { Schema } from "./validate.ts";
+export type { Schema };
 
 const str = (description: string, extra?: Schema): Schema => ({type: "string", ...extra, description});
 const int = (description: string, extra?: Schema): Schema => ({type: "integer", ...extra, description});
@@ -950,12 +951,13 @@ export const TOOL_DEFS: ToolDef[] = [
 ];
 
 // Results and arguments are exact: an object lists every field it may have, and no others.
-function strict(schema: any): any {
-    if (Array.isArray(schema)) return schema.map(strict);
+function strict<T>(schema: T): T {
+    if (Array.isArray(schema)) return schema.map(strict) as T;
     if (!schema || typeof schema !== "object") return schema;
-    const copy: Schema = Object.fromEntries(Object.entries(schema).map(([key, value]): [string, any] => [key, key === "properties" ? Object.fromEntries(Object.entries(value as Schema).map(([name, property]) => [name, strict(property)])) : strict(value)]));
+    const copy: Schema = Object.fromEntries(Object.entries(schema).map(([key, value]): [string, unknown] => [key, key === "properties" ? Object.fromEntries(Object.entries(value as Record<string, Schema>).map(([name, property]) => [name, strict(property)])) : strict(value)]));
     if (copy.properties && copy.additionalProperties === undefined) copy.additionalProperties = false;
-    return copy;
+    // A copy of `schema`, with additionalProperties added.
+    return copy as T;
 }
 
 // Arguments are exact too: an argument a tool doesn't list is refused (see validate.ts), not ignored.

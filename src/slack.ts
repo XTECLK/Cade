@@ -1,4 +1,5 @@
 import type { AppEnv } from "./env.ts";
+import type { SlackMessage } from "./types.ts";
 
 // Slack rejects requests whose signature timestamp is older than five minutes,
 // which stops captured requests from being replayed later.
@@ -38,15 +39,77 @@ export async function verifySlackRequest(request: Request, body: string, signing
 // <link>".
 // Slack would preview each link as a copy of the linked message, repeating
 // the task card, so previews are turned off for everything Cade posts.
-// What Slack's Web API answers: ok, and whatever the method gives.
-export type SlackResponse = { ok: true; [key: string]: any };
-
 const NO_PREVIEWS = { unfurl_links: false, unfurl_media: false };
 const POSTING_METHODS = ["chat.postMessage", "chat.update"];
 
+// A page of a method that pages its answer: the cursor of the next, if any.
+type Paged = { response_metadata?: { next_cursor?: string } };
+
+// A Slack user, as users.info and users.list give them: only what Cade reads.
+export interface SlackUser {
+  id: string;
+  name?: string;
+  real_name?: string;
+  deleted?: boolean;
+  is_bot?: boolean;
+  tz?: string;
+  profile?: {
+    display_name?: string;
+    real_name?: string;
+    email?: string;
+    phone?: string;
+    title?: string;
+    status_text?: string;
+    // When the status ends, in seconds since 1970; 0 for never.
+    status_expiration?: number;
+  };
+}
+
+// A channel, as conversations.info and users.conversations give them: only what Cade reads.
+export interface SlackChannel {
+  id: string;
+  name?: string;
+  is_im?: boolean;
+  is_mpim?: boolean;
+  is_private?: boolean;
+  is_member?: boolean;
+  properties?: { canvas?: { file_id?: string } };
+}
+
+// What Cade reads of each Web API method's answer: only those fields, not all Slack gives. Every
+// method Cade calls is listed, so calling a new one means saying here what is read of it; one whose
+// answer isn't read answers {}.
+export interface SlackAnswers {
+  "auth.test": { url: string; user_id: string };
+  "canvases.access.set": {};
+  "canvases.edit": {};
+  "chat.delete": {};
+  "chat.getPermalink": { permalink: string };
+  "chat.postEphemeral": {};
+  "chat.postMessage": { channel: string; ts: string };
+  "chat.update": {};
+  "conversations.canvases.create": { canvas_id: string };
+  "conversations.history": Paged & { messages?: SlackMessage[] };
+  "conversations.info": { channel: SlackChannel };
+  "conversations.join": {};
+  "conversations.members": Paged & { members?: string[] };
+  "conversations.replies": Paged & { messages?: SlackMessage[] };
+  "pins.add": {};
+  "pins.remove": {};
+  "reactions.add": {};
+  "users.conversations": Paged & { channels?: SlackChannel[] };
+  "users.getPresence": { presence?: string };
+  "users.info": { user: SlackUser };
+  "users.list": Paged & { members?: SlackUser[] };
+  "views.open": {};
+  "views.publish": {};
+  "views.update": {};
+}
+export type SlackMethod = keyof SlackAnswers;
+
 // Read methods such as conversations.replies do not accept JSON bodies, so
 // every call is form-encoded with object arguments sent as JSON strings.
-export async function callSlack(env: Pick<AppEnv, "SLACK_BOT_TOKEN">, method: string, args: Record<string, unknown>): Promise<SlackResponse> {
+export async function callSlack<M extends SlackMethod>(env: Pick<AppEnv, "SLACK_BOT_TOKEN">, method: M, args: Record<string, unknown>): Promise<SlackAnswers[M]> {
   if (!env.SLACK_BOT_TOKEN) {
     throw new Error("SLACK_BOT_TOKEN is not configured");
   }
@@ -69,11 +132,12 @@ export async function callSlack(env: Pick<AppEnv, "SLACK_BOT_TOKEN">, method: st
   if (!response.ok) {
     throw new Error(`Slack ${method} returned HTTP ${response.status}`);
   }
-  const data = await response.json<any>();
+  const data = await response.json<{ ok: boolean; error?: string }>();
   if (!data.ok) {
     throw new Error(`Slack ${method} failed: ${data.error}`);
   }
-  return data;
+  // Slack's answer for the method: SlackAnswers says which of its fields Cade reads.
+  return data as unknown as SlackAnswers[M];
 }
 
 export function escapeSlack(value: string) {

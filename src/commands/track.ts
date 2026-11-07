@@ -1,6 +1,6 @@
 import { groupDisabled } from "../channels.ts";
 import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.ts";
-import { CLOSE_ALL, callSlack, escapeSlack, plainText } from "../slack.ts";
+import { CLOSE_ALL, callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
 import { moveMessage, offerStart } from "./move.ts";
 import { mcpEnabled } from "../mcp.ts";
 import { addPages } from "../export.ts";
@@ -166,7 +166,7 @@ export async function createTask(env: AppEnv, task: Task, origin: Origin, { onPo
 // returns its ts. If Slack refuses the post, the task waits for the next
 // retry, and whoever made it is told, the first time and when Cade gives up.
 export async function publishTask(env: AppEnv, { id, channel, task, origin, attempts }: Unposted, { onPosted }: { onPosted?: OnPosted } = {}): Promise<string | undefined> {
-  let message: any;
+  let message: SlackAnswers["chat.postMessage"];
   try {
     message = await callSlack(env, "chat.postMessage", { channel, ...taskMessage(task) });
   } catch (error) {

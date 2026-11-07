@@ -194,7 +194,7 @@ export async function readChanges(env: AppEnv, { message, task, today, allowed, 
       max_tokens: 400,
       temperature: 0,
       ...(NO_THINKING.includes(model) && { chat_template_kwargs: { enable_thinking: false } }),
-    } as any),
+    }),
   );
   const raw = answerOf(result);
   console.log("AI read a message", { model, ms: Date.now() - started });
@@ -231,10 +231,23 @@ function withTimeout<T>(promise: Promise<T>) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
 }
 
+// What the model answers, as SCHEMA asks; none of it is trusted until checkChanges has checked it,
+// so every field is unknown.
+type Proposed = { add?: unknown; remove?: unknown };
+type ModelAnswer = Partial<Record<Role, Proposed>> & {
+  prs?: Proposed;
+  status?: unknown;
+  priority?: unknown;
+  dueDate?: unknown;
+  blocked?: unknown;
+  blockedReason?: unknown;
+};
+
 // The JSON the model answered with. Models answer in one of two shapes,
 // { response } or OpenAI's { choices }, as an object or as text.
-function answerOf(result: any): any {
-  const answer = result?.choices?.[0]?.message?.content ?? result?.response;
+function answerOf(result: unknown): ModelAnswer | null {
+  const reply = result as { choices?: { message?: { content?: unknown } }[]; response?: unknown } | null | undefined;
+  const answer = reply?.choices?.[0]?.message?.content ?? reply?.response;
   if (answer && typeof answer === "object") return answer;
   const text = String(answer ?? "");
   const start = text.indexOf("{");
@@ -252,7 +265,7 @@ function answerOf(result: any): any {
 //   - a due date must be a real date (YYYY-MM-DD, or "clear"), and differ.
 // `allowed` says which kinds may change: { roles, status, details }, and
 // `roles` which roles; and `author`, false when the author may not be added.
-export function checkChanges(raw: any, { task, message, allowed, pullRequests = [] }: Omit<Read, "today">): Changes | null {
+export function checkChanges(raw: ModelAnswer | null | undefined, { task, message, allowed, pullRequests = [] }: Omit<Read, "today">): Changes | null {
   const changes: Changes = {};
   if (allowed.prs) {
     // Only addresses code found in the message can be linked, and only those on the task unlinked.
@@ -268,12 +281,14 @@ export function checkChanges(raw: any, { task, message, allowed, pullRequests = 
     const remove = unique(raw?.[role]?.remove).filter((id) => current.includes(id) && !add.includes(id));
     if (add.length || remove.length) (changes.people ??= {})[role] = { add, remove };
   }
-  if (allowed.status && isForward(task.status, raw?.status) && statusFits(raw.status, task, message.text ?? "")) changes.status = raw.status;
+  const status = raw?.status;
+  if (allowed.status && isForward(task.status, status) && statusFits(status, task, message.text ?? "")) changes.status = status;
   if (allowed.blocked && !/\?\s*$/.test(message.text ?? "")) {
     if (raw?.blocked === "block" && !task.blocked) changes.blocked = { on: true, reason: cleanReason(raw.blockedReason) };
     if (raw?.blocked === "unblock" && task.blocked) changes.blocked = { on: false };
   }
-  if (allowed.details && PRIORITIES[raw?.priority as Priority] && raw.priority !== task.priority) changes.priority = raw.priority;
+  const priority = raw?.priority;
+  if (allowed.details && isPriority(priority) && priority !== task.priority) changes.priority = priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);
     if (dueDate !== null && dueDate !== (task.dueDate ?? "")) changes.dueDate = dueDate;
@@ -319,8 +334,13 @@ export function laterStatuses(from: Status) {
 
 // Whether `to` is a known status later than `from`. A task never goes back from a message:
 // moving it back is a deliberate act (`@Cade status`, or Edit on the card).
-function isForward(from: Status, to: Status) {
-  return laterStatuses(from).includes(to);
+function isForward(from: Status, to: unknown): to is Status {
+  return laterStatuses(from).some((status) => status === to);
+}
+
+// Whether `value` is one of the priorities.
+function isPriority(value: unknown): value is Priority {
+  return typeof value === "string" && Object.hasOwn(PRIORITIES, value);
 }
 
 function unique(ids: unknown): string[] {
@@ -328,12 +348,12 @@ function unique(ids: unknown): string[] {
 }
 
 // YYYY-MM-DD as DD/MM/YYYY, or null when it isn't a real date.
-function isoToDueDate(value: string | undefined) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "");
+function isoToDueDate(value: unknown) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof value === "string" ? value : "");
   if (!match) return null;
   const [, year, month, day] = match;
-  const date = new Date(Date.UTC(year as unknown as number, (month as unknown as number) - 1, day as unknown as number));
-  if (date.getUTCDate() !== Number(day) || date.getUTCMonth() !== (month as unknown as number) - 1) return null;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (date.getUTCDate() !== Number(day) || date.getUTCMonth() !== Number(month) - 1) return null;
   return `${day}/${month}/${year}`;
 }
 

@@ -4,16 +4,32 @@
 // ("limit is a whole number from 1 to 100", "Give task_id.", "stauts isn't something this takes"), or
 // null when there is none. An object takes only the properties it lists when its schema says
 // additionalProperties: false (see strict in mcp-tools.ts).
-import { Validator, type OutputUnit } from "@cfworker/json-schema";
+import { Validator, type OutputUnit, type Schema as ValidatorSchema } from "@cfworker/json-schema";
 
-export type Schema = { [key: string]: any };
+// A JSON Schema, with the keywords Cade's schemas use: the tools' (mcp-tools.ts) and the payloads'
+// (payloads.ts).
+export interface Schema {
+  type?: string | string[];
+  description?: string;
+  enum?: readonly unknown[];
+  properties?: Record<string, Schema>;
+  required?: string[];
+  // false: no other properties; a schema: what each other property is.
+  additionalProperties?: boolean | Schema;
+  items?: Schema;
+  anyOf?: Schema[];
+  minimum?: number;
+  maximum?: number;
+  maxLength?: number;
+  maxItems?: number;
+}
 
 // One Validator per schema, made the first time it is used.
 const validators = new WeakMap<Schema, Validator>();
 
 export function validate(schema: Schema, value: unknown): string | null {
   let validator = validators.get(schema);
-  if (!validator) validators.set(schema, (validator = new Validator(schema, "2020-12", true)));
+  if (!validator) validators.set(schema, (validator = new Validator(schema as ValidatorSchema, "2020-12", true)));
   const { valid, errors } = validator.validate(value);
   return valid ? null : explain(schema, errors, value);
 }
@@ -40,11 +56,12 @@ function explain(root: Schema, errors: OutputUnit[], value: unknown) {
       return `${named(quoted)} isn't something this takes${known.length ? `; it takes ${known.join(", ")}` : ""}.`;
     }
     case "anyOf":
-      return `Give ${schema.anyOf.map((option: Schema) => (option.required ?? []).map(named).join(" and ")).join(" or ")}.`;
+      // The error is from this schema's anyOf, so it has one.
+      return `Give ${schema.anyOf!.map((option: Schema) => (option.required ?? []).map(named).join(" and ")).join(" or ")}.`;
     case "maxLength":
-      return `${path} is ${[...String(at(value as Schema, parts(error.instanceLocation)))].length} characters; keep it to ${schema.maxLength} or fewer.`;
+      return `${path} is ${[...String(valueAt(value, error))].length} characters; keep it to ${schema.maxLength} or fewer.`;
     case "maxItems":
-      return `${path} has ${(at(value, parts(error.instanceLocation)) as unknown as unknown[]).length} entries; give at most ${schema.maxItems}.`;
+      return `${path} has ${(valueAt(value, error) as unknown[]).length} entries; give at most ${schema.maxItems}.`;
     default: {
       // An item of a list of choices is told as the list.
       const item = /^(.*)\[\d+\]$/.exec(path);
@@ -63,10 +80,16 @@ function parts(location: string) {
     .map((part) => decodeURIComponent(part).replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
-// What is at `path` (a pointer's parts) in a schema or a value.
-function at(node: any, path: string[]): Schema {
-  return path.reduce((inner, part) => inner?.[part], node) ?? {};
+// What is at `path` (a pointer's parts) in JSON: a schema or a value.
+function dig(node: unknown, path: string[]): unknown {
+  return path.reduce<unknown>((inner, part) => (inner as Record<string, unknown> | undefined)?.[part], node);
 }
+
+// The schema at `path` in `root`, or {} if there is none.
+const at = (root: Schema, path: string[]): Schema => (dig(root, path) ?? {}) as Schema;
+
+// The part of the value an error is about.
+const valueAt = (value: unknown, error: OutputUnit) => dig(value, parts(error.instanceLocation));
 
 // "#/prs/add" as prs.add, "#/fields/0" as fields[0].
 function pathOf(location: string) {
@@ -98,4 +121,4 @@ function what(schema: Schema, name: string) {
   }
 }
 
-const shown = (values: unknown[]) => values.filter((value) => value !== null).join(", ");
+const shown = (values: readonly unknown[]) => values.filter((value) => value !== null).join(", ");

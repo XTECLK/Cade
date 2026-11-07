@@ -37,7 +37,7 @@ export interface MessageRow {
   userId?: string | null;
   username?: string | null;
   text?: string | null;
-  files?: unknown[] | null;
+  files?: { name?: string; permalink?: string }[] | null;
 }
 
 type TaskKey = { channel: string; ts: string };
@@ -707,7 +707,7 @@ export async function threadMessages(env: DbEnv, channel: string, taskTs: string
     username: row.username ?? undefined,
     ts: row.ts,
     text: row.text,
-    files: (row.files ? JSON.parse(row.files) : undefined) as unknown[] | undefined,
+    files: (row.files ? JSON.parse(row.files) : undefined) as { name?: string; permalink?: string }[] | undefined,
   }));
 }
 

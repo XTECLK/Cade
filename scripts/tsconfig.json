@@ -1,0 +1,14 @@
+{
+  // The npm scripts run on Node.js, so they get its types; src/ runs on Workers, and is checked
+  // without them by ../tsconfig.json. Editors pick this file for scripts/, and `npm run typecheck`
+  // checks it. Like the tests' (../test/tsconfig.json), it is a little looser than src/'s: the
+  // scripts are setup tooling, and what is checked is that they use Cade's code as it is typed.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["../worker-configuration.d.ts", "../src/**/*", "./**/*"]
+}

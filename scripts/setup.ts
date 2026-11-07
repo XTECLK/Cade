@@ -22,7 +22,7 @@ export function workerUrlIn(output) {
 }
 
 // The account IDs in what `wrangler whoami` printed.
-export function accountIdsIn(output) {
+export function accountIdsIn(output: string): string[] {
   return [...new Set(output.match(/\b[0-9a-f]{32}\b/g) ?? [])];
 }
 
@@ -93,7 +93,10 @@ async function workspaceName() {
   process.env.SLACK_BOT_TOKEN ??= token;
   try {
     const result = (await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }).then((r) => r.json())) as { ok: boolean; error?: string; team?: string };
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      console.log(`Couldn't read the workspace's name (${result.error}); carrying on without it.`);
+      return undefined;
+    }
     await writeFile(SLACK_APP, `${JSON.stringify({ ...app, team: result.team }, null, 2)}\n`);
     return result.team;
   } catch (error) {
@@ -144,8 +147,7 @@ async function main() {
     }
     const accounts = accountIdsIn(who.output);
     if (accounts.length > 1 && !process.env.CLOUDFLARE_ACCOUNT_ID && !(await exists(`${HOME}.cade/cloudflare.json`))) {
-      const id = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
-      process.env.CLOUDFLARE_ACCOUNT_ID = id;
+      process.env.CLOUDFLARE_ACCOUNT_ID = await choose("Several Cloudflare accounts are listed. Which one is Cade deployed to?", accounts.map((account) => ({ label: account, value: account })));
       await import("./cloudflare.ts"); // saves it for every script
     }
   });

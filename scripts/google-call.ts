@@ -12,7 +12,7 @@ export async function callWebApp(url: string, secret: string | undefined, action
     redirect: "manual",
   });
   const reply = response.status === 302 ? await fetchImpl(response.headers.get("location")!) : response;
-  return (reply.json() as Promise<WebAppReply>).catch(() => ({ ok: false, error: `HTTP ${reply.status}` }));
+  return await (reply.json() as Promise<WebAppReply>).catch(() => ({ ok: false, error: `HTTP ${reply.status}` }));
 }
 
 // The secret in Secret.gs's text (`const SECRET = "…";`), or undefined.

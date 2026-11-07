@@ -19,7 +19,7 @@
     "google:update": "node scripts/google-app.ts update",
     "demo:login": "node scripts/demo/login.ts",
     "demo:record": "node scripts/demo/record.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p scripts",
     "types": "wrangler types",
     "check": "npm run typecheck && npm test",
     "bundle-diff": "node scripts/bundle-diff.ts"

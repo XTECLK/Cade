@@ -191,6 +191,12 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   // Beyond Cade's channels the agent reads Slack with its own tools; finding new tasks stays with Cade.
   assert.match(init.result.instructions, /To read Slack beyond Cade's channels.*use your own Slack tools.*direct message stays private/);
   assert.match(init.result.instructions, /To find conversations that should become tasks, use get_channel_threads, which leaves out what Cade already tracks/);
+  // Cade suggests nothing from an agent's messages, so the agent offers the task's status and PR changes
+  // itself, in the message's preview, under one approval.
+  assert.match(init.result.instructions, /KEEPING TASKS RIGHT\. Cade suggests nothing from messages an agent posts/);
+  assert.match(init.result.instructions, /Its status: a status the evidence has moved past/);
+  assert.match(init.result.instructions, /Its pull requests: one mentioned or opened for the task and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove/);
+  assert.match(init.result.instructions, /Offer what you find as update_task.*in the same preview as the message and under the same "Go ahead\?"/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);

@@ -56,6 +56,16 @@ export const GUARDRAILS = [
       `update_executive_summary_after_call: the summary, each task the call changed or took out as before -> after, what the call added, and the notes on the call.`,
     ],
   },
+  {
+    title: "KEEPING TASKS RIGHT",
+    rules: [
+      `Cade suggests nothing from messages an agent posts, via Cade or with the person's own Slack tools, so you keep the task in step instead.`,
+      `Whenever you post in a task's thread, or work on a task (reading its thread, opening its pull requests, after a push), compare the task with what the thread, your message and the work show.`,
+      `Its status: a status the evidence has moved past, such as To do when work has started or In progress when a pull request is up for review, or a message that says the work moved on ("ready for review", "QA passed", "done").`,
+      `Its pull requests: one mentioned or opened for the task and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove.`,
+      `Offer what you find as update_task, with the evidence for each change, in the same preview as the message and under the same "Go ahead?", so one approval covers both; if they want only the message, send only that. Never change the task without that approval, and suggest nothing from a plan, a question or a guess.`,
+    ],
+  },
 ];
 
 // What the agent is sent: each section's title and its rules joined, the sections one after another.

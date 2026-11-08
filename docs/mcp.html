@@ -603,7 +603,7 @@
 <section class="tool" id="send_thread_message">
   <div class="wrap">
     <h2><code>send_thread_message</code></h2>
-    <p>Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. Call this only with text the person has seen and approved.</p>
+    <p>Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. Call this only with text the person has seen and approved.</p>
     <p>Give one of <code>thread_id</code> or <code>link</code>.</p>
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>

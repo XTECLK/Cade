@@ -669,6 +669,7 @@ export const TOOL_DEFS: ToolDef[] = [
         description:
             "Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
             "If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. " +
+            "In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. " +
             "Call this only with text the person has seen and approved.",
         inputSchema: {
             type: "object",

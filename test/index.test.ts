@@ -1296,6 +1296,18 @@ const reviewClick = (actionId) =>
     ],
   });
 
+test("an approval request sent through an AI agent keeps its footer once decided", async (t) => {
+  const footer = { type: "context", block_id: "cade_agent_footer", elements: [{ type: "mrkdwn", text: "*Sent using* AI agent" }] };
+  const click = JSON.parse(new URLSearchParams(reviewClick("status:approve")).get("payload")!);
+  click.message.blocks = [{ type: "section" }, { type: "actions" }, footer];
+  const calls = mockSlack(t, { stored: [withStatus("CLIENT_REVIEW")] });
+  await send("/slack/interactions", interaction(click));
+  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.9").args;
+  assert.equal(update.text, "<@UACTOR> says this is ready for you to review.\n<@UCLIENT> approved it.\nSent using AI agent");
+  assert.deepEqual(update.blocks.at(-1), footer);
+  assert.ok(!update.blocks.some((block) => block.type === "actions"), "the buttons are gone");
+});
+
 test("Approve moves the task to Done and tells the task's thread", async (t) => {
   const calls = mockSlack(t, {
     stored: [withStatus("CLIENT_REVIEW")],

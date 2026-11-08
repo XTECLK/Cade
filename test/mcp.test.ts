@@ -185,7 +185,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   // Links are opened by the agent as the person, never by Cade.
   assert.match(init.result.instructions, /Cade doesn't open the links in messages: read one with your own tools, signed in as the person/);
   // A message can go as the person, with their own Slack tools, or via Cade, which shows it as from an agent.
-  assert.match(init.result.instructions, /ask them to choose: send it as themselves.*or via Cade with send_thread_message.*"\(via AI agent\)"/);
+  assert.match(init.result.instructions, /ask them to choose: send it as themselves.*or via Cade with send_thread_message.*"Sent using AI agent" footer/);
   assert.match(init.result.instructions, /\(summary_id\) always goes via Cade/);
   assert.match(init.result.instructions, /send_thread_message: .*whether it goes as the person or via Cade/);
   // Beyond Cade's channels the agent reads Slack with its own tools; finding new tasks stays with Cade.
@@ -321,7 +321,7 @@ test("update_task saves the summary, which it keeps the summary in the database,
   // The thread is told, with the notes page's link; nothing goes to Google, and the card has its link already.
   const posted = () => calls.filter((call) => call.method.startsWith("chat.") || call.method.startsWith("google:"));
   assert.deepEqual(posted().map((call) => [call.method, call.args.channel, call.args.thread_ts, call.args.text]), [
-    ["chat.postMessage", "CDEV", "1000000000.000100", `<@UME> updated the summary on the <${ORIGIN}/n/CDEV/1000000000.000100|notes page>.\n_(via AI agent)_`],
+    ["chat.postMessage", "CDEV", "1000000000.000100", `<@UME> updated the summary on the <${ORIGIN}/n/CDEV/1000000000.000100|notes page>.\nSent using AI agent`],
   ]);
 
   // A later summary replaces it, and is told too; the same one again says nothing.
@@ -483,7 +483,9 @@ test("send_thread_message posts in a task's thread as Cade, marked as sent by th
   const blocks = JSON.parse(post.blocks);
   // Only a person's mention is kept; @channel and links are shown as typed.
   assert.equal(blocks[0].text.text, "<@UME> sent:\nHi <@UANN> &amp; &lt;!channel&gt;, see &lt;https://evil.example|this&gt;.");
-  assert.equal(blocks[1].elements[0].text, "_(via AI agent)_");
+  // The footer is small grey text, as Slack's own connector marks what it posts for someone.
+  assert.deepEqual(blocks[1], { type: "context", block_id: "cade_agent_footer", elements: [{ type: "mrkdwn", text: "*Sent using* AI agent" }] });
+  assert.match(post.text, /\nSent using AI agent$/);
   assert.match(post.text, /^<@UME> sent:\n/);
 
   const before = calls.length;
@@ -529,7 +531,7 @@ test("send_thread_message posts in any thread the person can read, in the same f
   assert.equal(post.thread_ts, "1700000000.000300");
   const blocks = JSON.parse(post.blocks);
   assert.equal(blocks[0].text.text, "<@UME> sent:\nHi <@UANN>");
-  assert.equal(blocks[1].elements[0].text, "_(via AI agent)_");
+  assert.equal(blocks[1].elements[0].text, "*Sent using* AI agent");
 
   // A link to a task's thread is that task.
   const task = await tool(url, "send_thread_message", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100", text: "hi" });
@@ -1073,7 +1075,7 @@ test("update_release changes the PRs of a release waiting for approval, never de
   assert.deepEqual(JSON.parse(request.args.blocks).at(-1).elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
   assert.match(JSON.parse(JSON.parse(request.args.blocks).at(-1).elements[0].value).approver, /UCLIENT/);
   assert.ok(calls.some((call) => call.method === "chat.update" && call.args.ts === TS), "the task card is redrawn");
-  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release\. It now has [\s\S]*web\/1[\s\S]*_\(via AI agent\)_/);
+  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release\. It now has [\s\S]*web\/1[\s\S]*Sent using AI agent$/);
   // PR2 is pending again; adding it back works, and a no-op says so.
   assert.equal((await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } })).data.release.prs.length, 2);
   const same = await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } });
@@ -1168,7 +1170,7 @@ test("create_task makes a task or incident from a thread or from scratch, moves 
   // Its card says an AI agent made it, beside who tracked it, and keeps saying so.
   assert.equal(task.viaAgent, true);
   const card = calls.find((c) => c.method === "chat.postMessage" && c.args.channel === "CDEV" && !c.args.thread_ts);
-  assert.match(JSON.stringify(card?.args), /Tracked by <@UME> _\(via AI agent\)_/);
+  assert.match(JSON.stringify(card?.args), /Tracked by <@UME> · \*Sent using\* AI agent/);
 
   // An incident is urgent and immediate, and takes neither.
   assert.match((await tool(url, "create_task", { title: "Site down", incident: true, priority: "Low" })).text, /always Urgent and due immediately/);
@@ -1633,7 +1635,9 @@ test("a status change made through MCP shows no private prompt, and the thread s
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), "no private prompt");
   const posted = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text).join("\n");
   assert.match(posted, /<@UME> set the status to .*Client review/);
-  assert.match(posted, /_\(via AI agent\)_/);
+  assert.match(posted, /Sent using AI agent/);
+  const change = calls.find((call) => call.method === "chat.postMessage" && /set the status/.test(call.args.text)).args;
+  assert.equal(JSON.parse(change.blocks).at(-1).block_id, "cade_agent_footer");
 
   // A change that isn't to Client review doesn't tell the agent to ask anyone.
   await putTask(env, "CDEV", "1700000001.000100", stored({ status: "TODO" }));
@@ -1660,7 +1664,8 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   // The request is in the task's thread, mentions the approver, lists the PRs, and its buttons name who may click them.
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, TS);
-  assert.match(post.text, /<@UME> says this is ready for review\.\n_\(via AI agent\)_/);
+  assert.match(post.text, /^<@UME> says this is ready for review\.\n[\s\S]*\nSent using AI agent$/);
+  assert.equal(JSON.parse(post.blocks).at(-1).block_id, "cade_agent_footer");
   assert.match(post.text, /cade\/42/);
   assert.match(post.text, /<@UCLIENT123>, could you take a look and approve it/);
   const buttons = JSON.parse(post.blocks).find((block) => block.type === "actions").elements;

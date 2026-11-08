@@ -11,7 +11,7 @@ import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
-import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn, type SlackChannel, type SlackUser } from "./slack.ts";
+import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
 import { nameMap } from "./export.ts";
 import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
@@ -1118,7 +1118,8 @@ function plainMessage(text: string) {
   return escapeSlack(text).replace(/&lt;@([UW][A-Z0-9]{2,})&gt;/g, "<@$1>");
 }
 
-// Posts the person's message in a thread, as Cade, led by who sent it and ending with (via AI agent):
+// Posts the person's message in a thread, as Cade, led by who sent it and ending with the "Sent
+// using AI agent" footer:
 // a task's thread, or any other in a channel the person can read.
 async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMessageArgs) {
   if (args.thread_id !== undefined && args.link !== undefined) throw new ToolError("Give thread_id or link, not both.");
@@ -1140,17 +1141,7 @@ async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMess
   await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
   if (!task) await reachableThread(env, user, channel, ts);
   const body = plainMessage(message);
-  const from = `<@${user}> sent:`;
-  const via = "_(via AI agent)_";
-  await callSlack(env, "chat.postMessage", {
-    channel,
-    thread_ts: ts,
-    text: `${from}\n${body}\n${via}`,
-    blocks: [
-      { type: "section", text: mrkdwn(`${from}\n${body}`) },
-      { type: "context", elements: [mrkdwn(via)] },
-    ],
-  });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(`<@${user}> sent:\n${body}`) });
   if (summaryId !== undefined) await markSummaryInformed(env, summaryId, channel, ts, user);
   console.log(task ? "Task message sent" : "Thread message sent", { channel, ts, by: user, characters: message.length });
   // The person is told where it was posted, so a thread named by its ID gets a link too.
@@ -1274,8 +1265,8 @@ async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, n
     await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
     // The request the approver sees, with its buttons; and a reply, since mentions in an edit notify no one.
     await callSlack(env, "chat.update", { channel, ts: release.messageTs, ...releaseRequest({ channel, ts, id, approver: release.approver!, sentBy: release.sentBy, prs: next, note: text }) });
-    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release. It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}\n_(via AI agent)_`;
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: reply, blocks: [{ type: "section", text: mrkdwn(reply) }] });
+    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release. It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}`;
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(reply) });
     console.log("Release changed", { channel, ts, id, by: user, prs: next.length });
   }
   const data = { release_id: id, task_id: taskId, changed: !unchanged, release: releaseData(updated) };
@@ -1527,8 +1518,8 @@ async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, item
 // Tells the task's thread that `user`'s AI agent changed the summary, with a link to the notes page.
 async function tellSummaryChanged(env: AppEnv, user: string, channel: string, ts: string) {
   const notes = (await loadTask(env, channel, ts))?.notes?.url;
-  const text = `<@${user}> updated the summary${notes ? ` on the <${notes}|notes page>` : ""}.\n_(via AI agent)_`;
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+  const text = `<@${user}> updated the summary${notes ? ` on the <${notes}|notes page>` : ""}.`;
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(text) });
 }
 
 // Saves the summary on the task's notes page, and returns what to tell the person.

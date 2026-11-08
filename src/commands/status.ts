@@ -1,7 +1,7 @@
 import { isQuestion, phraseTest } from "../intents.ts";
 import { changeMessage } from "../notify.ts";
 import { acknowledged, changeTask } from "./changes.ts";
-import { callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.ts";
+import { AGENT_FOOTER, AGENT_FOOTER_ID, agentFooter, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.ts";
 import {
   NOT_A_TASK,
   STATUSES,
@@ -261,8 +261,13 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
 export async function requestApproval(env: AppEnv, channel: string, ts: string, approver: string, user: string) {
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
-  const ready = `<@${user}> says this is ready for review.\n_(via AI agent)_`;
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
+  const prompt = reviewPrompt(`<@${user}> says this is ready for review.`, channel, ts, task, approver);
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: ts,
+    text: `${prompt.text}\n${AGENT_FOOTER}`,
+    blocks: [...prompt.blocks, agentFooter()],
+  });
   return null;
 }
 
@@ -334,10 +339,13 @@ async function review(payload: SlackPayload, env: AppEnv, approved: boolean) {
       ? `<@${user}> approved it.`
       : `<@${user}> didn't approve it, so the team will pick it up again.`;
   }
+  // A request sent through someone's AI agent keeps its footer.
+  const text = `${request.text}\n${outcome}`;
+  const footer = payload.message.blocks?.find((block) => block.block_id === AGENT_FOOTER_ID);
   await callSlack(env, "chat.update", {
     channel: payload.channel.id,
     ts: payload.message.ts,
-    ...asMessage(`${request.text}\n${outcome}`),
+    ...(footer ? { text: `${text}\n${AGENT_FOOTER}`, blocks: [{ type: "section", text: mrkdwn(text) }, footer] } : asMessage(text)),
   });
 }
 

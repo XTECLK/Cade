@@ -141,7 +141,7 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
     ...(links.length ? [smallText([links.join("  ·  ")])] : []),
     { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && task.subtasks, !archivedBy && blockedLine(task))] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
-    smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " _(via AI agent)_" : ""}`]),
+    smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`]),
   ];
   // Incidents share the dev channel with the rest of the work, so their
   // cards say which they are.

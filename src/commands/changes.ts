@@ -1,5 +1,5 @@
 import { changeMessage, changeRequests } from "../notify.ts";
-import { acknowledge, callSlack } from "../slack.ts";
+import { acknowledge, callSlack, viaAgent } from "../slack.ts";
 import { ROLES, cleanReason, loadTask, saveTask } from "../tasks.ts";
 import { afterStatusChange, setStatusFields } from "./status.ts";
 import type { AppEnv } from "../env.ts";
@@ -40,9 +40,11 @@ export function prsAfter(task: Task, changes: Changes) {
 // has no source.
 export async function applyChanges(env: AppEnv, where: Where, changes: Changes, user: string, options?: ChangeOptions) {
   const change = await changeTask(env, where, changes, user, options);
-  const text = change && [changeMessage(change), options?.source === "mcp" && "_(via AI agent)_"].filter(Boolean).join("\n");
-  if (text) await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, text });
-  return Boolean(text);
+  const text = change && changeMessage(change);
+  if (!text) return false;
+  const body = options?.source === "mcp" ? viaAgent(text) : { text };
+  await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, ...body });
+  return true;
 }
 
 // Applies `changes` to the task at `channel`/`ts` for `user`, all to the one

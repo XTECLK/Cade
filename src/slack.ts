@@ -195,6 +195,21 @@ export function mrkdwn(text: string) {
   return { type: "mrkdwn" as const, text };
 }
 
+// What Cade posts for someone's AI agent ends with this footer, in small grey text, as Slack's own
+// MCP connector marks what it posts for someone ("Sent using Claude"). Its block_id finds it again
+// when the message is replaced (see review in commands/status.ts).
+export const AGENT_FOOTER_ID = "cade_agent_footer";
+export const AGENT_FOOTER = "Sent using AI agent";
+export function agentFooter() {
+  return { type: "context", block_id: AGENT_FOOTER_ID, elements: [mrkdwn("*Sent using* AI agent")] };
+}
+
+// A message of `text` posted for someone's AI agent, with the footer. The footer is in its text
+// too, for notifications and the thread's history, which keep only the text.
+export function viaAgent(text: string) {
+  return { text: `${text}\n${AGENT_FOOTER}`, blocks: [{ type: "section", text: mrkdwn(text) }, agentFooter()] };
+}
+
 export function mentions(users: string[]) {
   return users.map((id) => `<@${id}>`).join(", ");
 }

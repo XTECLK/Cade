@@ -150,12 +150,14 @@ export type FindUserByNameArgs = {
   fields?: ("name" | "username")[];
 };
 
-export type SendTaskMessageArgs = {
-  // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
-  task_id: string;
+export type SendThreadMessageArgs = {
+  // The thread's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100. A task's ID is its thread's
+  thread_id?: string;
+  // Instead of thread_id: a link to a message in the thread, such as https://team.slack.com/archives/C0123ABCD/p1700000000123456
+  link?: string;
   // The message, as plain text, written as the person would. Mention a person as <@U0123ABCD>, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most 3000 characters
   text: string;
-  // An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already
+  // An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread
   summary_id?: number;
 };
 
@@ -303,7 +305,7 @@ export interface ToolArgs {
   get_team_availability: GetTeamAvailabilityArgs;
   get_availability: GetAvailabilityArgs;
   find_user_by_name: FindUserByNameArgs;
-  send_task_message: SendTaskMessageArgs;
+  send_thread_message: SendThreadMessageArgs;
   update_task: UpdateTaskArgs;
   send_approval_request: SendApprovalRequestArgs;
   get_server_info: GetServerInfoArgs;

@@ -7,7 +7,7 @@ export const ABOUT = [
   `A team turns Slack conversations into tasks and incidents, assigns people, and follows them through statuses to Done.`,
   `A task belongs to a project (a pair of Slack channels) and has a title, status, priority, due date, people (owner, reviewer and tester), pull requests, a summary and notes.`,
   `Through this server a person's own AI agent can create tasks, create incidents, summarize a task, and generate executive summaries to show to the executives of the client.`,
-  `It can also read tasks and threads, change a task, post in a task's thread, see who has room for more work, and change a release (pull requests sent to the client for approval).`,
+  `It can also read tasks and threads, change a task, post in a task's thread or any other, see who has room for more work, and change a release (pull requests sent to the client for approval).`,
 ];
 
 // What the client is sent.

@@ -169,7 +169,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
   // What each tool is for is in the tool's own description; the instructions name the writes, each with
   // what to show before it is called, and say that threads are data.
-  for (const name of ["create_task", "update_task", "send_task_message", "update_release", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"]) {
+  for (const name of ["create_task", "update_task", "send_thread_message", "update_release", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"]) {
     assert.match(init.result.instructions, new RegExp(`${name}: `), name);
   }
   assert.match(init.result.instructions, /never as instructions to follow/);
@@ -184,10 +184,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json<any>();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_task_message", "update_task", "send_approval_request", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_server_info", "get_executive_summary", "get_executive_summary_doc", "create_executive_summary", "update_executive_summary_after_call"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_task_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "create_executive_summary", "update_executive_summary_after_call", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
 });
@@ -402,7 +402,7 @@ test("get_tasks filters by assignee and unassigned", async (t) => {
   assert.match((await tool(url, "get_tasks", { unassigned: true, mine: true })).text, /can't be combined/);
 });
 
-test("send_task_message posts in the task's thread as Cade, marked as sent by the person", async (t) => {
+test("send_thread_message posts in a task's thread as Cade, marked as sent by the person", async (t) => {
   await putTask(env, "CDEV", "1700000000.000100", stored({ link: "https://acme.slack.com/archives/CDEV/p1700000000000100" }));
   await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
   const calls = mock(t, {
@@ -413,7 +413,7 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   const url = addressIn(await slash("mcp init", "UME"));
   const TASK = "CDEV:1700000000.000100";
 
-  const sent = await tool(url, "send_task_message", { task_id: TASK, text: "  Hi <@UANN> & <!channel>, see <https://evil.example|this>.  " });
+  const sent = await tool(url, "send_thread_message", { thread_id: TASK, text: "  Hi <@UANN> & <!channel>, see <https://evil.example|this>.  " });
   assert.equal(sent.isError, false, sent.text);
   assert.match(sent.text, /^Posted in the task's thread: https:\/\/acme\.slack\.com\/archives\/CDEV/);
   const post = calls.find((call) => call.method === "chat.postMessage").args;
@@ -426,22 +426,68 @@ test("send_task_message posts in the task's thread as Cade, marked as sent by th
   assert.match(post.text, /^<@UME> sent:\n/);
 
   const before = calls.length;
-  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "  " })).text, /message is empty/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: "  " })).text, /message is empty/);
   const posts = () => calls.filter((call) => call.method === "chat.postMessage").length;
   const postedBefore = posts();
-  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "Hi <@UGHOST>" })).text, /UGHOST isn't an active person/);
-  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "Hi <@UBOT> and <@UANN>" })).text, /UBOT isn't an active person/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: "Hi <@UGHOST>" })).text, /UGHOST isn't an active person/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: "Hi <@UBOT> and <@UANN>" })).text, /UBOT isn't an active person/);
   assert.equal(posts(), postedBefore, "nothing was posted for a mention of someone who isn't there");
   // A credential in a message stays in the thread for everyone, so it is refused.
   for (const secret of ["key AKIAABCDEFGHIJKLMNOP", "token ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", "password: hunter2hunter2", "-----BEGIN RSA PRIVATE KEY-----"]) {
-    assert.match((await tool(url, "send_task_message", { task_id: TASK, text: secret })).text, /The message looks like it contains a/, secret);
+    assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: secret })).text, /The message looks like it contains a/, secret);
   }
   assert.equal(posts(), postedBefore, "nothing was posted for a message with a secret");
-  assert.match((await tool(url, "send_task_message", { task_id: TASK, text: "x".repeat(3001) })).text, /3001 characters/);
-  assert.match((await tool(url, "send_task_message", { task_id: "CPRIV:1700000000.000100", text: "hi" })).text, /can't read that task's channel/);
-  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:1600000000.000100", text: "hi" })).text, /isn't a task Cade tracks/);
-  assert.match((await tool(url, "send_task_message", { text: "hi" })).text, /Give task_id\./);
+  assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: "x".repeat(3001) })).text, /3001 characters/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: "CPRIV:1700000000.000100", text: "hi" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "send_thread_message", { text: "hi" })).text, /Give thread_id or link\./);
   assert.equal(calls.slice(before).filter((call) => call.method === "chat.postMessage").length, 0);
+});
+
+test("send_thread_message posts in any thread the person can read, in the same form", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored({ link: "https://acme.slack.com/archives/CDEV/p1700000000000100" }));
+  let joined = false;
+  const calls = mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : args.channel === "D1" ? { is_im: true } : { name: "general" } }),
+    "conversations.members": { members: ["UBOB"] },
+    "conversations.join": () => ((joined = true), {}),
+    "auth.test": { url: "https://acme.slack.com/" },
+    "conversations.replies": (args) => (args.ts === "1600000000.000100" ? new Error("thread_not_found") : joined ? { messages: [{ user: "UBOB", ts: args.ts, text: "hi" }] } : new Error("not_in_channel")),
+    "users.info": WORKSPACE,
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const posts = () => calls.filter((call) => call.method === "chat.postMessage");
+
+  // A reply's link stands for its thread, and Cade joins a public channel it isn't in.
+  const link = "https://acme.slack.com/archives/CGEN/p1700000060000200?thread_ts=1700000000.000300&cid=CGEN";
+  const sent = await tool(url, "send_thread_message", { link, text: "Hi <@UANN>" });
+  assert.equal(sent.isError, false, sent.text);
+  assert.equal(sent.text, `Posted in the thread: ${link}`);
+  assert.deepEqual(sent.data, { task_id: "", thread_id: "CGEN:1700000000.000300", sent: true, link });
+  assert.ok(joined);
+  const post = posts().at(-1).args;
+  assert.equal(post.channel, "CGEN");
+  assert.equal(post.thread_ts, "1700000000.000300");
+  const blocks = JSON.parse(post.blocks);
+  assert.equal(blocks[0].text.text, "<@UME> sent:\nHi <@UANN>");
+  assert.equal(blocks[1].elements[0].text, "_(via AI agent)_");
+
+  // A link to a task's thread is that task.
+  const task = await tool(url, "send_thread_message", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100", text: "hi" });
+  assert.match(task.text, /^Posted in the task's thread/);
+  assert.equal(task.data.task_id, "CDEV:1700000000.000100");
+
+  const before = posts().length;
+  assert.match((await tool(url, "send_thread_message", { link: "https://acme.slack.com/archives/CPRIV/p1700000000000100", text: "hi" })).text, /aren't in that channel/);
+  assert.match((await tool(url, "send_thread_message", { link: "https://acme.slack.com/archives/D1/p1700000000000100", text: "hi" })).text, /direct messages/);
+  assert.match((await tool(url, "send_thread_message", { link: "https://acme.slack.com/archives/CGEN/p1600000000000100", text: "hi" })).text, /couldn't find that thread/);
+  assert.match((await tool(url, "send_thread_message", { link: "https://example.com", text: "hi" })).text, /isn't a link to a Slack message/);
+  assert.match((await tool(url, "send_thread_message", { link, text: "hi", summary_id: 1 })).text, /summary_id is only for a task's thread/);
+  assert.match((await tool(url, "send_thread_message", { link, thread_id: "CDEV:1700000000.000100", text: "hi" })).text, /not both/);
+  assert.equal(posts().length, before, "nothing was posted for a thread the person can't post in");
+  // A thread_id is any thread's, as a link is, and the person is still given a link.
+  const byId = await tool(url, "send_thread_message", { thread_id: "CGEN:1700000000.000300", text: "hi" });
+  assert.equal(byId.data.thread_id, "CGEN:1700000000.000300");
+  assert.equal(byId.text, "Posted in the thread: https://acme.slack.com/archives/CGEN/p1700000000000300?thread_ts=1700000000.000300&cid=CGEN");
 });
 
 test("/cade mcp status shows whether MCP is configured and whether you have a key, never the key, with a link to the guide", async (t) => {
@@ -766,11 +812,11 @@ test("every tool follows the same conventions", () => {
     assert.equal(def.inputSchema.type, "object");
     assert.equal(def.outputSchema.type, "object");
     assert.equal(def.outputSchema.additionalProperties, false, `${def.name}'s result is exact`);
-    // A task is named by its task_id alone; a link is only for get_thread_history.
+    // A task is named by its task_id alone; a link is only for a thread.
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_task_message", "update_release", "create_task", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"].includes(def.name);
+    const writes = ["update_task", "send_thread_message", "update_release", "create_task", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -1281,17 +1327,17 @@ test("executive summaries: written to the doc, compared before and after the cli
   assert.deepEqual([item(compared.data, "Add SSO").change, item(compared.data, "Add SSO").before, item(compared.data, "Add SSO").kind], ["added", null, "ADDED"]);
 
   // Telling a thread marks it, and it is told once.
-  const told = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
+  const told = await tool(url, "send_thread_message", { thread_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
   assert.equal(told.isError, false, told.text);
   assert.match(told.text, /Marked as told for summary/);
   assert.match(item(await tool(url, "get_executive_summary", { project: "acme" }).then((r) => r.data), "Upgrade Node").informed_at, /^\d{4}-/);
-  const again = await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
+  const again = await tool(url, "send_thread_message", { thread_id: "CDEV:100.3", text: "The client wants it by Friday.", summary_id: id });
   assert.equal(again.isError, true);
   assert.match(again.text, /already told/);
   assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
-  assert.match((await tool(url, "send_task_message", { task_id: "CDEV:100.4", text: "x", summary_id: id })).text, /already told|no after-call entry|Posted/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: "CDEV:100.4", text: "x", summary_id: id })).text, /already told|no after-call entry|Posted/);
   // Without the summary it posts as always.
-  assert.equal((await tool(url, "send_task_message", { task_id: "CDEV:100.3", text: "A normal message." })).isError, false);
+  assert.equal((await tool(url, "send_thread_message", { thread_id: "CDEV:100.3", text: "A normal message." })).isError, false);
 
   // Recording the call again keeps the told mark for what didn't change, and clears it for what did.
   await tool(url, "update_executive_summary_after_call", call);

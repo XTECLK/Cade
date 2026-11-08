@@ -19,7 +19,7 @@ import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { releaseRequest } from "./commands/release.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.ts";
 import { validate } from "./validate.ts";
-import type { CreateExecutiveSummaryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetExecutiveSummaryArgs, GetExecutiveSummaryDocArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendTaskMessageArgs, UpdateExecutiveSummaryAfterCallArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
+import type { CreateExecutiveSummaryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetExecutiveSummaryArgs, GetExecutiveSummaryDocArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateExecutiveSummaryAfterCallArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
@@ -62,8 +62,10 @@ type ListedTask = Omit<TaskEntry, "link">;
 //   get_projects()                     the projects, with the channel of each
 //   get_users(limit?)                  the workspace's people and their IDs
 //   find_user_by_name(name)            a Slack user's ID, by name, for assigning
-//   send_task_message(task_id, text)   a message in the task's thread, as Cade,
-//                                      with a line saying it is from the person
+//   send_thread_message(thread_id | link, text)
+//                                      a message in a thread, a task's or any
+//                                      other, as Cade, with a line saying it
+//                                      is from the person
 //   update_task(task_id, …)            a task's status, priority, due date,
 //                                      people and summary; the fields are told
 //                                      to its thread, the summary is the one
@@ -119,7 +121,7 @@ function apiKeyOf(request: Request) {
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 // The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
 // made from the same inputSchema they are checked against before it is called (see callTool).
-const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_task_message: sendTaskMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_executive_summary: getExecutiveSummary, get_executive_summary_doc: getExecutiveSummaryDoc, create_executive_summary: createExecutiveSummary, update_executive_summary_after_call: updateAfterCall, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
   // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
@@ -370,14 +372,7 @@ async function readSlackThread(env: AppEnv, user: string, channel: string, ts: s
 
   let messages: SlackMessage[];
   try {
-    try {
-      messages = await readReplies(env, channel, ts);
-    } catch (error) {
-      if (info.is_private || !/not_in_channel/.test(error.message)) throw error;
-      // Anyone can read a public channel, so Cade can join it to do the same.
-      await callSlack(env, "conversations.join", { channel });
-      messages = await readReplies(env, channel, ts);
-    }
+    messages = await asMember(env, info, channel, () => readReplies(env, channel, ts));
   } catch (error) {
     if (/thread_not_found|message_not_found/.test(error.message)) throw new ToolError("I couldn't find that thread. It may have been deleted.");
     throw new ToolError(`Slack wouldn't give me that thread (${error.message}).`);
@@ -385,6 +380,29 @@ async function readSlackThread(env: AppEnv, user: string, channel: string, ts: s
 
   const text = [`Thread in #${info.name ?? channel} (${channel}), ${messages.length} message${messages.length === 1 ? "" : "s"}, oldest first:`, ...messageLines(messages)].join("\n");
   return { text, data: { thread_id: `${channel}:${ts}`, channel_name: info.name ?? channel, messages: messageData(messages) } };
+}
+
+// Runs a Slack call that needs Cade in `channel`. Anyone can read a public channel,
+// so when Cade isn't in one it joins, to do the same, and runs the call again.
+async function asMember<T>(env: AppEnv, info: SlackChannel, channel: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (info.is_private || !/not_in_channel/.test(error.message)) throw error;
+    await callSlack(env, "conversations.join", { channel });
+    return run();
+  }
+}
+
+// Checks that `user` may read a thread and that it is there, with Cade in its channel to post in it, or a ToolError.
+async function reachableThread(env: AppEnv, user: string, channel: string, ts: string) {
+  const info = await readableChannel(env, user, channel);
+  try {
+    await asMember(env, info, channel, () => callSlack(env, "conversations.replies", { channel, ts, limit: 1 }));
+  } catch (error) {
+    if (/thread_not_found|message_not_found/.test(error.message)) throw new ToolError("I couldn't find that thread. It may have been deleted.");
+    throw new ToolError(`Slack wouldn't let me into that thread (${error.message}).`);
+  }
 }
 
 // A thread's messages as data: who, when, what, and the names of the files.
@@ -1096,24 +1114,27 @@ function plainMessage(text: string) {
   return escapeSlack(text).replace(/&lt;@([UW][A-Z0-9]{2,})&gt;/g, "<@$1>");
 }
 
-// Posts the person's message in a task's thread, as Cade, led by who sent it and ending with (via AI agent).
-async function sendTaskMessage(env: AppEnv, user: string, args: SendTaskMessageArgs) {
-  const { channel, ts } = taskRef(args);
+// Posts the person's message in a thread, as Cade, led by who sent it and ending with (via AI agent):
+// a task's thread, or any other in a channel the person can read.
+async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMessageArgs) {
+  if (args.thread_id !== undefined && args.link !== undefined) throw new ToolError("Give thread_id or link, not both.");
+  const { channel, ts } = args.thread_id !== undefined ? threadIdOf(args.thread_id) : threadOf(args.link);
   const task = await loadTask(env, channel, ts);
-  if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
+  if (task && (await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
   const message = String(args.text ?? "").trim();
   if (!message) throw new ToolError("The message is empty.");
   if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
   // A message telling the thread what a client call decided is sent once, and marks the task as told.
   const summaryId = args.summary_id;
   if (summaryId !== undefined) {
+    if (!task) throw new ToolError("summary_id is only for a task's thread, and that thread isn't a task Cade tracks. Send without summary_id.");
     const item = Number.isInteger(summaryId) ? (await summaryItems(env, summaryId)).after.find((entry) => entry.channel === channel && entry.ts === ts) : undefined;
     if (!item) throw new ToolError(`Summary #${summaryId} has no after-call entry for that task. Record the call first with update_executive_summary_after_call, or send without summary_id.`);
     if (item.informedAt) throw new ToolError(`That task's thread was already told about summary #${summaryId} on ${timeOf(item.informedAt)} UTC, so I haven't sent it again. Send without summary_id to post anyway.`);
   }
   refuseSecrets(message, "The message");
   await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
+  if (!task) await reachableThread(env, user, channel, ts);
   const body = plainMessage(message);
   const from = `<@${user}> sent:`;
   const via = "_(via AI agent)_";
@@ -1127,8 +1148,19 @@ async function sendTaskMessage(env: AppEnv, user: string, args: SendTaskMessageA
     ],
   });
   if (summaryId !== undefined) await markSummaryInformed(env, summaryId, channel, ts, user);
-  console.log("Task message sent", { channel, ts, by: user, characters: message.length });
-  return { text: `Posted in the task's thread${task.link ? `: ${task.link}` : "."}${summaryId !== undefined ? ` Marked as told for summary #${summaryId}.` : ""}`, data: { task_id: `${channel}:${ts}`, sent: true, link: task.link ?? "" } };
+  console.log(task ? "Task message sent" : "Thread message sent", { channel, ts, by: user, characters: message.length });
+  // The person is told where it was posted, so a thread named by its ID gets a link too.
+  const link = (task ? task.link : args.link) || (await linkToThread(env, channel, ts));
+  return {
+    text: `Posted in the ${task ? "task's " : ""}thread${link ? `: ${link}` : "."}${summaryId !== undefined ? ` Marked as told for summary #${summaryId}.` : ""}`,
+    data: { task_id: task ? `${channel}:${ts}` : "", thread_id: `${channel}:${ts}`, sent: true, link },
+  };
+}
+
+// A link to a thread, made from the workspace's address, or "" when Slack won't give that.
+async function linkToThread(env: AppEnv, channel: string, ts: string) {
+  const { url } = await callSlack(env, "auth.test", {}).catch(() => ({}) as { url?: string });
+  return url ? threadLink(url, channel, ts) : "";
 }
 
 // The DD/MM/YYYY date a due_date argument names, "" for none, or a ToolError.

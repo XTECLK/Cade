@@ -599,27 +599,29 @@
   </div>
 </section>
 
-<section class="tool" id="send_task_message">
+<section class="tool" id="send_thread_message">
   <div class="wrap">
-    <h2><code>send_task_message</code></h2>
-    <p>Posts a message in a task's own thread in Slack as Cade, with a line under it saying who it is from. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. Call this only with text the person has seen and approved.</p>
-    
+    <h2><code>send_thread_message</code></h2>
+    <p>Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person can read. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. Call this only with text the person has seen and approved.</p>
+    <p>Give one of <code>thread_id</code> or <code>link</code>.</p>
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>thread_id</code></td><td>string</td><td></td><td>The thread's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100. A task's ID is its thread's</td></tr>
+<tr><td><code>link</code></td><td>string</td><td></td><td>Instead of thread_id: a link to a message in the thread, such as https://team.slack.com/archives/C0123ABCD/p1700000000123456</td></tr>
 <tr><td><code>text</code></td><td>string</td><td>yes</td><td>The message, as plain text, written as the person would. Mention a person as &lt;@U0123ABCD&gt;, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most 3000 characters</td></tr>
-<tr><td><code>summary_id</code></td><td>integer</td><td></td><td>An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already · min 1</td></tr>
+<tr><td><code>summary_id</code></td><td>integer</td><td></td><td>An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread · min 1</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools, or empty when the thread isn't a task</td></tr>
+<tr><td><code>thread_id</code></td><td>string</td><td>yes</td><td>The thread's ID, for get_thread_history</td></tr>
 <tr><td><code>sent</code></td><td>boolean</td><td>yes</td><td>Whether the message was posted</td></tr>
-<tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the task's thread, or empty</td></tr>
+<tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the thread, or empty when Slack wouldn't give one</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -842,7 +844,7 @@
 <section class="tool" id="update_executive_summary_after_call">
   <div class="wrap">
     <h2><code>update_executive_summary_after_call</code></h2>
-    <p>Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_task_message (summary_id), and offer create_task, one at a time, for what the call added. Call this only with what the person has seen and approved.</p>
+    <p>Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_thread_message (summary_id), and offer create_task, one at a time, for what the call added. Call this only with what the person has seen and approved.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>

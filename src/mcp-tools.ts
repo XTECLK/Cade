@@ -656,25 +656,28 @@ export const TOOL_DEFS: ToolDef[] = [
         }),
     },
     {
-        name: "send_task_message",
-        title: "Post in a task's thread",
+        name: "send_thread_message",
+        title: "Post in a thread",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Posts a message in a task's own thread in Slack as Cade, with a line under it saying who it is from. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
+            "Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person can read. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
             "Call this only with text the person has seen and approved.",
         inputSchema: {
             type: "object",
             properties: {
-                task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                thread_id: str("The thread's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100. A task's ID is its thread's"),
+                link: str("Instead of thread_id: a link to a message in the thread, such as https://team.slack.com/archives/C0123ABCD/p1700000000123456"),
                 text: str(`The message, as plain text, written as the person would. Mention a person as <@U0123ABCD>, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most ${MAX_MESSAGE} characters`),
-                summary_id: int("An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already", {minimum: 1}),
+                summary_id: int("An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread", {minimum: 1}),
             },
-            required: ["task_id", "text"],
+            required: ["text"],
+            anyOf: [{required: ["thread_id"]}, {required: ["link"]}],
         },
         outputSchema: outputOf({
-            task_id: str("The task's ID, for the other tools"),
+            task_id: str("The task's ID, for the other tools, or empty when the thread isn't a task"),
+            thread_id: str("The thread's ID, for get_thread_history"),
             sent: bool("Whether the message was posted"),
-            link: str("A link to the task's thread, or empty")
+            link: str("A link to the thread, or empty when Slack wouldn't give one")
         }),
     },
     {
@@ -908,7 +911,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Record what the client call decided",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
         description:
-            "Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_task_message (summary_id), and offer create_task, one at a time, for what the call added. " +
+            "Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_thread_message (summary_id), and offer create_task, one at a time, for what the call added. " +
             "Call this only with what the person has seen and approved.",
         inputSchema: {
             type: "object",

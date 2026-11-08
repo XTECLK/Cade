@@ -58,6 +58,7 @@
       <li><a href="#assign">Assigning people</a></li>
       <li><a href="#prs">Linking pull requests</a></li>
       <li><a href="#status">Changing status</a></li>
+      <li><a href="#agent">From your AI agent</a></li>
     </ul>
   </div>
 </header>
@@ -209,6 +210,49 @@
 
     </div>
     <p class="legend"><span class="note">Like this</span> is what a change means for the people it names, after the change log.</p>
+  </div>
+</section>
+
+<section id="agent" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">From your AI agent</div>
+    <h2>Posted for you, and marked as such</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>A message, in a task's thread or any other</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann sent:<br>The client confirmed Friday works for the release.<br><span class="if-note">(via AI agent)</span></dd>
+        </dl>
+        <p>Cade posts it, led by who it's from, in any thread of a channel you can read: a public channel, or a private one you're in. A public channel Cade isn't in yet, it joins first. Direct messages are never posted in. A mention notifies that person; @channel, @here and @everyone are shown as typed and notify no one.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Changing a task</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test?</span><br><span class="if-note">(via AI agent)</span></dd>
+        </dl>
+        <p>The same change log and requests as a change made in Slack, with the line under them. A summary saved for the task goes quietly to its notes page, and no private suggestion is shown, since you aren't looking at Slack.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Asking the client to approve</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann says this is ready for review.<br><span class="if-note">(via AI agent)</span><br><b>PRs:</b> web/12<br><span class="note">@cleo, could you take a look and approve it, or let us know what needs to change?</span> <span class="btns"><span class="go">Approve</span><span>Not approve</span></span></dd>
+        </dl>
+        <p>The same request, with the same buttons, as the one made in Slack. Only @cleo can click them.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Changing a release</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd><span class="note">@cleo, @ann: @ann changed this release. It now has web/12, web/14.</span><br><b>Completes:</b> Login on Safari<br><span class="if-note">(via AI agent)</span></dd>
+        </dl>
+        <p>The approver's request is updated in place too, but Slack notifies no one about an edit, so this reply tells them.</p>
+      </article>
+
+    </div>
+    <p class="legend">Nothing is posted until you've seen it and said yes to your agent. <span class="if-note">(via AI agent)</span> is on everything it posts for you.</p>
   </div>
 </section>
 

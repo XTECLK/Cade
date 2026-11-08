@@ -1,11 +1,15 @@
 # Demo video
 
-One video, `demo.mp4`, covers the whole story of [DEMO.md](../../DEMO.md). It is
-the player at the top of [the home page](../index.html), with an optional still,
-`demo.jpg`, shown before it plays. Until it is here the page says "coming soon".
+One video, `demo.mp4`, is the player at the top of [the home page](../index.html),
+with an optional still, `demo.jpg`, shown before it plays. Until it is here the
+page says "coming soon".
 
-Shot lists (one file per act of the story, plus setup, to cut into the one video), with whose screen to record and the captions, start at
-[script-0-setup.md](script-0-setup.md).
+Its script, with every message to send as Randil (developer) and Udara (client),
+step by step, is [demo-script.md](demo-script.md).
+
+A second video, `mcp.mp4`, shows Randil's AI agent finding the discussions that
+should be tasks, making one and taking it on. It plays in the "Bring your own
+agent" part of the home page; its script is [agent-script.md](agent-script.md).
 
 No audio is needed. Keep the video small so the page loads quickly:
 

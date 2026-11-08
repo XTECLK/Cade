@@ -251,8 +251,8 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
 - **Keys.** Settings → AI agent on the Home tab (`src/commands/configure.ts`) makes the person's API key, shown once,
   with the endpoint and a link to the setup guide; revoking it there ends it. Only a hash is kept, in `mcp_tokens`. The
   key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
-- **Access.** Everything runs as the key's owner: a private channel's threads and tasks only for its members, and never
-  a direct message.
+- **Access.** Everything runs as the key's owner: a channel's threads and tasks only for the people in it, public or
+  private (`readableName` in `src/access.ts`, `readableChannel` in `src/mcp.ts`), and never a direct message.
 - **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
   above) and `outputSchema`. A result is text and `structuredContent` matching the schema, so IDs chain into the next
   call. The tools read tasks, threads, people, projects, availability, releases and executive summaries, and write

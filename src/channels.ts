@@ -5,8 +5,6 @@ import type { AppEnv, FeatureSecret } from "./env.ts";
 export interface Project {
   name: string;
   channel: string;
-  // Slack user IDs of the people who work on it.
-  members?: string[];
   // Whether it was added with the Add project button, not the config.
   added?: boolean;
   workDoc?: string;

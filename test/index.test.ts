@@ -1064,8 +1064,8 @@ test("the web pages modal's sign-in link signs you in once, for the thread and n
   assert.equal((await get("/login/not-a-code")).status, 401);
 });
 
-test("the thread page shows the stored messages with names and the notes page keeps what people write, only for those who can read the channel", async (t) => {
-  const calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "users.info": ({ user }) => ({ user: NAMES[user] }) });
+test("the thread page shows the stored messages with names and the notes page keeps what people write, only for those in the channel", async (t) => {
+  const calls = mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "conversations.members": { members: ["UACTOR"] }, "users.info": ({ user }) => ({ user: NAMES[user] }) });
   await seeded;
   await send("/slack/events", threadEvent("hello <@UBOB> &amp; <b>co</b>", { user: "UREX", ts: "1700000000.000400", thread_ts: RESYNC_TS }));
   const cookie = await signIn();
@@ -1101,6 +1101,14 @@ test("the thread page shows the stored messages with names and the notes page ke
   assert.equal(forged.status, 403);
   assert.equal((await DB.prepare("SELECT body FROM task_notes").first()).body, "Call the client\nThen deploy");
   assert.ok(calls.length > 0);
+});
+
+test("the pages are closed to someone who isn't in a public channel", async (t) => {
+  mockSlack(t, { stored: [{ ...ownTask({ owners: ["UREX"] }), ts: RESYNC_TS }], "conversations.info": { channel: { name: "dev" } }, "conversations.members": { members: ["UREX"] } });
+  await seeded;
+  const cookie = await signIn();
+  assert.equal((await get(`/t/CDEV/${RESYNC_TS}`, cookie)).status, 404);
+  assert.equal((await get(`/n/CDEV/${RESYNC_TS}`, cookie)).status, 404);
 });
 
 test("the pages are closed to someone who isn't in a private channel, and signing out ends the session", async (t) => {
@@ -2385,7 +2393,7 @@ test("Settings on the Home tab has the person's own setup, and for an admin a pr
   assert.deepEqual(asAdmin.names, ["Home", "Settings", "Refresh", "Manage", "Manage", "Turn off", "Edit"]);
   assert.equal(asAdmin.pickers, 1);
   assert.equal(asAdmin.settings.value, "CDEV");
-  assert.match(asAdmin.text, /Projects\n[\s\S]*\*Project settings\*\n\*acme\*: everyone in the workspace\nTask change detection: on  ·  New task detection: on/);
+  assert.match(asAdmin.text, /Projects\n[\s\S]*\*Project settings\*\n\*acme\* in <#CDEV>\nTask change detection: on  ·  New task detection: on/);
   // MCP off: it says so, with no button.
   const off = await settings("UME", { ...env, MCP: "off" });
   assert.deepEqual(off.names, ["Home", "Settings", "Refresh", "Manage", "Turn off"]);
@@ -5586,11 +5594,10 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
   const acme = { name: "acme", channel: "C0000000002" };
   for (const [config, problem] of [
     // A setting on a project the Worker doesn't read, misspelt or from an older format.
-    [{ projects: [{ ...acme, summaryCanvass: true }] }, /project acme: summaryCanvass isn't something this takes; it takes name, channel, workDoc, members, /],
+    [{ projects: [{ ...acme, summaryCanvass: true }] }, /project acme: summaryCanvass isn't something this takes; it takes name, channel, workDoc, taskChangeDetection/],
     [{ projects: [{ ...acme, sheet: "https://docs.google.com/spreadsheets/d/x/edit" }] }, /project acme: sheet isn't something this takes/],
-    // The people who work on a project are Slack user IDs.
-    [{ projects: [{ ...acme, members: "UANN" }] }, /project acme: members is a list\./],
-    [{ projects: [{ ...acme, members: ["UANN", "bob"] }] }, /project acme: members\[1\] "bob" isn't a Slack user ID, such as U0123ABCD\./],
+    // A project's people are its channel's, so they aren't listed.
+    [{ projects: [{ ...acme, members: ["UANN"] }] }, /project acme: members isn't something this takes/],
     [{ projects: [{ ...acme, name: 7 }] }, /must list \{ name, channel \}|project 7: name is text\./],
     // The top of the file.
     [{ projects: [acme], timezone: 5 }, /timezone|isn't a time zone/],
@@ -5599,7 +5606,7 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
     assert.throws(() => readConfig(JSON.stringify(config)), problem, JSON.stringify(config));
   }
   // What it does take is uploaded as it was.
-  const members = { ...acme, members: ["UANN", "UBOB"], workDoc: "https://docs.google.com/document/d/abcdefghijklmnopqrstuvwxyz/edit", summaryCanvas: true };
+  const members = { ...acme, workDoc: "https://docs.google.com/document/d/abcdefghijklmnopqrstuvwxyz/edit", summaryCanvas: true };
   assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects: [members], mcp: true })).PROJECTS), [members]);
 });
 

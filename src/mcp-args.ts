@@ -21,13 +21,11 @@ export type GetTaskHistoryArgs = {
 };
 
 export type GetTasksArgs = {
-  // Only the tasks you are owner, reviewer or tester of
-  mine?: boolean;
-  // Only tasks where you have this role (implies mine)
-  role?: "owner" | "reviewer" | "tester";
-  // Only tasks this person is on, as a Slack user ID such as U0123ABCD
-  assignee?: string;
-  // Only tasks nobody is owner, reviewer or tester of
+  // Only tasks one of these people is on, in one of roles. "me" is you, so ["me"] gives your own tasks
+  assignees?: string[];
+  // With assignees: only the tasks where one of them has one of these roles. Default: all three
+  roles?: ("owner" | "reviewer" | "tester")[];
+  // Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees
   unassigned?: boolean;
   // open (default: everything not done), all, or one status
   status?: "open" | "all" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "IN_TESTING" | "CLIENT_REVIEW" | "DONE";
@@ -126,7 +124,7 @@ export type GetUsersArgs = {
 export type GetTeamAvailabilityArgs = {
   // Only these people, as Slack user IDs such as U0123ABCD
   users?: string[];
-  // Count only this project's tasks, and cover only the people picked as working on it (everyone if none were picked). The project's name, as get_projects gives it
+  // Count only this project's tasks, and cover only the people in its channel. The project's name, as get_projects gives it
   project?: string;
   // The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)
   fields?: ("name" | "open_tasks" | "owner" | "reviewer" | "tester" | "overdue" | "urgent_or_high" | "status" | "status_until" | "time_zone" | "away" | "presence")[];
@@ -137,7 +135,7 @@ export type GetTeamAvailabilityArgs = {
 export type GetAvailabilityArgs = {
   // The person, as a Slack user ID such as U0123ABCD
   user_id: string;
-  // Count only this project's tasks. If the project has people picked, the person must be one of them. The project's name, as get_projects gives it
+  // Count only this project's tasks; the person must be in its channel. The project's name, as get_projects gives it
   project?: string;
   // The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)
   fields?: ("name" | "open_tasks" | "owner" | "reviewer" | "tester" | "overdue" | "urgent_or_high" | "status" | "status_until" | "time_zone" | "away" | "presence")[];

@@ -76,7 +76,7 @@ async function interact(payload, environment = env) {
 }
 
 // The Add project form (see commands/project.js), submitted as `user`: what its fields hold.
-const addForm = ({ channel = "CNEW", name = "", members = [], choices = {} } = {}, user = "UADMIN") => ({
+const addForm = ({ channel = "CNEW", name = "", choices = {} } = {}, user = "UADMIN") => ({
   type: "view_submission",
   user: { id: user },
   view: {
@@ -86,7 +86,6 @@ const addForm = ({ channel = "CNEW", name = "", members = [], choices = {} } = {
       values: {
         channel: { value: { selected_conversation: channel } },
         name: { value: { value: name } },
-        members: { value: { selected_users: members } },
         ...Object.fromEntries(Object.entries(choices).map(([key, value]) => [`s_${key}`, { value: { selected_option: { value } } }])),
       },
     },
@@ -116,13 +115,13 @@ test("Add project makes the channel a project, named after it, tells the admin, 
   assert.deepEqual((await answer(addForm({ channel: "CDEV" }))).errors, { channel: "This channel is the project acme already." });
 });
 
-test("Add project keeps the people and the switches picked in the form", async (t) => {
+test("Add project keeps the switches picked in the form, and no list of people", async (t) => {
   const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING });
-  await answer(addForm({ members: ["UANN", "UBOB"], choices: { summaryCanvas: "on", newTaskDetection: "off", activeTasksPinning: "config" } }));
+  await answer(addForm({ choices: { summaryCanvas: "on", newTaskDetection: "off", activeTasksPinning: "config" } }));
   assert.match(lastNotice(calls), /is now the project/);
   const { withSettings } = await import("../src/settings.ts");
   const added = projects(await withSettings(env)).find((project) => project.channel === "CNEW");
-  assert.deepEqual(added.members, ["UANN", "UBOB"]);
+  assert.equal("members" in added, false);
   assert.equal(added.summaryCanvas, true);
   assert.equal(added.newTaskDetection, false);
   assert.equal("activeTasksPinning" in added, false);
@@ -204,7 +203,7 @@ test("the Project settings button opens a form with the channel's project, its n
   // The project it was opened for, by name, with no list to pick another, and a choice for each switch.
   assert.equal(view.blocks[0].text.text, "*acme*");
   assert.equal(view.blocks.some((block) => block.accessory?.type === "static_select"), false);
-  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["members", "s_taskChangeDetection", "s_newTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
+  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskChangeDetection", "s_newTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
@@ -247,27 +246,22 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
   assert.deepEqual(projects(await withSettings(env)).map((project) => project.name), ["acme"]);
 });
 
-test("the project's people are picked in the form and kept, and emptying the list puts it back", async (t) => {
-  const calls = mock(t, { "chat.postEphemeral": {}, "views.open": {} });
-  const { withSettings, projectMembers } = await import("../src/settings.ts");
-  const members = async () => projectMembers(await withSettings(env), "CDEV");
-  assert.deepEqual(await members(), []);
-  const withPeople = (selected_users) => {
-    const payload = submitted("CDEV", {});
-    payload.view.state.values.members = { value: { selected_users } };
-    return payload;
-  };
-  await interact(withPeople(["UBOB", "UANN"]));
-  assert.deepEqual(await members(), ["UANN", "UBOB"]);
-  assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /Saved 1 setting for the project \*acme\*/);
+test("the settings form shows the people in the project's channel, as Cade keeps no list of its own", async (t) => {
+  const calls = mock(t, { "conversations.members": { members: ["UBOB", "UANN"] }, "views.open": {} });
   await openSettings("CDEV");
   const view = JSON.parse(calls.findLast((call) => call.method === "views.open").args.view);
-  assert.deepEqual(view.blocks.find((block) => block.block_id === "members").element.initial_users, ["UANN", "UBOB"]);
-  // A submission that doesn't carry the field leaves them alone; an empty list clears them.
-  await interact(submitted("CDEV", {}));
-  assert.deepEqual(await members(), ["UANN", "UBOB"]);
-  await interact(withPeople([]));
-  assert.deepEqual(await members(), []);
+  assert.equal(view.blocks.find((block) => block.block_id === "members"), undefined, "nothing to pick");
+  const people = view.blocks.find((block) => block.text?.text?.startsWith("*People*"));
+  assert.equal(people.text.text, "*People*\n<@UBOB>, <@UANN>");
+  assert.equal(calls.find((call) => call.method === "conversations.members").args.channel, "CDEV");
+
+  // A big channel is cut short; one Slack won't say about says so.
+  const many = mock(t, { "conversations.members": { members: Array.from({ length: 45 }, (_, i) => `U${i}`) }, "views.open": {} });
+  await openSettings("CDEV");
+  assert.match(JSON.stringify(JSON.parse(many.findLast((call) => call.method === "views.open").args.view).blocks), /and 5 more/);
+  const hidden = mock(t, { "conversations.members": new Error("channel_not_found"), "views.open": {} });
+  await openSettings("CDEV");
+  assert.match(JSON.stringify(JSON.parse(hidden.findLast((call) => call.method === "views.open").args.view).blocks), /couldn't read who is in the channel/);
 });
 
 test("a project added from the Home tab opens its own settings, as one kept in Cade's database", async (t) => {

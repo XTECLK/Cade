@@ -15,9 +15,23 @@ export async function isMember(env: AppEnv, channel: string, user: string) {
   return false;
 }
 
-// Whether `user` may read what is said in `channel`, as everyone may in a
-// public one and only its members in a private one; never a direct message.
-// Returns the channel's name if so, or null.
+// Everyone in `channel`, as Slack user IDs, bots too: the people of the project whose channel it is, as
+// Cade keeps no list of its own. Throws if Slack won't say, as when Cade isn't in a private channel.
+export async function channelMembers(env: AppEnv, channel: string) {
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MEMBER_PAGES; page++) {
+    const data = await callSlack(env, "conversations.members", { channel, limit: 1000, cursor });
+    ids.push(...(data.members ?? []));
+    cursor = data.response_metadata?.next_cursor;
+    if (!cursor) break;
+  }
+  return ids;
+}
+
+// Whether `user` may read what is said in `channel`: only if they are in it, public or private, so
+// a project is for the people in its channel; never a direct message. Returns the channel's name if
+// so, or null.
 export async function readableName(env: AppEnv, channel: string, user: string): Promise<string | null> {
   let info;
   try {
@@ -27,7 +41,7 @@ export async function readableName(env: AppEnv, channel: string, user: string): 
     return null;
   }
   if (info.is_im || info.is_mpim) return null;
-  if (info.is_private && !(await isMember(env, channel, user))) return null;
+  if (!(await isMember(env, channel, user))) return null;
   return info.name ?? channel;
 }
 

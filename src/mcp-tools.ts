@@ -40,6 +40,7 @@ export const MAX_CALL_NOTES = 2000;
 // How many entries a list can hold.
 export const MAX_SUMMARY_ITEMS = 300;
 export const MAX_ADDED_ITEMS = 50;
+export const MAX_ASSIGNEES = 50; // people get_tasks is asked about
 
 // ── Allowed values ───────────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ export const MAX_ADDED_ITEMS = 50;
 const STATUS_NAMES = Object.keys(STATUSES);
 const PRIORITY_NAMES = Object.keys(PRIORITIES);
 const ROLE_NAMES = Object.keys(ROLES);
+
+// One of get_tasks' assignees: a Slack user ID, or "me" for whoever's API key it is.
+const ASSIGNEE_PATTERN = "^(me|[UW][A-Z0-9]{2,})$";
 
 // A task's status in get_tasks: also open (everything not done) and all.
 const TASK_STATUS_FILTER = ["open", "all", ...STATUS_NAMES];
@@ -339,14 +343,16 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "List tasks",
         annotations: READS,
         description:
-            "Lists Cade tasks, most urgent first: your own or everyone's in the channels you can read, open ones by default. It can also give the tasks done in a period, with those not done, for an executive summary.",
+            "Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (\"me\" for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary.",
         inputSchema: {
             type: "object",
             properties: {
-                mine: bool("Only the tasks you are owner, reviewer or tester of"),
-                role: choice("Only tasks where you have this role (implies mine)", ROLE_NAMES),
-                assignee: str("Only tasks this person is on, as a Slack user ID such as U0123ABCD"),
-                unassigned: bool("Only tasks nobody is owner, reviewer or tester of"),
+                assignees: list("Only tasks one of these people is on, in one of roles. \"me\" is you, so [\"me\"] gives your own tasks", str("a Slack user ID such as U0123ABCD, or me", {pattern: ASSIGNEE_PATTERN}), {
+                    minItems: 1,
+                    maxItems: MAX_ASSIGNEES
+                }),
+                roles: list("With assignees: only the tasks where one of them has one of these roles. Default: all three", choice("A role", ROLE_NAMES), {minItems: 1}),
+                unassigned: bool("Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees"),
                 status: choice("open (default: everything not done), all, or one status", TASK_STATUS_FILTER),
                 project: str("Only this project's tasks, by the name get_projects gives"),
                 completed_from: str("Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)"),
@@ -443,7 +449,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "List channels",
         annotations: READS_SLACK,
         description:
-            "Lists the Slack channels Cade is in and you can read, project channels first. It is where to start to browse for conversations that should become tasks: pick a channel, then read its threads with get_channel_threads.",
+            "Lists the Slack channels Cade and you are both in, project channels first. It is where to start to browse for conversations that should become tasks: pick a channel, then read its threads with get_channel_threads.",
         inputSchema: {
             type: "object",
             properties: {
@@ -454,7 +460,7 @@ export const TOOL_DEFS: ToolDef[] = [
             },
         },
         outputSchema: outputOf({
-            total: int("How many channels Cade is in that you can read"),
+            total: int("How many channels Cade and you are both in"),
             channels: list("Project channels first, then by name", {
                 type: "object",
                 description: "A channel Cade is in",
@@ -542,7 +548,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "List projects",
         annotations: READS,
         description:
-            "Lists the projects Cade tracks tasks for, in the channels you can read.",
+            "Lists the projects Cade tracks tasks for whose channel you are in.",
         inputSchema: {type: "object", properties: {}},
         outputSchema: outputOf({
             total: int("How many projects you can see"),
@@ -609,7 +615,7 @@ export const TOOL_DEFS: ToolDef[] = [
             type: "object",
             properties: {
                 users: strings("Only these people, as Slack user IDs such as U0123ABCD"),
-                project: str("Count only this project's tasks, and cover only the people picked as working on it (everyone if none were picked). The project's name, as get_projects gives it"),
+                project: str("Count only this project's tasks, and cover only the people in its channel. The project's name, as get_projects gives it"),
                 fields: AVAILABILITY_FIELDS_ARG,
                 limit: int(`How many people to return, least loaded first. Default ${DEFAULT_USERS}`, {
                     minimum: 1,
@@ -632,7 +638,7 @@ export const TOOL_DEFS: ToolDef[] = [
             type: "object",
             properties: {
                 user_id: str("The person, as a Slack user ID such as U0123ABCD"),
-                project: str("Count only this project's tasks. If the project has people picked, the person must be one of them. The project's name, as get_projects gives it"),
+                project: str("Count only this project's tasks; the person must be in its channel. The project's name, as get_projects gives it"),
                 fields: AVAILABILITY_FIELDS_ARG,
             },
             required: ["user_id"],
@@ -644,7 +650,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Find a user by name",
         annotations: READS_SLACK,
         description:
-            "Finds people in the Slack workspace by part of their name and gives each one's user ID, which update_task takes to assign someone and get_tasks takes as assignee.",
+            "Finds people in the Slack workspace by part of their name and gives each one's user ID, which update_task takes to assign someone and get_tasks takes in assignees.",
         inputSchema: {
             type: "object",
             properties: {name: str("Part of the person's name, such as Ann or ann.lee"), fields: USER_FIELDS_ARG},
@@ -660,7 +666,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Post in a thread",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person can read. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
+            "Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
             "Call this only with text the person has seen and approved.",
         inputSchema: {
             type: "object",

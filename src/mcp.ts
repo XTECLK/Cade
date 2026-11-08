@@ -1,5 +1,4 @@
-import { projectMembers } from "./settings.ts";
-import { hashToken, isMember, newToken, readableName } from "./access.ts";
+import { channelMembers, hashToken, isMember, newToken, readableName } from "./access.ts";
 import { projects } from "./channels.ts";
 import { applyChanges } from "./commands/changes.ts";
 import { HEALTH, SummaryError, compareVersions, defaultPeriod, dayBoundary, docProblem, period, periodLabel, readSummaryDoc, writeSummary } from "./summaries.ts";
@@ -7,7 +6,7 @@ import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
-import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksOfUser, tasksWithStatuses, threadMessages } from "./db.ts";
+import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
 import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
@@ -50,9 +49,10 @@ type ListedTask = Omit<TaskEntry, "link">;
 //                                      a whole thread, read from Slack
 //   get_task_history(task_id)          the messages Cade kept of a task's
 //                                      thread, from its own database
-//   get_tasks(mine?, role?, assignee?, unassigned?, status?, limit?)
-//                                      tasks, most urgent first: the person's
-//                                      own, or every project's they can read
+//   get_tasks(assignees?, roles?, unassigned?, status?, limit?)
+//                                      tasks they can read, most urgent first:
+//                                      everyone's, or some people's ("me" for
+//                                      their own), in some roles
 //   get_user(user_id)                      a Slack user's name, for the IDs in it
 //   get_channels(limit?)               the channels Cade is in that the person can read
 //   get_channel_threads(channel_id, …) a channel's recent threads from people that
@@ -293,7 +293,7 @@ async function requestApprovalTool(env: AppEnv, user: string, args: SendApproval
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
   // One ID in, one out: userIds throws for anything else.
   const [approver] = userIds("approver", [args.approver]) as [string];
   await requireActiveUsers(env, [approver]);
@@ -359,8 +359,8 @@ async function readableChannel(env: AppEnv, user: string, channel: string) {
     throw new ToolError(`I can't see that channel (${error.message}). Cade has to be in it.`);
   }
   if (info.is_im || info.is_mpim) throw new ToolError("I can't read direct messages, only channels Cade is in.");
-  // A private channel is read only for someone in it; a public one is open to all.
-  if (info.is_private && !(await isMember(env, channel, user))) {
+  // A channel is read only for someone in it, public or private (see readableName).
+  if (!(await isMember(env, channel, user))) {
     throw new ToolError("You aren't in that channel, so I can't read it for you.");
   }
   return info;
@@ -382,8 +382,8 @@ async function readSlackThread(env: AppEnv, user: string, channel: string, ts: s
   return { text, data: { thread_id: `${channel}:${ts}`, channel_name: info.name ?? channel, messages: messageData(messages) } };
 }
 
-// Runs a Slack call that needs Cade in `channel`. Anyone can read a public channel,
-// so when Cade isn't in one it joins, to do the same, and runs the call again.
+// Runs a Slack call that needs Cade in `channel`. Anyone can join a public channel, so when the
+// person is in one and Cade isn't, it joins, and runs the call again.
 async function asMember<T>(env: AppEnv, info: SlackChannel, channel: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
@@ -434,7 +434,7 @@ async function getTaskHistory(env: AppEnv, user: string, args: GetTaskHistoryArg
   if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
   // The same rule as for Slack itself: a private channel's only for its members, and never a direct message.
   const where = await readableName(env, channel, user);
-  if (where === null) throw new ToolError("You can't read that task's channel, so I can't read it for you.");
+  if (where === null) throw new ToolError("You aren't in that task's project channel, so I can't read it for you.");
   const messages = await threadMessages(env, channel, ts);
   const taskId = `${channel}:${ts}`;
   if (!messages.length) {
@@ -515,7 +515,7 @@ async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
   const where = await readableName(env, channel, user);
-  if (where === null) throw new ToolError("You can't read that task's channel, so I can't read it for you.");
+  if (where === null) throw new ToolError("You aren't in that task's project channel, so I can't read it for you.");
   // Only what is asked for is read.
   const want = (...names: NonNullable<GetTaskArgs["fields"]>) => !fields || names.some((name) => fields.includes(name));
   const [notes, kept] = await Promise.all([
@@ -620,7 +620,7 @@ async function getReleases(env: AppEnv, user: string, { status, task_id: taskId,
   return { text: [`${visible.length} release${visible.length === 1 ? "" : "s"}, oldest first:`, ...lines].join("\n") + more, data: { total: visible.length, releases } };
 }
 
-// The channels Cade is in that `user` can read, project channels first.
+// The channels Cade is in that `user` is in too, project channels first.
 async function getChannels(env: AppEnv, user: string, { limit }: GetChannelsArgs) {
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_CHANNELS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_CHANNELS}.`);
   const names = new Map(projects(env).map((project) => [project.channel, project.name]));
@@ -635,12 +635,12 @@ async function getChannels(env: AppEnv, user: string, { limit }: GetChannelsArgs
   const seen: { channel_id: string; name: string; private: boolean; project: string }[] = [];
   for (const channel of found) {
     if (channel.is_im || channel.is_mpim) continue;
-    if (channel.is_private && !(await isMember(env, channel.id, user))) continue;
+    if (!(await isMember(env, channel.id, user))) continue;
     seen.push({ channel_id: channel.id, name: channel.name ?? channel.id, private: Boolean(channel.is_private), project: names.get(channel.id) ?? "" });
   }
   seen.sort((a, b) => Number(Boolean(b.project)) - Number(Boolean(a.project)) || a.name.localeCompare(b.name));
   const shown = seen.slice(0, limit ?? DEFAULT_CHANNELS);
-  if (!seen.length) return { text: "Cade isn't in any channel you can read.", data: { total: 0, channels: [] } };
+  if (!seen.length) return { text: "Cade isn't in any channel you're in.", data: { total: 0, channels: [] } };
   const lines = shown.map((c, i) => `${i + 1}. #${c.name} (${c.channel_id})${c.private ? " [private]" : ""}${c.project ? ` — project ${c.project}` : ""}`);
   const more = seen.length > shown.length ? `\n…and ${seen.length - shown.length} more; raise limit (up to ${MAX_CHANNELS}).` : "";
   return { text: [`${seen.length} channel${seen.length === 1 ? "" : "s"} Cade is in:`, ...lines].join("\n") + more, data: { total: seen.length, channels: shown } };
@@ -742,7 +742,7 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   if (!project) {
     throw new ToolError(args.project !== undefined ? `There is no project called "${args.project}". They are: ${all.map((candidate) => candidate.name).join(", ")}.` : `Say which project to make it in with project: ${all.map((candidate) => candidate.name).join(", ")}. get_projects lists them.`);
   }
-  if ((await readableName(env, project.channel, user)) === null) throw new ToolError("You can't read that project's channel, so I can't make a task there for you.");
+  if ((await readableName(env, project.channel, user)) === null) throw new ToolError("You aren't in that project's channel, so I can't make a task there for you.");
 
   if (!source) {
     const same = (await tasksWithStatuses(env, OPEN)).find((entry) => entry.channel === project!.channel && entry.task.title.trim().toLowerCase() === title.toLowerCase());
@@ -762,14 +762,14 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   };
 }
 
-// The projects whose channel `user` can read, one per line.
+// The projects whose channel `user` is in, one per line.
 async function getProjects(env: AppEnv, user: string, _args: GetProjectsArgs) {
   const seen: { name: string; channel_id: string }[] = [];
   for (const project of projects(env)) {
     if ((await readableName(env, project.channel, user)) !== null) seen.push({ name: project.name, channel_id: project.channel });
   }
   const lines = seen.map((project) => `- ${project.name}: <#${project.channel_id}> (${project.channel_id})`);
-  const text = lines.length ? [`${lines.length} project${lines.length === 1 ? "" : "s"}:`, ...lines].join("\n") : "There are no projects whose channel you can read.";
+  const text = lines.length ? [`${lines.length} project${lines.length === 1 ? "" : "s"}:`, ...lines].join("\n") : "There are no projects whose channel you're in.";
   return { text, data: { total: seen.length, projects: seen } };
 }
 
@@ -780,18 +780,24 @@ function projectChannel(env: AppEnv, name: unknown) {
   return found.channel;
 }
 
-// get_tasks' arguments, with what it works out from them for getMyTasks and getAllTasks: the project's
-// channel, which tasks done in the days asked count, and whether those not done come first.
-type ListArgs = GetTasksArgs & { channel?: string; completed?: (task: Task) => boolean; openFirst?: boolean };
+// get_tasks' arguments, with what it works out from them for getAllTasks: the project's channel, which
+// tasks done in the days asked count, whether those not done come first, and whose tasks they are.
+type ListArgs = GetTasksArgs & { channel?: string; completed?: (task: Task) => boolean; openFirst?: boolean; assigned?: (task: Task) => boolean };
 
-// The tasks the arguments ask for: the person's own, or everyone's they can read.
+// The tasks the arguments ask for, of those in the channels the person can read.
 async function getTasks(env: AppEnv, user: string, args: ListArgs) {
-  const { mine, role, assignee, unassigned, limit, project, fields } = args;
+  const { assignees, roles, unassigned, limit, project, fields } = args;
   if (fields !== undefined && !(Array.isArray(fields) && fields.every((field) => TASK_FIELDS.includes(field)))) throw new ToolError(`fields is a list of: ${TASK_FIELDS.join(", ")}.`);
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
-  if (assignee !== undefined && !/^[UW][A-Z0-9]{2,}$/.test(String(assignee))) throw new ToolError("assignee is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
-  if (assignee !== undefined) await requireActiveUsers(env, [String(assignee)]);
-  if (unassigned && (mine || role || assignee)) throw new ToolError("unassigned can't be combined with mine, role or assignee.");
+  if (roles !== undefined && assignees === undefined) throw new ToolError('roles goes with assignees, the people to have them. Give assignees: ["me"] for your own.');
+  if (unassigned && assignees !== undefined) throw new ToolError("unassigned can't be combined with assignees.");
+  if (assignees !== undefined) {
+    // "me" is whoever's API key it is; anyone else has to be someone in the workspace.
+    const ids = new Set(assignees.map((id) => (id === "me" ? user : id)));
+    await requireActiveUsers(env, [...ids].filter((id) => id !== user));
+    const wanted = (roles ?? Object.keys(ROLES)) as Role[];
+    args = { ...args, assigned: (task: Task) => wanted.some((role) => task.people[role].some((id) => ids.has(id))) };
+  }
   if (project !== undefined) args = { ...args, channel: projectChannel(env, project) };
   if (args.completed_from !== undefined || args.completed_to !== undefined) {
     const day = (value: unknown, name: string) => (value === undefined ? undefined : dayOf(value, name));
@@ -807,43 +813,22 @@ async function getTasks(env: AppEnv, user: string, args: ListArgs) {
   } else if (args.include_open) {
     throw new ToolError("include_open goes with completed_from or completed_to. Without them, open tasks are listed anyway.");
   }
-  if (mine || role) {
-    if (assignee !== undefined && assignee !== user) throw new ToolError("mine and assignee name different people. Use one of them.");
-    return getMyTasks(env, user, args);
-  }
   return getAllTasks(env, user, args);
 }
 
 // Orders tasks not done before those done (the sort is stable, so urgency holds within each).
 const byOpenFirst = (a: { task: Task }, b: { task: Task }) => Number(!OPEN.includes(a.task.status)) - Number(!OPEN.includes(b.task.status));
 
-// The tasks `user` has a role in.
-async function getMyTasks(env: AppEnv, user: string, { role, status, limit, channel, fields, completed, openFirst }: ListArgs) {
-  if (role !== undefined && !ROLES[role as Role]) throw new ToolError(`role is one of ${Object.keys(ROLES).join(", ")}.`);
-  const { wanted, statuses } = statusFilter(status);
-  const found = (await tasksOfUser(env, user, { roles: role ? [role] : (Object.keys(ROLES) as Role[]), statuses }))
-    .filter((entry) => !channel || entry.channel === channel)
-    .filter((entry) => !completed || completed(entry.task))
-    .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
-    .sort(byUrgency)
-    .sort(openFirst ? byOpenFirst : () => 0);
-  if (!found.length) return { text: `You have no ${wanted === "open" ? "open " : ""}tasks${role ? ` as ${role}` : ""}${statuses.length === 1 ? ` in ${statusName(wanted as Status)}` : ""}.`, data: { total: 0, tasks: [] } };
-  const shown = found.slice(0, limit ?? MAX_TASKS);
-  const yours = ({ task }: ListedTask) => `you: ${(Object.keys(ROLES) as Role[]).filter((key) => task.people[key].includes(user)).join(", ")}`;
-  const more = found.length > shown.length ? `\n…and ${found.length - shown.length} more.` : "";
-  const { lines, items } = await taskLines(env, shown, yours, fields);
-  return { text: [`${found.length} task${found.length === 1 ? "" : "s"}, most urgent first:`, ...lines].join("\n") + more, data: { total: found.length, tasks: items } };
-}
-
-// Every task in the projects whose channels you can read, most urgent first.
-async function getAllTasks(env: AppEnv, user: string, { limit, status, assignee, unassigned, channel, fields, completed, openFirst }: ListArgs) {
+// The tasks in the projects whose channels you can read, most urgent first: everyone's, or those
+// `assigned` picks.
+async function getAllTasks(env: AppEnv, user: string, { limit, status, assigned, unassigned, channel, fields, completed, openFirst }: ListArgs) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task: Task) => (Object.keys(ROLES) as Role[]).flatMap((role) => task.people[role]);
   const found = (await tasksWithStatuses(env, statuses))
     .filter((entry) => !channel || entry.channel === channel)
     .filter(({ task }) => !completed || completed(task))
-    .filter(({ task }) => (assignee === undefined || everyone(task).includes(assignee)) && (!unassigned || !everyone(task).length))
+    .filter(({ task }) => (!assigned || assigned(task)) && (!unassigned || !everyone(task).length))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency)
     .sort(openFirst ? byOpenFirst : () => 0);
@@ -1003,7 +988,7 @@ const AWAY_STATUS = /vacation|holiday|leave|sick|ill\b|ooo|out of office|off wor
 async function getAvailability(env: AppEnv, user: string, { user_id, project, fields }: GetAvailabilityArgs) {
   if (!/^[UW][A-Z0-9]{2,}$/.test(String(user_id ?? ""))) throw new ToolError("user_id is a Slack user ID such as U0123ABCD. find_user_by_name gives them.");
   const result = await getTeamAvailability(env, user, { users: [user_id], project, fields });
-  if (!result.data.people.length) throw new ToolError(project !== undefined && projectMembers(env, projectChannel(env, project)).length ? `${user_id} isn't one of the people who work on ${project}, or isn't an active person in the workspace.` : `There is no active person ${user_id} in the workspace.`);
+  if (!result.data.people.length) throw new ToolError(project !== undefined ? `${user_id} isn't in ${project}'s channel, or isn't an active person in the workspace.` : `There is no active person ${user_id} in the workspace.`);
   return { text: result.text.split("\n").slice(1).join("\n").replace(/^1\. /, ""), data: { person: result.data.people[0] } };
 }
 
@@ -1014,10 +999,13 @@ async function getTeamAvailability(env: AppEnv, user: string, { users, project, 
   const shown = fields ?? AVAILABILITY_FIELDS.filter((field) => field !== "presence");
   if (users !== undefined && !(Array.isArray(users) && users.every((id) => /^[UW][A-Z0-9]{2,}$/.test(String(id))))) throw new ToolError("users is a list of Slack user IDs such as U0123ABCD. find_user_by_name gives them.");
   if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_USERS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_USERS}.`);
-  const channel = project !== undefined ? projectChannel(env, project) : undefined;
-  // A project with people picked in its settings covers only them; asking for others in it finds no one.
-  const team = channel ? projectMembers(env, channel) : [];
-  const wanted = users || team.length ? new Set<string>((users ?? team).filter((id: string) => !team.length || team.includes(id))) : null;
+  // A project's people are those in its channel (a private one's only for someone in it to ask about), and
+  // asking for others in it finds no one.
+  const channel = project !== undefined ? (await readableProject(env, user, project)).channel : undefined;
+  const team = channel ? await channelMembers(env, channel).catch((error) => {
+    throw new ToolError(`I couldn't read who is in ${project}'s channel (${error.message}).`);
+  }) : null;
+  const wanted = team ? new Set<string>((users ?? team).filter((id: string) => team.includes(id))) : users ? new Set<string>(users) : null;
 
   const members: SlackUser[] = [];
   let cursor: string | undefined;
@@ -1034,14 +1022,12 @@ async function getTeamAvailability(env: AppEnv, user: string, { users, project, 
     if (!cursor) break;
   }
 
-  // Open tasks in the projects' channels you can read, counted per person and role.
+  // Every open task counts, in channels you aren't in too: someone's load is all their work, and only
+  // numbers are given, never which tasks. With a project, only its channel's.
   const today = todayIn(env);
-  const readable = new Map<string, boolean>();
   const load = new Map<string, { owner: number; reviewer: number; tester: number; overdue: Set<string>; hot: Set<string>; all: Set<string> }>();
   for (const { channel: where, ts, task } of await tasksWithStatuses(env, OPEN)) {
     if (channel && where !== channel) continue;
-    if (!readable.has(where)) readable.set(where, (await readableName(env, where, user)) !== null);
-    if (!readable.get(where)) continue;
     const due = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(task.dueDate ?? "");
     const late = Boolean(due) && `${due![3]}-${due![2]}-${due![1]}` < today;
     for (const role of Object.keys(ROLES) as Role[]) {
@@ -1120,7 +1106,7 @@ async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMess
   if (args.thread_id !== undefined && args.link !== undefined) throw new ToolError("Give thread_id or link, not both.");
   const { channel, ts } = args.thread_id !== undefined ? threadIdOf(args.thread_id) : threadOf(args.link);
   const task = await loadTask(env, channel, ts);
-  if (task && (await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't post there for you.");
+  if (task && (await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
   const message = String(args.text ?? "").trim();
   if (!message) throw new ToolError("The message is empty.");
   if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
@@ -1237,7 +1223,7 @@ async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, n
   const found = await releaseById(env, id);
   if (!found) throw new ToolError("There is no such release, or its task is gone. get_releases lists them.");
   const { channel, ts, release } = found;
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't change its release for you.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't change its release for you.");
   if (release.status !== "PENDING_APPROVAL") throw new ToolError(`That release is already ${release.status === "APPROVED" ? "approved" : "decided"}; only one waiting for approval can be changed.`);
   if (!release.messageTs || !release.approver) throw new ToolError("I don't have that release's request message, so I can't change it. Change it in the task's thread in Slack.");
 
@@ -1283,7 +1269,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
   if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that task's channel, so I can't change it for you.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't change it for you.");
 
   const changes: Changes = {};
   if (args.status !== undefined) {
@@ -1358,7 +1344,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
 async function readableProject(env: AppEnv, user: string, name: unknown): Promise<Project> {
   const channel = projectChannel(env, name);
   const group = projects(env).find((pair) => pair.channel === channel);
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You can't read that project's channel.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that project's channel.");
   return group!;
 }
 
@@ -1479,7 +1465,7 @@ async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, item
   const summary = Number.isInteger(id) ? await getSummary(env, id) : null;
   if (!summary || !summary.publishedAt) throw new ToolError("There is no such summary. get_executive_summary lists them.");
   const group = projects(env).find((pair) => pair.name === summary.project);
-  if (!group || (await readableName(env, group.channel, user)) === null) throw new ToolError("You can't read that summary's project.");
+  if (!group || (await readableName(env, group.channel, user)) === null) throw new ToolError("You aren't in that summary's project channel.");
   if (!Array.isArray(items) || !Array.isArray(added)) throw new ToolError("items and added are lists.");
   if (items.length > MAX_SUMMARY_ITEMS) throw new ToolError(`items has ${items.length} entries; give at most ${MAX_SUMMARY_ITEMS}.`);
   if (added.length > MAX_ADDED_ITEMS) throw new ToolError(`added has ${added.length} entries; give at most ${MAX_ADDED_ITEMS}.`);

@@ -185,16 +185,15 @@
 <section class="tool" id="get_tasks">
   <div class="wrap">
     <h2><code>get_tasks</code></h2>
-    <p>Lists Cade tasks, most urgent first: your own or everyone's in the channels you can read, open ones by default. It can also give the tasks done in a period, with those not done, for an executive summary.</p>
+    <p>Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (&quot;me&quot; for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>mine</code></td><td>boolean</td><td></td><td>Only the tasks you are owner, reviewer or tester of</td></tr>
-<tr><td><code>role</code></td><td>string: owner | reviewer | tester</td><td></td><td>Only tasks where you have this role (implies mine)</td></tr>
-<tr><td><code>assignee</code></td><td>string</td><td></td><td>Only tasks this person is on, as a Slack user ID such as U0123ABCD</td></tr>
-<tr><td><code>unassigned</code></td><td>boolean</td><td></td><td>Only tasks nobody is owner, reviewer or tester of</td></tr>
+<tr><td><code>assignees</code></td><td>string[]</td><td></td><td>Only tasks one of these people is on, in one of roles. &quot;me&quot; is you, so [&quot;me&quot;] gives your own tasks · a Slack user ID such as U0123ABCD, or me</td></tr>
+<tr><td><code>roles</code></td><td>string[]: owner | reviewer | tester</td><td></td><td>With assignees: only the tasks where one of them has one of these roles. Default: all three · A role</td></tr>
+<tr><td><code>unassigned</code></td><td>boolean</td><td></td><td>Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees</td></tr>
 <tr><td><code>status</code></td><td>string: open | all | TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>open (default: everything not done), all, or one status</td></tr>
 <tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
 <tr><td><code>completed_from</code></td><td>string</td><td></td><td>Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)</td></tr>
@@ -326,7 +325,7 @@
 <section class="tool" id="get_channels">
   <div class="wrap">
     <h2><code>get_channels</code></h2>
-    <p>Lists the Slack channels Cade is in and you can read, project channels first. It is where to start to browse for conversations that should become tasks: pick a channel, then read its threads with get_channel_threads.</p>
+    <p>Lists the Slack channels Cade and you are both in, project channels first. It is where to start to browse for conversations that should become tasks: pick a channel, then read its threads with get_channel_threads.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -339,7 +338,7 @@
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>total</code></td><td>integer</td><td>yes</td><td>How many channels Cade is in that you can read</td></tr>
+<tr><td><code>total</code></td><td>integer</td><td>yes</td><td>How many channels Cade and you are both in</td></tr>
 <tr><td><code>channels</code></td><td>object[]</td><td>yes</td><td>Project channels first, then by name · A channel Cade is in</td></tr>
 <tr><td><code>channels[].channel_id</code></td><td>string</td><td>yes</td><td>A Slack channel ID, such as C0123ABCD</td></tr>
 <tr><td><code>channels[].name</code></td><td>string</td><td>yes</td><td>The channel's name</td></tr>
@@ -423,7 +422,7 @@
 <section class="tool" id="get_projects">
   <div class="wrap">
     <h2><code>get_projects</code></h2>
-    <p>Lists the projects Cade tracks tasks for, in the channels you can read.</p>
+    <p>Lists the projects Cade tracks tasks for whose channel you are in.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <p class="none">None.</p>
@@ -506,7 +505,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>users</code></td><td>string[]</td><td></td><td>Only these people, as Slack user IDs such as U0123ABCD</td></tr>
-<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, and cover only the people picked as working on it (everyone if none were picked). The project's name, as get_projects gives it</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks, and cover only the people in its channel. The project's name, as get_projects gives it</td></tr>
 <tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many people to return, least loaded first. Default 50 · min 1, max 200</td></tr>
 </tbody>
@@ -545,7 +544,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>user_id</code></td><td>string</td><td>yes</td><td>The person, as a Slack user ID such as U0123ABCD</td></tr>
-<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks. If the project has people picked, the person must be one of them. The project's name, as get_projects gives it</td></tr>
+<tr><td><code>project</code></td><td>string</td><td></td><td>Count only this project's tasks; the person must be in its channel. The project's name, as get_projects gives it</td></tr>
 <tr><td><code>fields</code></td><td>string[]: name | open_tasks | owner | reviewer | tester | overdue | urgent_or_high | status | status_until | time_zone | away | presence</td><td></td><td>The fields to give, to keep the result small; user_id is always there. Default: all but presence. Add presence to look up whether the person is active in Slack right now (one Slack call each)</td></tr>
 </tbody>
 </table></div>
@@ -575,7 +574,7 @@
 <section class="tool" id="find_user_by_name">
   <div class="wrap">
     <h2><code>find_user_by_name</code></h2>
-    <p>Finds people in the Slack workspace by part of their name and gives each one's user ID, which update_task takes to assign someone and get_tasks takes as assignee.</p>
+    <p>Finds people in the Slack workspace by part of their name and gives each one's user ID, which update_task takes to assign someone and get_tasks takes in assignees.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -602,7 +601,7 @@
 <section class="tool" id="send_thread_message">
   <div class="wrap">
     <h2><code>send_thread_message</code></h2>
-    <p>Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person can read. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. Call this only with text the person has seen and approved.</p>
+    <p>Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. Call this only with text the person has seen and approved.</p>
     <p>Give one of <code>thread_id</code> or <code>link</code>.</p>
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>

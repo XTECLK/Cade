@@ -4,7 +4,7 @@ import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.ts";
 import { formatTime } from "./format.ts";
 import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.ts";
 import { mcpEnabled } from "./mcp.ts";
-import { SETTINGS, isAdmin, projectMembers, settingOn } from "./settings.ts";
+import { SETTINGS, isAdmin, settingOn } from "./settings.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
 import { PRIORITIES, blockedLine, peopleLine, ROLES, STATUSES } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
@@ -192,10 +192,8 @@ async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: P
   if (isAdmin(env, user)) {
     blocks.push({ type: "divider" }, { type: "header", text: plainText("Projects") });
     if (project) {
-      const members = projectMembers(env, project.channel);
-      const people = members.length ? `${members.length} ${members.length === 1 ? "person" : "people"} picked` : "everyone in the workspace";
       const switches = SETTINGS.map(({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`).join("  ·  ");
-      blocks.push({ type: "actions", elements: [projectPicker(all, project)] }, row("Project settings", `*${project.name}*: ${people}\n${switches}`, SETTINGS_ACTION, "Edit", project.channel));
+      blocks.push({ type: "actions", elements: [projectPicker(all, project)] }, row("Project settings", `*${project.name}* in <#${project.channel}>\n${switches}`, SETTINGS_ACTION, "Edit", project.channel));
     } else {
       blocks.push({ type: "context", elements: [mrkdwn("_There are no projects yet. Add one with Add project on Home._")] });
     }

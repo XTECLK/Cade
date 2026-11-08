@@ -17,10 +17,6 @@ export const PROJECT_SCHEMA: Schema = {
     name: { type: "string" },
     channel: { type: "string", pattern: "^[CG][A-Z0-9]{8,}$", description: "a Slack channel ID, such as C0123ABCD" },
     workDoc: { type: "string" },
-    members: {
-      type: "array",
-      items: { type: "string", pattern: "^[UW][A-Z0-9]{2,}$", description: "a Slack user ID, such as U0123ABCD" },
-    },
     taskChangeDetection: SWITCH,
     newTaskDetection: SWITCH,
     aiAgentSummary: SWITCH,

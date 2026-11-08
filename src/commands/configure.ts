@@ -40,7 +40,7 @@ export async function webLine(env: AppEnv, user: string) {
 // The web pages modal, with how things stand and what the last button said above its buttons.
 export async function webView(env: AppEnv, user: string, result?: string) {
   return modal("Cade web pages", [
-    section(`Task cards link to *Full history* and *Extra notes* pages that Cade hosts. Sign in once in each browser to read the ones for channels you can read.\n*Now:* ${await webLine(env, user)}`),
+    section(`Task cards link to *Full history* and *Extra notes* pages that Cade hosts. Sign in once in each browser to read the ones for channels you're in.\n*Now:* ${await webLine(env, user)}`),
     ...(result ? [section(result)] : []),
     {
       type: "actions",
@@ -79,7 +79,7 @@ export async function mcpView(env: AppEnv, user: string, result?: string) {
     on ? `*Endpoint:* \`${endpointUrl(env)}\` (Streamable HTTP), with your API key in the header \`x-apikey\`` : "",
     on ? `*Offers:* ${mcpCatalog().tools.length} tools` : "",
     on ? `*Setup guide:* <${MCP_GUIDE}|How to connect your AI agent>` : "",
-    "Everything runs as you, so your agent reads only what you can read. Changes and messages it makes are posted in the task's thread under your name, after you approve them.",
+    "Everything runs as you, so your agent reads only the channels you're in. Changes and messages it makes are posted in the task's thread under your name, after you approve them.",
   ].filter(Boolean);
   const blocks = [section(lines.join("\n"))];
   if (result) blocks.unshift(section(result));

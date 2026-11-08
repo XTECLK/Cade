@@ -35,7 +35,11 @@ async function sign(body) {
 // A fake Slack API and Google web app: `slack` maps a method to its result
 // (or a function of its arguments); every call is recorded.
 let recorded = [];
+// Who is in each channel, unless a test says: everyone in the tests but CPRIV, a private channel only UBOB is in.
+const IN_CHANNEL = (args) => ({ members: args.channel === "CPRIV" ? ["UBOB"] : ["UME", "UBOB"] });
+
 function mock(t: TestContext, slack: Record<string, unknown> = {}, google: unknown = { ok: true }) {
+  slack = { "conversations.members": IN_CHANNEL, ...slack };
   const calls = (recorded = []);
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -200,7 +204,6 @@ test("get_thread_history reads a thread, and a private channel only for someone 
   ];
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : args.channel === "D1" ? { is_im: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
     "conversations.replies": { messages: replies },
   });
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
@@ -322,35 +325,38 @@ test("get_thread_history reads only from Slack, even for a task Cade keeps messa
   assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" })).text, /Kept reply/);
 });
 
-test("get_tasks with mine lists the open tasks you are owner, reviewer or tester of, most urgent first, and filters by role and status", async (t) => {
+test("get_tasks with assignees me lists your open tasks in channels you can read, most urgent first, and filters by roles and status", async (t) => {
   const people = (owner = [], reviewer = [], tester = []) => ({ owner, reviewer, tester });
   await putTask(env, "CDEV", "1000000000.000100", stored({ title: "Mine, low", priority: "Low", people: people(["UME"]), link: "https://acme.slack.com/archives/CDEV/p1000000000000100" }));
   await putTask(env, "CDEV", "1000000001.000100", stored({ title: "Review me", priority: "Urgent", status: "IN_REVIEW", dueDate: "31/12/2026", people: people(["UBOB"], ["UME"]), link: "https://acme.slack.com/archives/CDEV/p1000000001000100" }));
   await putTask(env, "CBARE", "1000000002.000100", stored({ title: "Test me too", priority: "High", status: "IN_TESTING", people: people(["UME"], ["UBOB"], ["UME"]), link: "https://acme.slack.com/archives/CBARE/p1000000002000100" }));
   await putTask(env, "CDEV", "1000000003.000100", stored({ title: "Done one", status: "DONE", people: people(["UME"]) }));
   await putTask(env, "CDEV", "1000000004.000100", stored({ title: "Not mine", people: people(["UBOB"]) }));
-  mock(t);
+  // A private channel you were taken out of: your task there isn't listed any more.
+  await putTask(env, "CPRIV", "1000000005.000100", stored({ title: "Left behind", people: people(["UME"]) }));
+  mock(t, {
+    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
+  });
   const url = addressIn(await slash("mcp init", "UME"));
 
-  const open = await tool(url, "get_tasks", { mine: true });
+  const open = await tool(url, "get_tasks", { assignees: ["me"] });
   assert.equal(open.isError, false, open.text);
-  assert.match(open.text, /^3 tasks, most urgent first:/);
-  // Urgent first, then High, then Low; done and other people's tasks left out.
+  assert.match(open.text, /^3 tasks, showing the 3 most urgent:/);
+  // Urgent first, then High, then Low; done, other people's and unreadable tasks left out.
   assert.deepEqual([...open.text.matchAll(/^\d\. \[(\w+)\] (.*?) —/gm)].map(([, priority, title]) => [priority, title]), [["Urgent", "Review me"], ["Low", "Mine, low"], ["High", "Test me too"]]);
-  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(you: reviewer\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
-  assert.match(open.text, /Test me too — .*\(you: owner, tester\)/);
-  assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine"));
+  assert.match(open.text, /Review me — .*In review, due 31\/12\/2026 \(.*reviewer: UME.*\)\n   Task ID: CDEV:1000000001.000100\n   https:\/\/acme\.slack\.com\/archives\/CDEV\/p1000000001000100/);
+  assert.ok(!open.text.includes("Done one") && !open.text.includes("Not mine") && !open.text.includes("Left behind"));
 
-  assert.match((await tool(url, "get_tasks", { mine: true, role: "reviewer" })).text, /^1 task, most urgent first:\n\*\w+\*\n1\. \[Urgent\] Review me/);
-  assert.match((await tool(url, "get_tasks", { mine: true, status: "all" })).text, /^4 tasks/);
-  assert.match((await tool(url, "get_tasks", { mine: true, status: "DONE" })).text, /Done one/);
-  assert.match((await tool(url, "get_tasks", { mine: true, role: "tester", status: "TODO" })).text, /^You have no tasks as tester in .*To do\./);
-  assert.match((await tool(url, "get_tasks", { mine: true, role: "boss" })).text, /role is one of owner, reviewer, tester/);
-  assert.match((await tool(url, "get_tasks", { mine: true, status: "soon" })).text, /status is one of open, all, TODO/);
+  const titles = async (args: Record<string, unknown>) => [...(await tool(url, "get_tasks", args)).text.matchAll(/^\d\. \[\w+\] (.*?) —/gm)].map(([, title]) => title).sort();
+  assert.deepEqual(await titles({ assignees: ["me"], roles: ["reviewer"] }), ["Review me"]);
+  assert.deepEqual(await titles({ assignees: ["me"], roles: ["reviewer", "tester"] }), ["Review me", "Test me too"]);
+  assert.match((await tool(url, "get_tasks", { assignees: ["me"], status: "all" })).text, /^4 tasks/);
+  assert.match((await tool(url, "get_tasks", { assignees: ["me"], status: "DONE" })).text, /Done one/);
+  assert.match((await tool(url, "get_tasks", { assignees: ["me"], roles: ["tester"], status: "TODO" })).text, /^There are no tasks you can see in .*To do\./);
 
   // Someone with no tasks is told so, and only sees their own.
   const nobody = addressIn(await slash("mcp init", "UNOBODY"));
-  assert.match((await tool(nobody, "get_tasks", { mine: true })).text, /^You have no open tasks\./);
+  assert.match((await tool(nobody, "get_tasks", { assignees: ["me"] })).text, /^There are no open tasks you can see\./);
 });
 
 test("get_task gives one task without its threads, only for a channel you can read", async (t) => {
@@ -360,7 +366,6 @@ test("get_task gives one task without its threads, only for a channel you can re
   await DB.prepare("INSERT INTO task_notes (channel, task_ts, summary, summary_by, body) VALUES ('CDEV', '1700000000.000100', 'Login fails on Safari', 'UME', 'Check the cache')").run();
   mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
 
@@ -381,25 +386,39 @@ test("get_task gives one task without its threads, only for a channel you can re
   assert.match((await tool(url, "get_task", { task_id: "CDEV:1700000000.000100", fields: ["nope"] })).text, /fields is a list of: title, project/);
   assert.equal((await tool(url, "get_task", { task_id: "CDEV:1700000000.000100" })).data.notes, "Check the cache");
 
-  assert.match((await tool(url, "get_task", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "get_task", { task_id: "CPRIV:1700000000.000100" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "get_task", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
   assert.match((await tool(url, "get_task", {})).text, /Give task_id\./);
 });
 
-test("get_tasks filters by assignee and unassigned", async (t) => {
-  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Rex's", people: { owner: ["UREX"], reviewer: [], tester: [] } }));
-  await putTask(env, "CDEV", "1700000001.000100", stored({ title: "Nobody's", people: { owner: [], reviewer: [], tester: [] } }));
+test("get_tasks filters by assignees in roles, and unassigned", async (t) => {
+  const people = (owner: string[] = [], reviewer: string[] = [], tester: string[] = []) => ({ owner, reviewer, tester });
+  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Rex's", people: people(["UREX"]) }));
+  await putTask(env, "CDEV", "1700000001.000100", stored({ title: "Bob reviews", people: people(["UME"], ["UBOB"]) }));
+  await putTask(env, "CDEV", "1700000002.000100", stored({ title: "Bob tests", people: people(["UANN"], [], ["UBOB"]) }));
+  await putTask(env, "CDEV", "1700000003.000100", stored({ title: "Nobody's", people: people() }));
   mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" }, "users.info": WORKSPACE });
   const url = addressIn(await slash("mcp init", "UME"));
-  const rex = (await tool(url, "get_tasks", { assignee: "UREX" })).text;
-  assert.match(rex, /Rex's/);
-  assert.doesNotMatch(rex, /Nobody's/);
-  const none = (await tool(url, "get_tasks", { unassigned: true })).text;
-  assert.match(none, /Nobody's/);
-  assert.doesNotMatch(none, /Rex's/);
-  assert.match((await tool(url, "get_tasks", { assignee: "rex" })).text, /assignee is a Slack user ID/);
-  assert.match((await tool(url, "get_tasks", { assignee: "UGHOST" })).text, /UGHOST isn't an active person in the workspace/);
-  assert.match((await tool(url, "get_tasks", { unassigned: true, mine: true })).text, /can't be combined/);
+  const titles = async (args: Record<string, unknown>) => [...(await tool(url, "get_tasks", args)).text.matchAll(/^\d\. \[\w+\] (.*?) —/gm)].map(([, title]) => title).sort();
+
+  // Anyone in any role, by default; several people at once; only some roles.
+  assert.deepEqual(await titles({ assignees: ["UREX"] }), ["Rex's"]);
+  assert.deepEqual(await titles({ assignees: ["UBOB"] }), ["Bob reviews", "Bob tests"]);
+  assert.deepEqual(await titles({ assignees: ["UREX", "UBOB"], roles: ["owner", "tester"] }), ["Bob tests", "Rex's"]);
+  assert.deepEqual(await titles({ assignees: ["UBOB"], roles: ["reviewer"] }), ["Bob reviews"]);
+  // "me" and someone else together.
+  assert.deepEqual(await titles({ assignees: ["me", "UREX"], roles: ["owner"] }), ["Bob reviews", "Rex's"]);
+  assert.deepEqual(await titles({ unassigned: true }), ["Nobody's"]);
+
+  assert.match((await tool(url, "get_tasks", { assignees: ["rex"] })).text, /assignees\[0\] "rex" isn't a Slack user ID such as U0123ABCD, or me/);
+  assert.match((await tool(url, "get_tasks", { assignees: ["UGHOST"] })).text, /UGHOST isn't an active person in the workspace/);
+  assert.match((await tool(url, "get_tasks", { assignees: [] })).text, /assignees needs at least 1 entry/);
+  assert.match((await tool(url, "get_tasks", { assignees: Array.from({ length: 51 }, (_, i) => `U${i}AAA`) })).text, /assignees has 51 entries; give at most 50/);
+  assert.match((await tool(url, "get_tasks", { assignees: ["me"], roles: ["boss"] })).text, /roles is a list of: owner, reviewer, tester/);
+  assert.match((await tool(url, "get_tasks", { roles: ["owner"] })).text, /roles goes with assignees/);
+  assert.match((await tool(url, "get_tasks", { unassigned: true, assignees: ["me"] })).text, /unassigned can't be combined with assignees/);
+  // The filters it had before are refused, so an agent that still sends them is told.
+  assert.match((await tool(url, "get_tasks", { mine: true })).text, /mine isn't something this takes/);
 });
 
 test("send_thread_message posts in a task's thread as Cade, marked as sent by the person", async (t) => {
@@ -407,7 +426,6 @@ test("send_thread_message posts in a task's thread as Cade, marked as sent by th
   await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
     "users.info": WORKSPACE,
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -438,7 +456,7 @@ test("send_thread_message posts in a task's thread as Cade, marked as sent by th
   }
   assert.equal(posts(), postedBefore, "nothing was posted for a message with a secret");
   assert.match((await tool(url, "send_thread_message", { thread_id: TASK, text: "x".repeat(3001) })).text, /3001 characters/);
-  assert.match((await tool(url, "send_thread_message", { thread_id: "CPRIV:1700000000.000100", text: "hi" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: "CPRIV:1700000000.000100", text: "hi" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "send_thread_message", { text: "hi" })).text, /Give thread_id or link\./);
   assert.equal(calls.slice(before).filter((call) => call.method === "chat.postMessage").length, 0);
 });
@@ -448,7 +466,6 @@ test("send_thread_message posts in any thread the person can read, in the same f
   let joined = false;
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : args.channel === "D1" ? { is_im: true } : { name: "general" } }),
-    "conversations.members": { members: ["UBOB"] },
     "conversations.join": () => ((joined = true), {}),
     "auth.test": { url: "https://acme.slack.com/" },
     "conversations.replies": (args) => (args.ts === "1600000000.000100" ? new Error("thread_not_found") : joined ? { messages: [{ user: "UBOB", ts: args.ts, text: "hi" }] } : new Error("not_in_channel")),
@@ -594,7 +611,6 @@ test("update_task changes a task for the person and tells its thread, only with 
   await putTask(env, "CPRIV", "1700000000.000100", stored({ title: "Secret" }));
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
     "users.info": WORKSPACE,
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -640,7 +656,7 @@ test("update_task changes a task for the person and tells its thread, only with 
   assert.match(both, /^Done\. The change is posted in the task's thread\. The summary is at the top/);
   assert.equal((await DB.prepare("SELECT summary FROM task_notes WHERE channel = 'CDEV'").first()).summary, "The issue.");
   assert.equal((await getTask(env, "CDEV", "1700000000.000100")).priority, "Low");
-  assert.match((await tool(url, "update_task", { task_id: "CPRIV:1700000000.000100", priority: "Low" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "update_task", { task_id: "CPRIV:1700000000.000100", priority: "Low" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "update_task", { task_id: "CDEV:1600000000.000100", priority: "Low" })).text, /isn't a task Cade tracks/);
   assert.equal((await getTask(env, "CPRIV", "1700000000.000100")).priority, stored().priority);
 });
@@ -655,7 +671,6 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   await keep("CPRIV", "1700000000.000100", "UBOB", "hush");
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
 
@@ -674,7 +689,7 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
 
   // A private channel is for its members only: UME isn't in it, UBOB is.
   const priv = "CPRIV:1700000000.000100";
-  assert.match((await tool(url, "get_task_history", { task_id: priv })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "get_task_history", { task_id: priv })).text, /aren't in that task's project channel/);
   const bob = addressIn(await slash("mcp init", "UBOB"));
   assert.match((await tool(bob, "get_task_history", { task_id: priv })).text, /Task "Secret" in #secret.*hush/s);
   // A task with nothing kept.
@@ -685,7 +700,7 @@ test("get_task_history gives the messages Cade kept, only for a task it tracks a
   assert.equal(byId.isError, false, byId.text);
   assert.equal(byId.text, result.text);
   assert.match((await tool(url, "get_task_history", { task_id: " CDEV:1700000000.000100 " })).text, /2 kept messages/);
-  assert.match((await tool(url, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /aren't in that task's project channel/);
   assert.match((await tool(bob, "get_task_history", { task_id: "CPRIV:1700000000.000100" })).text, /hush/);
   assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1600000000.000100" })).text, /isn't a task Cade tracks/);
   assert.match((await tool(url, "get_task_history", { task_id: "12" })).text, /channel and the message time joined by a colon/);
@@ -705,7 +720,6 @@ test("get_task names the thread a task was made from, which get_thread_history r
   await keep("CBARE", "1700000001.000200", "just a reply");
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: { CSECRET: { name: "client-secret", is_private: true } }[args.channel] ?? { name: args.channel === "CCLIENT" ? "client" : "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
     "conversations.replies": { messages: [{ user: "UANN", ts: "1699990000.000100", text: "Login fails on Safari" }, { user: "UBOB", ts: "1699990060.000200", text: "Same here" }] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -743,7 +757,6 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   await putTask(env, "CDEV", "1000000004.000100", stored({ title: "Done one", status: "DONE" }));
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": (args) => ({ members: args.channel === "CPRIV" ? ["UBOB"] : [] }),
     "auth.test": { url: "https://acme.slack.com/" },
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -775,7 +788,7 @@ test("get_tasks lists every project's tasks you can read, most urgent first, up 
   const bare = await tool(url, "get_tasks", { project: "BARE" });
   assert.match(bare.text, /^1 task, showing the 1 most urgent:\n\*\w+\*\n1\. \[High\] High one/);
   assert.ok(!bare.text.includes("Urgent one"));
-  assert.match((await tool(url, "get_tasks", { project: "acme", mine: true })).text, /^You have no open tasks\./);
+  assert.match((await tool(url, "get_tasks", { project: "acme", assignees: ["me"] })).text, /^There are no open tasks you can see\./);
   assert.match((await tool(url, "get_tasks", { project: "nope" })).text, /There is no project called "nope"\. get_projects lists them: acme, bare/);
   // get_projects lists the projects whose channel you can read.
   assert.match((await tool(url, "get_projects", {})).text, /^2 projects:\n- acme: <#CDEV> \(CDEV\)\n- bare: <#CBARE> \(CBARE\)$/);
@@ -947,7 +960,6 @@ test("get_releases lists releases waiting for approval, or approved or turned do
   await insertRelease(env, "CPRIV", "1000000001.000100", { prs: [PR3], note: "Hidden", status: "PENDING_APPROVAL", sentBy: "UBOB" });
   mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: [] },
   });
   const url = addressIn(await slash("mcp init", "UME"));
 
@@ -966,7 +978,7 @@ test("get_releases lists releases waiting for approval, or approved or turned do
   assert.match((await tool(url, "get_releases", { status: "soon" })).text, /status is one of PENDING_APPROVAL, APPROVED, NOT_APPROVED, all\./);
   // A member of the private channel sees its release too.
   const bob = addressIn(await slash("mcp init", "UBOB"));
-  const members = mock(t, { "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }), "conversations.members": { members: ["UBOB"] } });
+  const members = mock(t, { "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }) });
   assert.equal((await tool(bob, "get_releases", {})).data.total, 2);
   assert.ok(members.length > 0);
 });
@@ -1041,10 +1053,10 @@ test("update_release changes the PRs of a release waiting for approval, never de
   assert.equal(other > id, true);
 });
 
-test("get_channels lists the channels Cade is in that you can read, project channels first", async (t) => {
+test("get_channels lists the channels Cade and you are both in, public or private, project channels first", async (t) => {
   mock(t, {
-    "users.conversations": { channels: [{ id: "CZED", name: "zed" }, { id: "CDEV", name: "dev" }, { id: "CPRIV", name: "secret", is_private: true }, { id: "CMINE", name: "mine", is_private: true }] },
-    "conversations.members": (args) => ({ members: args.channel === "CMINE" ? ["UME"] : [] }),
+    "users.conversations": { channels: [{ id: "CZED", name: "zed" }, { id: "CDEV", name: "dev" }, { id: "CPRIV", name: "secret", is_private: true }, { id: "CMINE", name: "mine", is_private: true }, { id: "CYOU", name: "you" }] },
+    "conversations.members": (args) => ({ members: ["CZED", "CDEV", "CMINE"].includes(args.channel) ? ["UME"] : ["UBOB"] }),
   });
   const url = addressIn(await slash("mcp init", "UME"));
   const result = await tool(url, "get_channels", {});
@@ -1134,7 +1146,6 @@ test("create_task won't make a task from a thread that is a task, was moved, or 
   await putTask(env, "CDEV", TS, stored({ title: "Login" }));
   mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: [] },
     "conversations.replies": (args) => ({ messages: [{ ts: args.ts, user: "UANN", text: "hi" }, { ts: "9.9", bot_id: "B1", text: "<@UME> moved this message to the task thread <https://x/y|Login>. Please carry on." }] }),
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -1180,17 +1191,62 @@ test("get_team_availability ranks people by open workload and shows their status
   assert.match((await tool(url, "get_team_availability", { users: ["bob"] })).text, /users is a list of Slack user IDs/);
 });
 
-test("availability for a project covers only the people picked as working on it", async (t) => {
-  mock(t, { "users.list": { members: ["UANN", "UBOB", "UCAT"].map((id) => ({ id, name: id, real_name: id.slice(1) })) } });
+test("availability counts everyone's open tasks, in channels the person asking isn't in too, and names none of them", async (t) => {
+  const people = (owner: string[]) => ({ owner, reviewer: [], tester: [] });
+  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Dev's", priority: "Low", people: people(["UBOB"]) }));
+  // CPRIV is private, and UME isn't in it.
+  await putTask(env, "CPRIV", "1700000001.000100", stored({ title: "Secret", priority: "Urgent", people: people(["UBOB"]) }));
+  mock(t, { "users.list": { members: [{ id: "UBOB", name: "bob", real_name: "Bob" }] } });
   const url = addressIn(await slash("mcp init", "UME"));
-  await DB.prepare("INSERT INTO project_settings (channel, key, value) VALUES ('CDEV', 'members', ?)").bind(JSON.stringify(["UBOB", "UCAT"])).run();
+  const bob = await tool(url, "get_availability", { user_id: "UBOB" });
+  assert.equal(bob.data.person.open_tasks, 2);
+  assert.equal(bob.data.person.urgent_or_high, 1);
+  assert.doesNotMatch(bob.text, /Secret|CPRIV/);
+  assert.equal((await tool(url, "get_team_availability", {})).data.people[0].open_tasks, 2);
+});
+
+test("a public channel is only for the people in it: its project, tasks and threads are refused to anyone else", async (t) => {
+  await putTask(env, "CBARE", "1700000000.000100", stored({ title: "Bare's", people: { owner: ["UME"], reviewer: [], tester: [] } }));
+  await putTask(env, "CDEV", "1700000001.000100", stored({ title: "Dev's", people: { owner: ["UME"], reviewer: [], tester: [] } }));
+  mock(t, {
+    "conversations.info": (args) => ({ channel: { name: args.channel === "CBARE" ? "bare" : "dev" } }),
+    // CBARE is public, and UME isn't in it.
+    "conversations.members": (args) => ({ members: args.channel === "CBARE" ? ["UBOB"] : ["UME"] }),
+    "conversations.replies": { messages: [{ ts: "1700000000.000100", user: "UBOB", text: "Hello" }] },
+    "auth.test": { url: "https://acme.slack.com/" },
+    "users.info": WORKSPACE,
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+  assert.match((await tool(url, "get_projects", {})).text, /^1 project:\n- acme: /);
+  const mine = (await tool(url, "get_tasks", { assignees: ["me"] })).text;
+  assert.match(mine, /Dev's/);
+  assert.doesNotMatch(mine, /Bare's/);
+  const task = "CBARE:1700000000.000100";
+  assert.match((await tool(url, "get_task", { task_id: task })).text, /aren't in that task's project channel/);
+  assert.match((await tool(url, "get_task_history", { task_id: task })).text, /aren't in that task's project channel/);
+  assert.match((await tool(url, "update_task", { task_id: task, priority: "Low" })).text, /aren't in that task's project channel/);
+  assert.match((await tool(url, "send_thread_message", { thread_id: task, text: "hi" })).text, /aren't in that task's project channel/);
+  assert.match((await tool(url, "get_thread_history", { thread_id: "CBARE:1700000009.000100" })).text, /aren't in that channel/);
+  assert.match((await tool(url, "get_channel_threads", { channel_id: "CBARE" })).text, /aren't in that channel/);
+  assert.match((await tool(url, "create_task", { title: "New", project: "bare" })).text, /aren't in that project's channel/);
+  assert.match((await tool(url, "get_team_availability", { project: "bare" })).text, /aren't in that project's channel/);
+});
+
+test("availability for a project covers only the people in its channel", async (t) => {
+  mock(t, {
+    "users.list": { members: ["UANN", "UBOB", "UCAT"].map((id) => ({ id, name: id, real_name: id.slice(1) })) },
+    "conversations.info": (args) => ({ channel: args.channel === "CDEV" ? { name: "dev" } : { name: "bare", is_private: true } }),
+    "conversations.members": (args) => ({ members: args.channel === "CDEV" ? ["UME", "UBOB", "UCAT", "UCADEBOT"] : ["UANN"] }),
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
   const ids = async (args) => (await tool(url, "get_team_availability", args)).data.people.map((person) => person.user_id);
   assert.deepEqual(await ids({ project: "acme" }), ["UBOB", "UCAT"]);
   assert.deepEqual(await ids({}), ["UANN", "UBOB", "UCAT"]);
-  assert.deepEqual(await ids({ project: "bare" }), ["UANN", "UBOB", "UCAT"]);
   assert.deepEqual(await ids({ project: "acme", users: ["UANN", "UBOB"] }), ["UBOB"]);
   assert.equal((await tool(url, "get_availability", { user_id: "UBOB", project: "acme" })).data.person.user_id, "UBOB");
-  assert.match((await tool(url, "get_availability", { user_id: "UANN", project: "acme" })).text, /isn't one of the people who work on acme/);
+  assert.match((await tool(url, "get_availability", { user_id: "UANN", project: "acme" })).text, /UANN isn't in acme's channel/);
+  // A private channel's people are only for someone in it to ask about.
+  assert.match((await tool(url, "get_team_availability", { project: "bare" })).text, /aren't in that project's channel/);
 });
 
 test("get_availability gives one person's workload and status", async (t) => {
@@ -1526,7 +1582,6 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   await putTask(env, "CPRIV", TS, stored({ status: "CLIENT_REVIEW" }));
   const calls = mock(t, {
     "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-    "conversations.members": { members: ["UBOB"] },
     "users.info": (args) => (args.user === "UCLIENT123" ? { user: { real_name: "Cleo Client" } } : WORKSPACE(args)),
   });
   const url = addressIn(await slash("mcp init", "UME"));
@@ -1552,7 +1607,7 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   assert.match((await tool(url, "send_approval_request", { task_id: "CDEV:1700000001.000100", approver: "UCLIENT123" })).text, /In progress, so there's nothing to approve\. Move it to Client review with update_task first/);
   assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "UGHOST" })).text, /UGHOST isn't an active person in the workspace/);
   assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "rex" })).text, /isn't a Slack user ID/);
-  assert.match((await tool(url, "send_approval_request", { task_id: "CPRIV:1700000000.000100", approver: "UCLIENT123" })).text, /can't read that task's channel/);
+  assert.match((await tool(url, "send_approval_request", { task_id: "CPRIV:1700000000.000100", approver: "UCLIENT123" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "send_approval_request", { task_id: "CDEV:999.9", approver: "UCLIENT123" })).text, /isn't a task Cade tracks/);
   assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1, "only the first call posted");
 });
@@ -1574,7 +1629,7 @@ test("a tool's arguments are checked against its inputSchema before it runs, say
   await refused("update_task", { task_id: TASK, owner: { add: "UREX" } }, /^owner\.add is a list\./);
   await refused("update_task", { task_id: TASK, has_subtasks: "yes" }, /^has_subtasks is true or false\./);
   await refused("update_task", { task_id: 42 }, /^task_id is text\./);
-  await refused("get_tasks", { mine: "yes" }, /^mine is true or false\./);
+  await refused("get_tasks", { unassigned: "yes" }, /^unassigned is true or false\./);
   await refused("get_task", { task_id: TASK, fields: ["title", "nope"] }, /^fields is a list of: title, /);
   await refused("create_task", { title: "x".repeat(151) }, /^title is 151 characters; keep it to 150 or fewer\./);
   // Nothing was changed or posted by any of them.

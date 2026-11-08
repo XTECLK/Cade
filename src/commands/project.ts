@@ -3,7 +3,8 @@ import { addProject, setHomeProject } from "../db.ts";
 import { ensureWorkDoc } from "../doc.ts";
 import { googleEnabled } from "../google.ts";
 import { ADD_PROJECT_ACTION, SETTINGS_ACTION, publishHome } from "../home.ts";
-import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn, withSettings } from "../settings.ts";
+import { channelMembers } from "../access.ts";
+import { SETTINGS, applySettings, choicesOf, configEnv, isAdmin, settingOn, withSettings } from "../settings.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
@@ -14,8 +15,8 @@ const SETTINGS_VIEW = "project:settings";
 const ADD_VIEW = "project:add";
 
 // Admins manage projects from Settings on the Home tab (see home.ts), not with commands:
-//   Add project       opens a form: a channel, a name (the channel's own by default), the people who work on
-//                     it and each switch (see settings.ts). Submitting checks them, and then makes the project
+//   Add project       opens a form: a channel, a name (the channel's own by default) and each switch (see
+//                     settings.ts). Who works on it is whoever is in the channel. Submitting checks them, and then makes the project
 //                     as one added to cade.config.json would be: its tasks are tracked in that channel (see
 //                     channels.ts). Every project has a Google Doc for its executive summaries, made first
 //                     (so Google must be set up): without it nothing is added. The form turns into
@@ -53,14 +54,7 @@ async function settingsView(env: AppEnv, channel: string) {
     blocks: [
       { type: "section", text: mrkdwn(`*${escapeSlack(project.name)}*`) },
       { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. To change another project, pick it on the Home tab.`)] },
-      {
-        type: "input",
-        block_id: "members",
-        optional: true,
-        label: plainText("People who work on this project"),
-        hint: plainText("Availability asked for this project covers only these people. Leave it empty to cover everyone in the workspace."),
-        element: { type: "multi_users_select", action_id: "value", initial_users: projectMembers(env, project.channel).slice(0, 500), placeholder: plainText("Pick people") },
-      },
+      ...(await peopleBlocks(env, project.channel)),
       ...SETTINGS.map(({ key, label, about }) => {
         const options = Object.entries(CHOICES).map(([value, text]) => option(value === "config" ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})` : text, value));
         return {
@@ -89,9 +83,7 @@ async function saveSettings(payload: SlackPayload, context: Context) {
   const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, payload.view.state.values[`s_${key}`]?.value?.selected_option?.value]));
   context.waitUntil(
     (async () => {
-      const picked = payload.view.state.values.members?.value?.selected_users;
-      const membersChanged = await applyMembers(env, channel, picked, payload.user.id);
-      const changed = (await applySettings(env, channel, choices, payload.user.id)) + (membersChanged ? 1 : 0);
+      const changed = await applySettings(env, channel, choices, payload.user.id);
       const name = projects(env).find((project) => project.channel === channel)?.name ?? channel;
       await callSlack(env, "chat.postEphemeral", {
         channel,
@@ -103,6 +95,25 @@ async function saveSettings(payload: SlackPayload, context: Context) {
   return { response_action: "clear" };
 }
 
+
+// Who works on the project: everyone in its channel, as Cade keeps no list of its own. People are added
+// and removed in the channel itself, and who can reach the project's tasks with Cade goes by it too.
+const MAX_SHOWN = 40;
+async function peopleBlocks(env: AppEnv, channel: string) {
+  let text;
+  try {
+    const ids = await channelMembers(env, channel);
+    const more = ids.length > MAX_SHOWN ? ` and ${ids.length - MAX_SHOWN} more` : "";
+    text = ids.length ? `${ids.slice(0, MAX_SHOWN).map((id) => `<@${id}>`).join(", ")}${more}` : "_No one yet._";
+  } catch (error) {
+    console.warn("Could not read the channel's members", { channel, error: error.message });
+    text = "_I couldn't read who is in the channel just now._";
+  }
+  return [
+    { type: "section", text: mrkdwn(`*People*\n${text}`) },
+    { type: "context", elements: [mrkdwn(`Everyone in <#${channel}> works on this project. Add or remove people in the channel itself.`)] },
+  ];
+}
 
 // ---- Add project ----
 
@@ -140,14 +151,6 @@ function addView(env: AppEnv) {
         hint: plainText("Up to 40 letters, numbers, spaces, dashes or dots. Left empty, the channel's name. It can't be changed later."),
         element: { type: "plain_text_input", action_id: "value", max_length: 40 },
       },
-      {
-        type: "input",
-        block_id: "members",
-        optional: true,
-        label: plainText("People who work on this project"),
-        hint: plainText("Availability asked for this project covers only these people. Leave it empty to cover everyone in the workspace."),
-        element: { type: "multi_users_select", action_id: "value", placeholder: plainText("Pick people") },
-      },
       ...SETTINGS.map(({ key, label, about }) => {
         const options = Object.entries(DEFAULT_CHOICES).map(([value, text]) => option(value === "config" ? `${text} (${state(settingOn(config, undefined, key))})` : text, value));
         return {
@@ -180,7 +183,6 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
   const values = payload.view.state.values;
   const channel = values.channel?.value?.selected_conversation;
   const typed = (values.name?.value?.value ?? "").trim();
-  const members = values.members?.value?.selected_users ?? [];
   const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, values[`s_${key}`]?.value?.selected_option?.value]));
 
   const existing = projects(env).find((project) => project.channel === channel);
@@ -199,7 +201,7 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
     return { response_action: "errors", errors: { name: `There is a project called ${name} already.` } };
   }
 
-  context.waitUntil(createProject(env, { channel: channel!, name, members, choices, joined: info.is_member }, user, payload.view.id));
+  context.waitUntil(createProject(env, { channel: channel!, name, choices, joined: info.is_member }, user, payload.view.id));
   return { response_action: "update", view: notice("Add project", `:hourglass_flowing_sand: Adding *${name}*… This takes a few seconds, as its Google Doc is made first.`) };
 }
 
@@ -208,7 +210,7 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
 // the new project.
 async function createProject(
   env: AppEnv,
-  { channel, name, members, choices, joined }: { channel: string; name: string; members: string[]; choices: Record<string, string | undefined>; joined?: boolean },
+  { channel, name, choices, joined }: { channel: string; name: string; choices: Record<string, string | undefined>; joined?: boolean },
   user: string,
   viewId: string,
 ) {
@@ -226,7 +228,6 @@ async function createProject(
     await addProject(env, channel, name, user);
     // The project is known to the rest of the code once the database says so.
     const added = await withSettings(env);
-    await applyMembers(added, channel, members, user);
     await applySettings(added, channel, choices, user);
     await setHomeProject(env, user, name);
     console.log("Project added", { name, channel, by: user });

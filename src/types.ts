@@ -94,6 +94,9 @@ export interface SlackMessage {
   user?: string;
   // A bot's or app's post, and its name.
   bot_id?: string;
+  // The app that posted it. On a person's message (no bot_id), an app, such as an AI agent's Slack
+  // tool, posted it for them.
+  app_id?: string;
   username?: string;
   bot_profile?: { name?: string };
   subtype?: string;

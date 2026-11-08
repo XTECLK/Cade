@@ -55,14 +55,15 @@ export function isQuestion(message: { text: string }) {
 }
 
 // A message as intents see it, or null for messages Cade never acts on:
-// edits, deletions and bot posts (its own included). A reply also sent to the
+// edits, deletions and bot posts (its own included), and a person's messages
+// that an app posted for them (see postedByApp). A reply also sent to the
 // channel ("Also send to #channel") is still a reply.
 //   text, user, channel, ts, threadTs
 //   inThread   whether it's a reply in a thread
 //   mentions   the people it mentions, Cade aside
 //   botUserId  Cade's own user ID
 export function plainMessage(event: SlackEvent, botUserId: string): PlainMessage | null {
-  if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || !event.text) return null;
+  if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || postedByApp(event) || !event.text) return null;
   const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id!))].filter(
     (id) => id !== botUserId,
   );
@@ -77,6 +78,16 @@ export function plainMessage(event: SlackEvent, botUserId: string): PlainMessage
     botUserId,
   };
 }
+
+// Whether an app posted the message for the person, such as an AI agent with its own Slack tool:
+// Slack sets the app's ID on it, and its MCP connector adds a "Sent using …" footer. Its words were
+// written with the agent, which changes the task itself, as messages sent via Cade's own agent
+// tools (from Cade, so bot posts) are, so Cade suggests nothing from them.
+export function postedByApp(event: SlackEvent) {
+  return Boolean(event.app_id) || Boolean(event.blocks?.some((block) => block.block_id === MCP_FOOTER));
+}
+
+const MCP_FOOTER = "mcp_attribution_footer";
 
 // The kinds of suggestion, as `taskChangeDetection` in cade.config.json names them
 // (TASK_CHANGE_DETECTION): the proactive agent, reading messages in the threads Cade

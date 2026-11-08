@@ -2020,6 +2020,27 @@ test("a message with a PR link and a hand-off gets one question with both", asyn
   });
 });
 
+test("a message an app posted for the person, such as an AI agent's Slack tool, gets no suggestion", async (t) => {
+  // As Slack sends one posted with Claude's Slack connector: the person's, with the app's ID and a
+  // "Sent using" footer. A plain message from the same person still gets its question.
+  const footer = { type: "context", block_id: "mcp_attribution_footer", elements: [{ type: "mrkdwn", text: "*Sent using* Claude" }] };
+  for (const [marks, asked] of [
+    [{ app_id: "A08SF47R6P4", blocks: [{ type: "rich_text" }, footer] }, false],
+    [{ app_id: "A08SF47R6P4" }, false],
+    [{ blocks: [{ type: "rich_text" }, footer] }, false],
+    [{ client_msg_id: "c42b0a0a", blocks: [{ type: "rich_text" }] }, true],
+  ] as const) {
+    const calls = mockSlack(t, { stored: [storedTask()] });
+    await send("/slack/events", threadReply(`<@UREX> please review <${PR}>`, marks));
+    assert.equal(calls.some((call) => call.method === "chat.postEphemeral"), asked, JSON.stringify(marks));
+  }
+
+  // Commands sent that way still work.
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadReply("<@UBOT> priority high", { app_id: "A08SF47R6P4" }));
+  assert.ok(calls.some((call) => call.method === "reactions.add"));
+});
+
 test("Just link works like the other link button", async (t) => {
   mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
   recordResponses(t);

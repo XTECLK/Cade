@@ -8,6 +8,7 @@ import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
 import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
+import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CALL_NOTES, MAX_CHANNELS, MAX_DAYS, MAX_EARLIER_SUMMARIES, MAX_ADDED_ITEMS, MAX_ITEM_NOTES, MAX_ITEM_TITLE, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_PROGRESS, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_SUMMARY_ITEMS, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
 import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, mrkdwn, type SlackChannel, type SlackUser } from "./slack.ts";
@@ -233,6 +234,12 @@ async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams 
   if (!tool) return failure(id, -32602, `Unknown tool: ${params?.name}`);
   const notice = tool.name === "get_server_info" ? "" : staleNotice(loaded);
   const reply = (text: string, isError?: boolean, data?: Record<string, unknown>) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
+  // Each person's agent has a limit of calls a minute (see rate-limit.ts); over it, it is told how long to wait.
+  const wait = await mcpCallWait(env, user);
+  if (wait) {
+    console.log("MCP rate limit reached", { tool: tool.name, user });
+    return reply(`Too many calls: your AI agent can make ${MCP_CALLS_PER_MINUTE} a minute. Wait ${wait} second${wait === 1 ? "" : "s"}, then try again.`, true);
+  }
   // The arguments are checked against the tool's inputSchema, the one the agent was shown, before it
   // runs: an unknown argument, a wrong type or a value out of range is refused, saying which, so the
   // agent can correct it. The tool still checks what the schema can't say.

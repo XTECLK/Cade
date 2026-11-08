@@ -253,6 +253,8 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
 - **Access.** Everything runs as the key's owner: a channel's threads and tasks only for the people in it, public or
   private (`readableName` in `src/access.ts`, `readableChannel` in `src/mcp.ts`), and never a direct message.
+- **Rate limit.** Each person's agent can make 60 tool calls a minute (`MCP_CALLS_PER_MINUTE` in `src/rate-limit.ts`,
+  counted in `mcp_calls`); over it, the call is refused with how many seconds to wait.
 - **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
   above) and `outputSchema`. A result is text and `structuredContent` matching the schema, so IDs chain into the next
   call. The tools read tasks, threads, people, projects, availability, releases and executive summaries, and write

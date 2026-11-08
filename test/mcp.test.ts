@@ -3,6 +3,7 @@ import test, { beforeEach } from "node:test";
 import worker from "../src/index.ts";
 import { decideRelease, getNotes, getTask, insertRelease, keepName, putSummary, putTask, setReleaseMessage } from "../src/db.ts";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
+import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "../src/rate-limit.ts";
 import { fakeD1 } from "./d1.ts";
 import { check } from "./schema.ts";
 import type { AppEnv } from "../src/env.ts";
@@ -1203,6 +1204,24 @@ test("availability counts everyone's open tasks, in channels the person asking i
   assert.equal(bob.data.person.urgent_or_high, 1);
   assert.doesNotMatch(bob.text, /Secret|CPRIV/);
   assert.equal((await tool(url, "get_team_availability", {})).data.people[0].open_tasks, 2);
+});
+
+test("each person's AI agent can make a limited number of calls a minute, and is told how long to wait", async (t) => {
+  mock(t);
+  const me = addressIn(await slash("mcp init", "UME"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
+  for (let i = 0; i < MCP_CALLS_PER_MINUTE; i++) assert.equal((await tool(me, "get_server_info", {})).isError, false);
+  const over = await tool(me, "get_server_info", {});
+  assert.equal(over.isError, true);
+  assert.match(over.text, new RegExp(`^Too many calls: your AI agent can make ${MCP_CALLS_PER_MINUTE} a minute\\. Wait \\d+ seconds?, then try again\\.`));
+  // Someone else's agent has its own allowance.
+  assert.equal((await tool(bob, "get_server_info", {})).isError, false);
+
+  // The minute starts again from nothing, and the wait is what is left of the minute.
+  const start = Date.UTC(2026, 10, 8, 10, 0, 0);
+  for (let i = 0; i < MCP_CALLS_PER_MINUTE; i++) assert.equal(await mcpCallWait(env, "UANN", start + 1000), 0);
+  assert.equal(await mcpCallWait(env, "UANN", start + 45_000), 15);
+  assert.equal(await mcpCallWait(env, "UANN", start + 60_000), 0);
 });
 
 test("a public channel is only for the people in it: its project, tasks and threads are refused to anyone else", async (t) => {

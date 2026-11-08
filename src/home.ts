@@ -1,3 +1,4 @@
+import { isMember } from "./access.ts";
 import { projects } from "./channels.ts";
 import { getHomeProject, getHomeTab, setHomeTab, suggestionsOn } from "./db.ts";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.ts";
@@ -88,9 +89,13 @@ export async function homeView(env: AppEnv, user: string, tab: string = DEFAULT_
 async function draw(env: AppEnv, user: string, tab: string) {
   const { url } = await callSlack(env, "auth.test", {});
   const all = projects(env);
-  // The person's last project, unless it is gone from the settings: then the first.
+  // Home shows only the projects whose channel the person is in, as everywhere else (see readableName
+  // in access.ts). Admins manage every project in Settings.
+  const yours = await projectsOf(env, user, all);
+  // The person's last project, unless it is gone or theirs no more: then the first.
   const chosen = await getHomeProject(env, user);
-  const project = all.find((group) => group.name === chosen) ?? all[0];
+  const pick = (from: Project[]) => from.find((group) => group.name === chosen) ?? from[0];
+  const project = pick(yours);
   const admin = isAdmin(env, user);
   // The two parts of the tab, with Refresh, along the top of both, and a line under them.
   const navRow: SlackBlock = {
@@ -102,17 +107,17 @@ async function draw(env: AppEnv, user: string, tab: string) {
     ],
   };
   const nav: SlackBlock[] = [navRow, { type: "divider" }];
-  if (tab === CONFIGURE) return await settingsView(env, user, nav, all, project);
+  if (tab === CONFIGURE) return await settingsView(env, user, nav, all, yours, pick(all));
   const addProject = { type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") };
   if (!project) {
-    const none = "There are no projects yet.";
+    const none = all.length ? "You aren't in any project's channel yet. Join one to see its tasks here." : "There are no projects yet.";
     return {
       type: "home",
       blocks: [...nav, admin ? { type: "section", text: mrkdwn(none), accessory: addProject } : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] }],
     };
   }
   // On Home, under the two parts: which project's tasks are shown, and (for an admin) Add project, then the task tabs.
-  const top: SlackBlock[] = [...nav, { type: "actions", elements: [projectPicker(all, project), ...(admin ? [addProject] : [])] }];
+  const top: SlackBlock[] = [...nav, { type: "actions", elements: [projectPicker(yours, project), ...(admin ? [addProject] : [])] }];
   const open = await groupTasks(env, project, OPEN, url);
   const today = todayIn(env);
   const tabRow = {
@@ -159,6 +164,19 @@ async function draw(env: AppEnv, user: string, tab: string) {
   return { type: "home", blocks };
 }
 
+// The projects whose channel `user` is in, in the same order, asked about all at once.
+async function projectsOf(env: AppEnv, user: string, all: Project[]) {
+  const inIt = await Promise.all(
+    all.map((project) =>
+      isMember(env, project.channel, user).catch((error) => {
+        console.warn("Could not check the channel's members", { channel: project.channel, error: error.message });
+        return false;
+      }),
+    ),
+  );
+  return all.filter((_, i) => inIt[i]);
+}
+
 // A dropdown of the projects, on `project`.
 function projectPicker(groups: Project[], project: Project) {
   const options = groups.slice(0, 100).map((group) => ({ text: plainText(group.name.slice(0, 75)), value: group.name }));
@@ -174,9 +192,9 @@ function projectPicker(groups: Project[], project: Project) {
 // The Settings part: the whole picture without a click, a section for each setup with how it stands
 // now and a button to change it, in two groups. Just for you is the person's own, the same in every
 // project: AI agent says so when MCP is turned off, and has no button then. Projects is for admins
-// only: a project picker (the same choice as on Home), then that project's people and switches, with
-// Edit to change them in a form.
-async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: Project[], project: Project | undefined) {
+// only: a picker of every project, whether or not the admin is in its channel (the same choice as on
+// Home), then that project's channel and switches, with Edit to change them in a form.
+async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: Project[], yours: Project[], project: Project | undefined) {
   const row = (title: string, now: string, action: string | false, label: string, value?: string) => ({
     type: "section",
     text: mrkdwn(`*${title}*\n${now}`),
@@ -187,7 +205,7 @@ async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: P
     { type: "header", text: plainText("Just for you") },
     row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
     row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
-    await suggestionsRow(env, user, all),
+    await suggestionsRow(env, user, yours),
   ];
   if (isAdmin(env, user)) {
     blocks.push({ type: "divider" }, { type: "header", text: plainText("Projects") });

@@ -133,6 +133,10 @@ let lastCalls: Call[] = [];
 // Slack's replies by method: a reply, or a function of the call's arguments giving one.
 type Replies = { stored?: readonly Stored[]; doc?: unknown } & Record<string, unknown>;
 
+// What Slack answers unless a test says otherwise: everyone in these tests is in every channel.
+const EVERYONE = ["UACTOR", "UADMIN", "UALICE", "UANN", "UBOB", "UCLICKER", "UCLIENT", "UCREATOR", "UDEV", "UDEV1", "UDEV2", "ULEAD", "UME", "UMIA", "UOTHER", "UPM", "UREX", "URIA", "UTC", "UTESS", "UTOM", "UZED", "UZOE"];
+const DEFAULTS: Record<string, unknown> = { "conversations.members": { members: EVERYONE } };
+
 function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
@@ -169,10 +173,8 @@ function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) 
     delete args.unfurl_links;
     delete args.unfurl_media;
     calls.push({ method, args, headers: init.headers, previews });
-    const result =
-      typeof responses[method] === "function"
-        ? responses[method](args)
-        : responses[method];
+    const reply = method in responses ? responses[method] : DEFAULTS[method];
+    const result = typeof reply === "function" ? reply(args) : reply;
     return Response.json({ ok: true, ...result });
   };
   t.after(() => {
@@ -2308,6 +2310,36 @@ test("Assign to me on the Home tab's Unassigned view makes the person the owner,
   const late = await claim("3.1");
   assert.equal(late.filter((call) => call.method === "chat.update").length, 0);
   assert.equal(late.filter((call) => call.method === "views.publish").length, 1);
+});
+
+test("the Home tab shows only the projects whose channel the person is in, public or private", async (t) => {
+  const task = (channel: string, ts: string, title: string): Stored => ({
+    channel,
+    ts,
+    task: { ...storedTask().task, title, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } },
+  });
+  const stored = [task("CDEV", "1.1", "In acme"), task("CTESTDEV", "2.1", "In test")];
+  const publishOf = (calls) => calls.findLast((call) => call.method === "views.publish").args.view;
+  const textOf = (view) => view.blocks.map((block) => blockText(block) ?? "").join("\n");
+  const picker = (view) => view.blocks.flatMap((block) => block.elements ?? []).find((element) => element.action_id === "home:project");
+  const opened = () => send("/slack/events", JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "app_home_opened", user: "UME", tab: "home" } }));
+
+  // UME is in test's channel only, and had picked acme before.
+  let calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "conversations.members": (args) => ({ members: args.channel === "CTESTDEV" ? ["UME"] : ["UBOB"] }), stored });
+  await DB.prepare("INSERT INTO user_preferences (user_id, home_project) VALUES (?, ?)").bind("UME", "acme").run();
+  await opened();
+  let view = publishOf(calls);
+  assert.deepEqual(picker(view).options.map((option) => option.value), ["test"]);
+  assert.match(textOf(view), /In test/);
+  assert.doesNotMatch(textOf(view), /In acme/);
+
+  // In none: no tasks, and told why.
+  calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "conversations.members": { members: ["UBOB"] }, stored });
+  await opened();
+  view = publishOf(calls);
+  assert.equal(picker(view), undefined);
+  assert.match(textOf(view), /aren't in any project's channel yet/);
+  assert.doesNotMatch(textOf(view), /In acme|In test/);
 });
 
 test("the Home tab's project picker keeps the person's project for next time", async (t) => {

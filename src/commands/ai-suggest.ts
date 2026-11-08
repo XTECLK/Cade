@@ -1,4 +1,5 @@
 import { readChanges, today } from "../ai.ts";
+import { countReject, pauseRejects, resetRejects, setSuggestions } from "../db.ts";
 import { suggesting } from "../intents.ts";
 import { callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { PRIORITIES, ROLES, STATUSES, loadTask, prLink } from "../tasks.ts";
@@ -19,6 +20,33 @@ type About = { target: Origin; task: StoredTask };
 const ACCEPT_ACTION = "ai-suggest:accept";
 const EDIT_ACTION = "ai-suggest:edit";
 const REJECT_ACTION = "ai-suggest:reject";
+const TURN_OFF_ACTION = "ai-suggest:turn-off";
+const KEEP_ACTION = "ai-suggest:keep";
+
+// Rejecting this many suggestions in a row, with no Accept or Edit… between, offers to turn them
+// off for the person (the same switch as Configure → Suggestions in the Home tab). Keep them stops
+// the count for KEEP_DAYS, so they aren't asked again soon. Nothing is turned off without them.
+const REJECTS_BEFORE_OFFER = 3;
+const KEEP_DAYS = 30;
+
+// The offer, in place of the suggestion just rejected.
+function turnOffOffer(rejects: number) {
+  const question = `You've turned down my last ${rejects} suggestions. Should I stop suggesting changes from your messages?`;
+  return {
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        elements: [
+          { type: "button", action_id: TURN_OFF_ACTION, text: plainText("Turn off"), value: "{}" },
+          { type: "button", action_id: KEEP_ACTION, text: plainText("Keep them"), value: "{}" },
+        ],
+      },
+      { type: "context", elements: [mrkdwn("You can change this any time in Cade's Home tab → Configure → Suggestions.")] },
+    ],
+  };
+}
 
 // Suggestions read with AI (see ai.ts): what a message in a task's thread
 // asks to change, which can be several people in several roles, the status,
@@ -98,6 +126,8 @@ export async function askToChange(env: AppEnv, message: PlainMessage, { target, 
           { type: "button", action_id: REJECT_ACTION, text: plainText("Reject"), value: "{}" },
         ],
       },
+      // Where to turn these off, as there's no button for it here (see suggestionsRow in home.ts).
+      { type: "context", elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Configure → Suggestions.")] },
     ],
   });
 }
@@ -135,6 +165,7 @@ export default {
           // The private message goes first, so the click shows at once:
           // saving takes a few seconds, and may fail.
           await dismiss(payload.response_url);
+          await resetRejects(context.env, payload.user.id);
           await applyChanges(context.env, target, changes, payload.user.id, { from, told });
         })(),
       );
@@ -148,9 +179,23 @@ export default {
         trigger_id: payload.trigger_id,
         view: editForm({ channel, ts }, task, { changes, told, responseUrl: payload.response_url }),
       });
+      await resetRejects(env, payload.user.id);
     },
-    [REJECT_ACTION]: async (payload) => {
-      await respondLater(payload.response_url, { delete_original: true });
+    // A reject goes, unless it's the third in a row: then the suggestion becomes the offer to turn them off.
+    [REJECT_ACTION]: async (payload, { env }) => {
+      const rejects = await countReject(env, payload.user.id);
+      if (rejects < REJECTS_BEFORE_OFFER) return await respondLater(payload.response_url, { delete_original: true });
+      await resetRejects(env, payload.user.id);
+      await respondLater(payload.response_url, { replace_original: true, ...turnOffOffer(rejects) });
+    },
+    [TURN_OFF_ACTION]: async (payload, { env }) => {
+      await setSuggestions(env, payload.user.id, false);
+      console.log("Suggestions turned off", { user: payload.user.id, from: "offer" });
+      await respondLater(payload.response_url, { replace_original: true, text: "Done. I won't suggest changes from your messages. To get them back, open Cade's Home tab → Configure → Suggestions." });
+    },
+    [KEEP_ACTION]: async (payload, { env }) => {
+      await pauseRejects(env, payload.user.id, KEEP_DAYS);
+      await respondLater(payload.response_url, { replace_original: true, text: `OK, I'll keep suggesting changes, and won't ask about this for ${KEEP_DAYS} days.` });
     },
   },
 } satisfies Handler;

@@ -372,6 +372,52 @@ export async function setHomeTab(env: DbEnv, user: string, tab: string | null) {
     .run();
 }
 
+// Whether the suggestions Cade offers the person from their own messages are on: they are unless
+// the person turned them off.
+export async function suggestionsOn(env: DbEnv, user: string) {
+  const row = await env.DB.prepare("SELECT suggestions FROM user_preferences WHERE user_id = ?").bind(user).first<{ suggestions: number }>();
+  return row ? Boolean(row.suggestions) : true;
+}
+
+// Turning them on or off starts the count of rejects in a row again.
+export async function setSuggestions(env: DbEnv, user: string, on: boolean) {
+  await env.DB.prepare(
+    `INSERT INTO user_preferences (user_id, suggestions) VALUES (?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET suggestions = excluded.suggestions, suggestion_rejects = 0`,
+  )
+    .bind(user, on ? 1 : 0)
+    .run();
+}
+
+// Counts one more suggestion the person rejected, and returns how many that makes in a row. While
+// the count is paused (see pauseRejects) nothing is counted, and it returns 0.
+export async function countReject(env: DbEnv, user: string) {
+  const row = await env.DB.prepare(
+    `INSERT INTO user_preferences (user_id, suggestion_rejects) VALUES (?, 1)
+     ON CONFLICT (user_id) DO UPDATE SET suggestion_rejects =
+       CASE WHEN rejects_paused_until > datetime('now') THEN 0 ELSE suggestion_rejects + 1 END
+     RETURNING suggestion_rejects`,
+  )
+    .bind(user)
+    .first<{ suggestion_rejects: number }>();
+  return row?.suggestion_rejects ?? 0;
+}
+
+// Starts the count of rejects in a row again, as accepting or editing a suggestion does.
+export async function resetRejects(env: DbEnv, user: string) {
+  await env.DB.prepare("UPDATE user_preferences SET suggestion_rejects = 0 WHERE user_id = ? AND suggestion_rejects != 0").bind(user).run();
+}
+
+// Stops counting rejects for `days`, after the person chose to keep suggestions when offered to turn them off.
+export async function pauseRejects(env: DbEnv, user: string, days: number) {
+  await env.DB.prepare(
+    `INSERT INTO user_preferences (user_id, rejects_paused_until) VALUES (?, datetime('now', ?))
+     ON CONFLICT (user_id) DO UPDATE SET suggestion_rejects = 0, rejects_paused_until = excluded.rejects_paused_until`,
+  )
+    .bind(user, `+${days} days`)
+    .run();
+}
+
 export async function getCanvas(env: DbEnv, channel: string) {
   const row = await env.DB.prepare("SELECT canvas_id FROM canvases WHERE channel = ?").bind(channel).first<{ canvas_id: string | null }>();
   return row?.canvas_id ?? null;

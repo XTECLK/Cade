@@ -2358,7 +2358,7 @@ test("Configure on the Home tab has the web pages, the AI agent (unless MCP is o
   const admin = { ...env, ADMINS: JSON.stringify(["UME"]) };
   // Everyone: the two parts, then how each setup stands now, with a button to change it. The task tabs are not there.
   const member = await configure("UME");
-  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Manage", "Manage"]);
+  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Manage", "Manage", "Turn off"]);
   assert.match(member.text, /\*Web pages\*\n:x: Not signed in on any browser/);
   assert.match(member.text, /\*AI agent\*\n:x: No key yet/);
   assert.doesNotMatch(member.text, /Project settings/);
@@ -2371,12 +2371,12 @@ test("Configure on the Home tab has the web pages, the AI agent (unless MCP is o
   assert.match(set.text, /:white_check_mark: Configured · key made \d{4}-\d{2}-\d{2} · \d+ tools/);
   // An admin also has the project settings, for the project shown, with its switches.
   const asAdmin = await configure("UME", admin);
-  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Manage", "Manage", "Change"]);
+  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Manage", "Manage", "Turn off", "Change"]);
   assert.equal(asAdmin.settings.value, "CDEV");
   assert.match(asAdmin.text, /\*Project settings\*\n\*acme\*: everyone in the workspace\nTask change detection: on  ·  New task detection: on/);
   // MCP off: it says so, with no button.
   const off = await configure("UME", { ...env, MCP: "off" });
-  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Manage"]);
+  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Manage", "Turn off"]);
   assert.match(off.text, /\*AI agent\*\n:x: Turned off by an admin/);
   // Home comes back to the tasks, on the tab last used.
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
@@ -3717,14 +3717,17 @@ const taskWith = (status, people = {}) => {
 
 const ephemeral = (calls) => calls.find((call) => call.method === "chat.postEphemeral")?.args;
 
+// The suggestion's Accept, Edit… and Reject, above the line saying where to turn suggestions off.
+const suggestionButtons = (question) => question.blocks.find((block) => block.type === "actions").elements;
+
 // The changes Cade's private suggestion would make, as its Accept button
 // carries them (see changes.js).
-const suggestedChanges = (question) => JSON.parse(question.blocks.at(-1).elements[0].value).changes;
+const suggestedChanges = (question) => JSON.parse(suggestionButtons(question)[0].value).changes;
 const add = (...ids) => ({ add: ids, remove: [] });
 
 // Clicks the suggestion `question`'s button `index`: 0 Accept, 1 Edit…, 2 Reject.
 const answerSuggestion = (question, index = 0, user = "UACTOR") => {
-  const button = question.blocks.at(-1).elements[index];
+  const button = suggestionButtons(question)[index];
   return interaction({
     type: "block_actions",
     user: { id: user },
@@ -3752,7 +3755,96 @@ test("a suggestion asks whoever wrote the message, privately, with Accept, Edit�
   assert.equal(question.text, "Should I update the task? From your message:");
   assert.equal(question.blocks[1].text.text, "*Reviewers:* <@UMIA> (Add)");
   assert.deepEqual(suggestedChanges(question), { people: { reviewer: add("UMIA") } });
-  assert.deepEqual(question.blocks.at(-1).elements.map((button) => button.text.text), ["Accept", "Edit…", "Reject"]);
+  assert.deepEqual(suggestionButtons(question).map((button) => button.text.text), ["Accept", "Edit…", "Reject"]);
+});
+
+test("suggestions turned off in Configure aren't offered to that person, nor their messages read with AI, until turned on", async (t) => {
+  const { environment, asked } = aiEnv(aiRead({ reviewer: add("UMIA") }));
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [taskWith("IN_PROGRESS")] });
+  const turn = async (on: boolean) => {
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UACTOR" }, actions: [{ action_id: "home:suggestions", value: JSON.stringify({ on }) }] }), {}, environment);
+    const view = calls.filter((call) => call.method === "views.publish").at(-1).args.view;
+    assert.equal(view.private_metadata, "configure", "Configure is drawn again");
+    return view.blocks.find((block) => block.accessory?.action_id === "home:suggestions");
+  };
+  const questions = () => calls.filter((call) => call.method === "chat.postEphemeral").length;
+
+  const off = await turn(false);
+  assert.match(blockText(off), /\*Suggestions\*\n:x: Off for you/);
+  assert.equal(off.accessory.text.text, "Turn on");
+  assert.deepEqual(JSON.parse(off.accessory.value), { on: true });
+  await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UACTOR" }), {}, environment);
+  assert.equal(questions(), 0);
+  assert.equal(asked.length, 0, "the model isn't asked");
+  // Someone else still gets theirs.
+  await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UOTHER", ts: "100.6" }), {}, environment);
+  assert.equal(questions(), 1);
+
+  const on = await turn(true);
+  assert.match(blockText(on), /\*Suggestions\*\n:white_check_mark: On/);
+  assert.equal(on.accessory.text.text, "Turn off");
+  await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UACTOR", ts: "100.7" }), {}, environment);
+  assert.equal(questions(), 2);
+  // Each question says where to turn them off.
+  assert.match(blockText(calls.filter((call) => call.method === "chat.postEphemeral").at(-1).args.blocks.at(-1)), /Home tab → Configure → Suggestions/);
+});
+
+test("three rejects in a row offer to turn suggestions off: Accept or Edit… starts the count again, Keep them stops it for 30 days", async (t) => {
+  const { environment } = aiEnv(aiRead({ reviewer: add("UMIA") }));
+  const calls = mockSlack(t, { stored: [taskWith("IN_PROGRESS")] });
+  let ts = 100.5;
+  // A message from UACTOR, and the private question it gets, or undefined.
+  const suggest = async () => {
+    const before = calls.length;
+    await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UACTOR", ts: String((ts += 0.1).toFixed(1)) }), {}, environment);
+    return calls.slice(before).find((call) => call.method === "chat.postEphemeral")?.args;
+  };
+  // Clicks the question's button `index` (0 Accept, 1 Edit…, 2 Reject), or a button of the offer by its label; returns what replaced it.
+  const click = async (button) => {
+    const before = calls.length;
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UACTOR" }, channel: { id: "CDEV" }, trigger_id: "T1", response_url: RESPONSE_URL, actions: [{ action_id: button.action_id, value: button.value }] }), {}, environment);
+    return calls.slice(before).find((call) => call.method === "respond")?.args;
+  };
+  const reject = async () => click(suggestionButtons(await suggest())[2]);
+  const offerButton = (offer, label) => suggestionButtons(offer).find((button) => button.text.text === label);
+
+  // Two rejects, then an Edit…: it starts the count again (Accept does too, in the next test).
+  assert.equal((await reject()).delete_original, true);
+  assert.equal((await reject()).delete_original, true);
+  await click(suggestionButtons(await suggest())[1]);
+  assert.equal((await reject()).delete_original, true);
+  assert.equal((await reject()).delete_original, true);
+  // The third in a row: the suggestion becomes the offer.
+  const offer = await reject();
+  assert.equal(offer.replace_original, true);
+  assert.match(offer.text, /turned down my last 3 suggestions/);
+  assert.deepEqual(suggestionButtons(offer).map((button) => button.text.text), ["Turn off", "Keep them"]);
+  assert.match(blockText(offer.blocks.at(-1)), /Home tab → Configure → Suggestions/);
+
+  // Keep them: no offer for the next rejects, and suggestions stay on.
+  assert.match((await click(offerButton(offer, "Keep them"))).text, /won't ask about this for 30 days/);
+  for (let i = 0; i < 4; i++) assert.equal((await reject()).delete_original, true);
+  // Thirty days on, the count runs again.
+  await DB.prepare("UPDATE user_preferences SET rejects_paused_until = datetime('now', '-1 minute') WHERE user_id = 'UACTOR'").run();
+  await reject();
+  await reject();
+  const again = await reject();
+  assert.equal(again.replace_original, true);
+
+  // Turn off: the same switch as Configure, so the next message gets no question.
+  assert.match((await click(offerButton(again, "Turn off"))).text, /won't suggest changes from your messages/);
+  assert.equal(await suggest(), undefined);
+});
+
+test("accepting a suggestion starts the count of rejects in a row again", async (t) => {
+  const { environment } = aiEnv(aiRead({ reviewer: add("UMIA") }));
+  mockSlack(t, { stored: [taskWith("IN_PROGRESS")] });
+  await DB.prepare("INSERT INTO user_preferences (user_id, suggestion_rejects) VALUES ('UACTOR', 2)").run();
+  const before = lastCalls.length;
+  await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UACTOR" }), {}, environment);
+  const question = lastCalls.slice(before).find((call) => call.method === "chat.postEphemeral").args;
+  await send("/slack/interactions", answerSuggestion(question, 0, "UACTOR"), {}, environment);
+  assert.equal((await DB.prepare("SELECT suggestion_rejects FROM user_preferences WHERE user_id = 'UACTOR'").first()).suggestion_rejects, 0);
 });
 
 test("Accept applies the suggestion and tells the thread who changed what", async (t) => {

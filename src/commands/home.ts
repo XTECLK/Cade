@@ -1,5 +1,6 @@
-import { setHomeProject } from "../db.ts";
-import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PROJECT_ACTION, REFRESH_ACTION, TABS, publishHome } from "../home.ts";
+import { setHomeProject, setSuggestions } from "../db.ts";
+import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PROJECT_ACTION, REFRESH_ACTION, SUGGESTIONS_ACTION, TABS, publishHome } from "../home.ts";
+import { SUGGESTIONS_BUTTON, readPayload, type SuggestionsButton } from "../payloads.ts";
 import { loadTask } from "../tasks.ts";
 import { changeTask } from "./changes.ts";
 import type { Handler } from "../types.ts";
@@ -14,6 +15,13 @@ export default {
       await publishHome(env, payload.user.id);
     },
     [CONFIGURE_ACTION]: async (payload, { env }) => {
+      await publishHome(env, payload.user.id, CONFIGURE);
+    },
+    // The person's own suggestions, off or on; Configure is drawn again to show it.
+    [SUGGESTIONS_ACTION]: async (payload, { env }) => {
+      const { on } = readPayload<SuggestionsButton>(SUGGESTIONS_BUTTON, payload.actions[0].value, "Suggestions button");
+      await setSuggestions(env, payload.user.id, on);
+      console.log("Suggestions turned", on ? "on" : "off", { user: payload.user.id });
       await publishHome(env, payload.user.id, CONFIGURE);
     },
     [REFRESH_ACTION]: async (payload, { env }) => {

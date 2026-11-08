@@ -1,5 +1,6 @@
 import { aiModel } from "../ai.ts";
 import { roleOf } from "../channels.ts";
+import { suggestionsOn } from "../db.ts";
 import { intent, phraseTest } from "../intents.ts";
 import { loadTask } from "../tasks.ts";
 import { askToChange, suggestWithAi, withPullRequests } from "./ai-suggest.ts";
@@ -93,8 +94,10 @@ export default {
 } satisfies Handler;
 
 // The work intent's handler: asks whoever wrote the message, privately, with
-// the summary of what it suggests, if anything.
+// the summary of what it suggests, if anything. Someone who turned suggestions off for
+// themselves (Home tab → Configure) is asked nothing, and their message isn't sent to the model.
 async function suggestWork(message: PlainMessage, env: AppEnv) {
+  if (!(await suggestionsOn(env, message.user))) return;
   const about = await threadTask(env, message);
   if (!about || about.task.status === "DONE") return;
   if (aiModel(env)) {

@@ -44,6 +44,10 @@ export type TaskRef = { channel: string; ts: string };
 
 // ---- The payloads ----
 
+// Turn off or Turn on, for the person's own suggestions, in the Home tab's Configure (home.ts).
+export const SUGGESTIONS_BUTTON = object({ on: { type: "boolean" } });
+export type SuggestionsButton = { on: boolean };
+
 // A button about a task: Ask for approval (status.ts), Send PRs for approval (release.ts), the move
 // picker's Move (move.ts).
 export const TASK_BUTTON = object(TASK_REF);

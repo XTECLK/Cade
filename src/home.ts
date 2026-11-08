@@ -1,5 +1,5 @@
 import { projects } from "./channels.ts";
-import { getHomeProject, getHomeTab, setHomeTab } from "./db.ts";
+import { getHomeProject, getHomeTab, setHomeTab, suggestionsOn } from "./db.ts";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.ts";
 import { formatTime } from "./format.ts";
 import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.ts";
@@ -53,6 +53,8 @@ export const CONFIGURE_ACTION = "home:section:configure";
 export const CONFIGURE = "configure";
 export const SETTINGS_ACTION = "home:settings";
 export const ADD_PROJECT_ACTION = "home:project:add";
+// Turn off / Turn on, in Configure: the person's own suggestions (see suggestionsRow).
+export const SUGGESTIONS_ACTION = "home:suggestions";
 
 // The buttons along the top, each a view of the open tasks. Slack has no
 // tabs in the Home tab, so a button draws the tab again with its view.
@@ -183,6 +185,7 @@ async function configureView(env: AppEnv, user: string, top: SlackBlock[], proje
     { type: "header", text: plainText("Configure") },
     row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
     row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
+    await suggestionsRow(env, user, project),
     ...(isAdmin(env, user)
       ? [row("Project settings", `*${project.name}*: ${members.length ? `${members.length} ${members.length === 1 ? "person" : "people"} picked` : "everyone in the workspace"}\n${switches}`, SETTINGS_ACTION, "Change", project.channel)]
       : []),
@@ -190,6 +193,21 @@ async function configureView(env: AppEnv, user: string, top: SlackBlock[], proje
     { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] },
   ];
   return { type: "home", blocks };
+}
+
+// The person's own switch for the suggestions Cade offers them from their messages in task threads
+// (see suggest.ts). It can only turn them off for them: when the project has them off, that's said too.
+async function suggestionsRow(env: AppEnv, user: string, project: Project) {
+  const on = await suggestionsOn(env, user);
+  const now = on
+    ? ":white_check_mark: On. Cade privately offers to update a task from what you write in its thread."
+    : ":x: Off for you. Cade won't offer to update a task from your messages, so update it yourself.";
+  const projectOff = settingOn(env, project.channel, "taskChangeDetection") === false ? `\n_Turned off for everyone in *${project.name}* by an admin._` : "";
+  return {
+    type: "section",
+    text: mrkdwn(`*Suggestions*\n${now}${projectOff}`),
+    accessory: { type: "button", action_id: SUGGESTIONS_ACTION, text: plainText(on ? "Turn off" : "Turn on"), value: JSON.stringify({ on: !on }) },
+  };
 }
 
 const stateOf = (on: boolean | "some") => (on === "some" ? "partly on" : on ? "on" : "off");

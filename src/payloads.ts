@@ -108,8 +108,8 @@ export type EditForm = TaskRef & { details?: boolean; responseUrl?: string; told
 
 // The New task and New incident forms (track.ts): where the task goes, which the form may ask for, its
 // title to start with, and the message to move into its thread.
-export const TRACK_FORM = object({ channel: text, title: text, move: object(TASK_REF) }, []);
-export type TrackForm = { channel?: string; title?: string; move?: TaskRef };
+export const TRACK_FORM = object({ channel: text, title: text, move: object({ ...TASK_REF, away: { type: "boolean" } }, ["channel", "ts"]) }, []);
+export type TrackForm = { channel?: string; title?: string; move?: TaskRef & { away?: boolean } };
 
 // Move to existing's form (move.ts): the message, the private question to remove, and the project's
 // channel and the message's title, when known.

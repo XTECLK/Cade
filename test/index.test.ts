@@ -642,14 +642,90 @@ test("commands outside the dev channels point to them", async (t) => {
   assert.equal(calls[0].args.text, "That one works with `@Cade assign owner @person` in a task thread in <#CDEV> or <#CTESTDEV>.");
 
   calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> task", { channel: "COTHER" }));
-  assert.equal(calls[0].args.text, "That one works with `@Cade task` in <#CDEV> or <#CTESTDEV>.");
-
-  calls = mockSlack(t);
-  const reply = await (await send("/slack/commands", slash("task", "COTHER"))).json<{ response_type: string; text: string }>();
+  const reply = await (await send("/slack/commands", slash("standup", "COTHER"))).json<{ response_type: string; text: string }>();
   assert.equal(calls.length, 0);
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "That one works with `/cade task` in <#CDEV> or <#CTESTDEV>.");
+  assert.match(reply.text, /^That one works with `\/cade standup` in <#CDEV> or <#CTESTDEV>\.$/);
+});
+
+test("/cade task and /cade incident in any channel open their form, with the Project to choose", async (t) => {
+  for (const [kind, callback] of [["task", "track"], ["incident", "incident"]]) {
+    // In a channel that isn't a project's, no project is chosen to begin with.
+    let calls = mockSlack(t);
+    await send("/slack/commands", slash(kind, "COTHER"));
+    let { view } = calls[0].args;
+    assert.equal(view.callback_id, callback);
+    assert.equal(view.blocks[0].block_id, "project");
+    assert.equal(view.blocks[0].optional, undefined, "the Project is required");
+    assert.deepEqual(projectOptions(view), [["acme", "CDEV"], ["test", "CTESTDEV"]]);
+    assert.equal(view.blocks[0].element.initial_option, undefined);
+    assert.deepEqual(JSON.parse(view.private_metadata), {});
+
+    // In a project's channel, its project is chosen.
+    calls = mockSlack(t);
+    await send("/slack/commands", slash(kind, "CTESTDEV"));
+    ({ view } = calls[0].args);
+    assert.equal(view.blocks[0].element.initial_option.value, "CTESTDEV");
+  }
+});
+
+test("the Project chosen on the form decides where the task goes", async (t) => {
+  const calls = mockSlack(t, createdTask);
+  const form = submission({ title: "Fix login", priority: "High" }, { channel: "CDEV" });
+  const values = { ...form.view.state.values, project: { value: { selected_option: { value: "CTESTDEV" } } } };
+  await send("/slack/interactions", interaction({ ...form, view: { ...form.view, state: { values } } }));
+  assert.equal(calls[0].method, "chat.postMessage");
+  assert.equal(calls[0].args.channel, "CTESTDEV");
+});
+
+test("@Cade task in the thread of a message in any channel Cade is in offers to track it, asking for the Project", async (t) => {
+  const root = { ts: "300.1", user: "UBOB", text: "Invoices miss the VAT number" };
+  let calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent("<@UBOT> task", { channel: "COTHER", ts: "300.2", thread_ts: "300.1" }));
+  const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(question.channel, "COTHER");
+  const button = question.blocks[1].elements[0];
+
+  calls = mockSlack(t);
+  recordResponses(t);
+  await send(
+    "/slack/interactions",
+    interaction({ type: "block_actions", trigger_id: "T1", response_url: RESPONSE_URL, user: { id: "UACTOR" }, channel: { id: "COTHER" }, actions: [{ action_id: button.action_id, value: button.value }] }),
+  );
+  const { view } = calls.find((call) => call.method === "views.open").args;
+  assert.equal(view.blocks[0].block_id, "project");
+  assert.equal(view.blocks[0].element.initial_option, undefined);
+  assert.deepEqual(JSON.parse(view.private_metadata), { move: { channel: "COTHER", ts: "300.1" }, title: "Invoices miss the VAT number" });
+});
+
+test("New task on a message in a channel Cade isn't in warns to invite it, and offers no AI prompt", async (t) => {
+  for (const [info, away] of [
+    [{ channel: { id: "CPUBLIC", is_member: false } }, true],
+    [{ ok: false, error: "channel_not_found" }, true],
+    [{ channel: { id: "CPUBLIC", is_member: true } }, false],
+  ] as const) {
+    const calls = mockSlack(t, { "conversations.info": info });
+    await send("/slack/interactions", shortcutClick("convert", undefined, "CPUBLIC"));
+    const { view } = calls.find((call) => call.method === "views.open").args;
+    const warning = view.blocks.find((block) => block.type === "context" && /not in <#CPUBLIC>/.test(blockText(block)));
+    assert.equal(Boolean(warning), away);
+    if (away) assert.match(blockText(warning), /Invite me with `\/invite @Cade` in <#CPUBLIC>/);
+    assert.equal(JSON.parse(view.private_metadata).move.away, away || undefined);
+  }
+
+  // The task is still made, with the message copied in, but without the AI prompt, which reads the
+  // thread it came from.
+  const calls = mockSlack(t, { ...moveSlack(), "conversations.info": { channel: { id: "CPUBLIC", is_member: false } } });
+  await send("/slack/interactions", shortcutClick("convert", undefined, "CPUBLIC"));
+  const { view } = calls.find((call) => call.method === "views.open").args;
+  const values = {
+    project: { value: { selected_option: { value: "CDEV" } } },
+    title: { value: { value: "Payments down" } },
+    due_date: { value: { selected_date: null } },
+    priority: { value: { selected_option: { value: "High" } } },
+  };
+  const answer = await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: "track", private_metadata: view.private_metadata, state: { values } } }));
+  assert.deepEqual(await answer.json(), { response_action: "clear" });
 });
 test("tasks tracked in the test channel go to the test channel", async (t) => {
   const calls = mockSlack(t, createdTask);
@@ -3420,11 +3496,12 @@ test("Make new task and Make new incident open their forms, with the project out
       link: "https://acme.slack.com/archives/D0BOB/p5001?thread_ts=500.1&cid=D0BOB",
     });
 
-    // In a dev channel, the form is for that channel's project.
+    // In a dev channel, that channel's project is chosen.
     calls = mockSlack(t, moveSlack());
     await send("/slack/interactions", shortcutClick(callbackId, devStray, "CDEV"));
     ({ view } = calls.find((call) => call.method === "views.open").args);
-    assert.notEqual(view.blocks[0].block_id, "project");
+    assert.equal(view.blocks[0].block_id, "project");
+    assert.equal(view.blocks[0].element.initial_option.value, "CDEV");
     assert.equal(JSON.parse(view.private_metadata).channel, "CDEV");
   }
 });
@@ -3531,14 +3608,14 @@ test("Move to existing outside a dev channel asks for the project, then lists it
   assert.deepEqual(await empty.json(), { response_action: "errors", errors: { project: "Choose a project with open tasks." } });
 });
 
-test("with only one group, the shortcuts anywhere skip the project", async (t) => {
+test("with only one group, the shortcuts anywhere choose its project", async (t) => {
   const single = { ...env, PROJECTS: [{ name: "acme", channel: "CDEV" }] };
   for (const [callbackId, callback] of [["convert", "track"], ["incident", "incident"]]) {
     const calls = mockSlack(t);
     await send("/slack/interactions", shortcutClick(callbackId), {}, single);
     const { view } = calls[0].args;
     assert.equal(view.callback_id, callback);
-    assert.ok(!view.blocks.some((block) => block.block_id === "project"), callbackId);
+    assert.equal(view.blocks[0].element.initial_option.value, "CDEV", callbackId);
     assert.equal(JSON.parse(view.private_metadata).channel, "CDEV");
   }
 
@@ -3673,7 +3750,8 @@ test("Track as task and Report incident open their forms, named from the message
     await send("/slack/interactions", promptClick(actionId));
     const { view } = calls.find((call) => call.method === "views.open").args;
     assert.equal(view.callback_id, callback);
-    assert.equal(view.blocks[0].element.initial_value, "The login bug also hits SSO");
+    assert.equal(view.blocks[0].element.initial_option.value, "CDEV");
+    assert.equal(view.blocks[1].element.initial_value, "The login bug also hits SSO");
     assert.deepEqual(JSON.parse(view.private_metadata), {
       channel: "CDEV",
       move: { channel: "CDEV", ts: "100.7" },
@@ -3770,7 +3848,7 @@ test("/cade incident opens a form that asks only what the incident is, in a dev 
   const { view } = calls[0].args;
   assert.equal(view.callback_id, "incident");
   assert.deepEqual(JSON.parse(view.private_metadata), { channel: "CDEV" });
-  assert.deepEqual(view.blocks.map((block) => block.block_id ?? block.type), ["title", "context"]);
+  assert.deepEqual(view.blocks.map((block) => block.block_id ?? block.type), ["project", "title", "context"]);
 
   // An incident needs a description.
   const response = await send(

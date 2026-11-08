@@ -1,4 +1,4 @@
-import { groupDisabled } from "../channels.ts";
+import { groupDisabled, knownProject } from "../channels.ts";
 import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.ts";
 import { CLOSE_ALL, callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
 import { moveMessage, offerStart } from "./move.ts";
@@ -21,9 +21,12 @@ import type { Command, Context, SlackPayload, Task } from "../types.ts";
 import { TRACK_FORM, readPayload, type TrackForm } from "../payloads.ts";
 
 // Where a new task goes (see trackView): its channel, a title to start with, and the
-// message to move into its thread once it is posted.
-export type TrackOrigin = { channel: string; title?: string; move?: { channel: string; ts: string } };
+// message to move into its thread once it is posted, with `away` when Cade isn't in
+// that message's channel.
+export type TrackOrigin = { channel: string; title?: string; move?: { channel: string; ts: string; away?: boolean } };
 type Origin = TrackOrigin;
+// What a form starts with: as TrackOrigin, but the project may be left for the person to choose.
+export type FormOrigin = Omit<TrackOrigin, "channel"> & { channel?: string };
 // A task stored but not yet posted (see unpostedTasks).
 type Unposted = { id: number; channel: string; task: Task; origin: { move?: { channel: string; ts: string } }; attempts: number };
 type OnPosted = (task: Task & { taskId: string }) => void;
@@ -31,29 +34,29 @@ type OnPosted = (task: Task & { taskId: string }) => void;
 const TRACK_VIEW = "track";
 const INCIDENT_VIEW = "incident";
 
-// `/cade task` in a dev channel opens the task form straight away, since a
-// slash command carries a trigger_id, and posts the task in that channel.
-// `/cade incident` does the same for an incident, asking only what it is:
-// incidents are always urgent and due immediately, and their cards say
-// they're incidents.
+// `/cade task`, in any channel (Slack sends a slash command even from one Cade isn't in), opens the task form straight away,
+// since a slash command carries a trigger_id. `/cade incident` does the same
+// for an incident, asking only what it is: incidents are always urgent and
+// due immediately, and their cards say they're incidents.
 //
-// `@Cade task` or `@Cade incident` in the thread of a message in a dev
-// channel offers, privately, to start one from that message (see offerStart
-// in move.ts): the form, named from its first line, and once it is posted
-// the message is moved into its thread. The message shortcuts New task
-// and New incident do the same from any message, anywhere (see
-// move.ts); outside a dev channel, with more than one group, the form asks
-// which project it's for.
+// `@Cade task` or `@Cade incident` in the thread of a message, in any channel
+// Cade is in, offers, privately, to start one from that message (see
+// offerStart in move.ts): the form, named from its first line, and once it is
+// posted the message is moved into its thread. The message shortcuts New task
+// and New incident do the same from any message, anywhere (see move.ts).
+//
+// Every one of these forms starts with the Project, which it needs: chosen
+// already in a project's channel, or when there's only one project, and
+// otherwise left for the person to choose.
 export default {
   name: "task",
   description: "Track a task (`@Cade task` in a message's thread tracks that message)",
   usage: "@Cade task",
   slashUsage: "/cade task",
   section: "message",
-  channel: "channel",
   run: (command, { env }) => fromThread(env, command, "task"),
   async slash(command, { env }) {
-    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: trackView(env, { channel: command.channel }) });
+    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: trackView(env, { channel: knownProject(env, command.channel) }) });
   },
   views: { [TRACK_VIEW]: submit },
 } satisfies Handler;
@@ -64,10 +67,9 @@ export const incident = {
   usage: "@Cade incident",
   slashUsage: "/cade incident",
   section: "message",
-  channel: "channel",
   run: (command, { env }) => fromThread(env, command, "incident"),
   async slash(command, { env }) {
-    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: incidentView(env, { channel: command.channel }) });
+    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: incidentView(env, { channel: knownProject(env, command.channel) }) });
   },
   views: { [INCIDENT_VIEW]: submitIncident },
 } satisfies Handler;
@@ -80,11 +82,12 @@ function fromThread(env: AppEnv, command: Command, kind: "task" | "incident") {
   return `To start one from a message, reply \`@Cade ${kind}\` in its thread, or use \`/cade ${kind}\` for something new.`;
 }
 
-// `origin` says where the task goes: `channel`, the dev channel, or, without
-// one, the form asks for the project. It may have `title` to start with,
-// and `move`, the message to move into the task's thread once it is posted
-// (see moveMessage in move.ts).
-export function trackView(env: AppEnv, origin: Origin) {
+// `origin` says where the task goes: `channel`, the project's dev channel,
+// chosen on the form's Project to begin with, or, without one, left for the
+// person to choose. It may have `title` to start with, and `move`, the
+// message to move into the task's thread once it is posted (see moveMessage
+// in move.ts).
+export function trackView(env: AppEnv, origin: FormOrigin) {
   return {
     type: "modal",
     callback_id: TRACK_VIEW,
@@ -93,14 +96,15 @@ export function trackView(env: AppEnv, origin: Origin) {
     submit: plainText("Create"),
     close: plainText("Cancel"),
     blocks: [
-      ...(origin.channel ? [] : [projectBlock(env)]),
+      projectBlock(env, { initial: origin.channel }),
+      ...awayWarning(origin),
       ...taskFormBlocks("Task title", origin),
     ],
   };
 }
 
 // `origin` is as for trackView.
-export function incidentView(env: AppEnv, origin: Origin) {
+export function incidentView(env: AppEnv, origin: FormOrigin) {
   return {
     type: "modal",
     callback_id: INCIDENT_VIEW,
@@ -109,7 +113,8 @@ export function incidentView(env: AppEnv, origin: Origin) {
     submit: plainText("Report"),
     close: plainText("Cancel"),
     blocks: [
-      ...(origin.channel ? [] : [projectBlock(env)]),
+      projectBlock(env, { initial: origin.channel }),
+      ...awayWarning(origin),
       ...taskFormBlocks("What's the incident?", origin, { details: false }),
       {
         type: "context",
@@ -119,11 +124,20 @@ export function incidentView(env: AppEnv, origin: Origin) {
   };
 }
 
+// The warning for a form made from a message in a channel Cade isn't in: the message is copied
+// from the form, but Cade can't note under it where it went, nor read its replies.
+export function awayWarning({ move }: FormOrigin) {
+  if (!move?.away) return [];
+  const text = `:warning: I'm not in <#${move.channel}>, so I'll copy only this message, and can't note under it where it went or read its replies. Invite me with \`/invite @Cade\` in <#${move.channel}> first.`;
+  return [{ type: "context", elements: [{ type: "mrkdwn", text }] }];
+}
+
 // The form's origin, with the project chosen on it, or the errors to show.
+// Forms opened before every form had the Project have only the origin's.
 function readOrigin(payload: SlackPayload) {
   const origin = readPayload<TrackForm>(TRACK_FORM, payload.view.private_metadata || "{}", "New task form");
-  origin.channel ??= chosenProject(payload.view.state.values);
-  return origin.channel ? { origin: origin as TrackOrigin } : { errors: { project: "Please choose a project." } };
+  const channel = chosenProject(payload.view.state.values) ?? origin.channel;
+  return channel ? { origin: { ...origin, channel } } : { errors: { project: "Please choose a project." } };
 }
 
 async function submit(payload: SlackPayload, context: Context) {
@@ -220,7 +234,7 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
 // and writes the summary on the task's notes page (see mcp.ts), and a line
 // on what to do if the agent isn't connected to Cade yet (the Home tab's AI agent button,
 // see commands/mcp.ts). Only for a task made from a message, and not one from
-// a direct message, which Cade can't read. A project turns it off with
+// a direct message or a channel Cade isn't in, which it can't read. A project turns it off with
 // `aiAgentSummary` (false), and turning MCP off (`mcp`: false) does too.
 
 // How long the first form waits for the task to be posted, so its ID can
@@ -231,7 +245,8 @@ const TIMED_OUT = Symbol("timed out");
 
 // Whether the form for a task from `origin` is followed by the prompt.
 function guides(env: AppEnv, origin: Origin) {
-  return mcpEnabled(env) && Boolean(origin.move) && !origin.move!.channel.startsWith("D") && !groupDisabled(env, origin.channel, "aiAgentSummary", "AI_AGENT_SUMMARY");
+  const { move } = origin;
+  return mcpEnabled(env) && Boolean(move) && !move!.channel.startsWith("D") && !move!.away && !groupDisabled(env, origin.channel, "aiAgentSummary", "AI_AGENT_SUMMARY");
 }
 
 // Makes the task as createTask does, then answers its form with the prompt

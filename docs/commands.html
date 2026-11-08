@@ -60,22 +60,22 @@
 
       <article class="entry">
         <h3><code>/cade task</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel. With <code>activeTasksPinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
+        <div class="tags"><span class="where">Any channel</span><span class="where">Top level</span></div>
+        <p>A form for the project, title, priority and an optional due date. The <b>Project</b> comes first and is required: in a project's dev channel, or when there's only one project, it's chosen already; anywhere else, pick it. The task is posted in that project's dev channel. With <code>activeTasksPinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
         <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
       <article class="entry">
         <h3><code>/cade incident</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and their cards say <b>Incident</b>, so they stand out among the channel's tasks. They're listed first in the Home tab's lists, summaries and briefs.</p>
+        <div class="tags"><span class="where">Any channel</span><span class="where">Top level</span></div>
+        <p>Asks only the project, chosen as for <code>/cade task</code>, and what the incident is. Incidents are always Urgent and due Immediate, and their cards say <b>Incident</b>, so they stand out among the channel's tasks. They're listed first in the Home tab's lists, summaries and briefs.</p>
         <div class="example"><b>Example:</b> “Card payments failing at checkout for EU customers”.</div>
       </article>
 
       <article class="entry">
         <h3><code>@Cade task</code> <code>@Cade incident</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
-        <p>Starts a task or an incident from a message already in the channel. Cade privately offers a button that opens the form, named from the message's first line; once it's posted, the message moves into its thread.</p>
+        <div class="tags"><span class="where">Any channel Cade is in</span><span class="where">In a message's thread</span></div>
+        <p>Starts a task or an incident from a message already in the channel. Cade privately offers a button that opens the form, named from the message's first line, with the <b>Project</b> chosen as for <code>/cade task</code>; once it's posted, the message moves into its thread.</p>
         <div class="example"><b>Example:</b> reply <code>@Cade incident</code> under “Checkout is failing for EU customers”.</div>
       </article>
 
@@ -86,8 +86,9 @@
         <ul>
           <li><b>New task</b> and <b>New incident</b> open their form, named from the message's first line.</li>
           <li><b>Move to existing</b> opens a form to pick an open task or incident.</li>
-          <li>In a dev channel, or when there's only one group, the forms are for that project. Otherwise they ask for the <b>Project</b> first, and Move to existing then lists that project's open tasks.</li>
+          <li>New task and New incident start with the <b>Project</b>, which is required: chosen already in a dev channel, or when there's only one project; anywhere else, pick it. Outside a dev channel, with more than one project, Move to existing asks for the project first, then lists its open tasks.</li>
           <li>The message is copied into the task's thread, credited to whoever wrote it, so everyone on the task can read it, even if they can't see where it was written. The link back to it, and Cade's note and 📤 under it, work only where they can.</li>
+          <li>In a channel Cade isn't in, the form warns that only that one message is copied, without Cade's note under it or its replies, and says to invite Cade with <code>/invite @Cade</code> first. A DM works the same, without the warning.</li>
         </ul>
       </article>
 

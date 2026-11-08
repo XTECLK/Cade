@@ -76,6 +76,15 @@ export function groupSetting<K extends string>(env: Pick<AppEnv, "PROJECTS">, ch
   }
 }
 
+// The project channel something started in `channel` is for, to choose on its form to begin with:
+// `channel` itself if it is a project's, or the only project's; undefined when there's a choice to
+// make.
+export function knownProject(env: Pick<AppEnv, "PROJECTS">, channel: string) {
+  if (roleOf(env, channel) === "channel") return channel;
+  const all = projects(env);
+  return all.length === 1 ? all[0]!.channel : undefined;
+}
+
 // Returns the role `channel` has in its project, or undefined when it is in none.
 export function roleOf(env: Pick<AppEnv, "PROJECTS">, channel: string) {
   const project = findProject(env, channel);

@@ -1,19 +1,20 @@
-import { groupDisabled, projects, roleOf } from "../channels.ts";
+import { groupDisabled, knownProject, roleOf } from "../channels.ts";
 import { tasksWithStatus } from "../db.ts";
 import { findIntent, intent, intentsOn, plainMessage } from "../intents.ts";
 import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { STATUSES, chosenProject, loadTask, projectBlock, setPinned, statusName } from "../tasks.ts";
-import { incidentView, trackView } from "./track.ts";
+import { awayWarning, incidentView, trackView } from "./track.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Command, Context, PlainMessage, SlackBlock, SlackEvent, SlackMessage, SlackPayload, Status, StoredTask } from "../types.ts";
 
 // Where a task is: its channel and its root message.
 type Origin = { channel: string; ts: string };
-import type { TrackOrigin } from "./track.ts";
+import type { FormOrigin } from "./track.ts";
 import { MESSAGE_BUTTON, MOVE_FORM, TASK_BUTTON, readPayload, type MessageButton, type TaskRef } from "../payloads.ts";
-// The message to move (see moveMessage): where it is, and, from a message shortcut, the message too.
-type From = { channel: string; ts: string; threadTs?: string; author?: string; text?: string; files?: boolean; pinned?: boolean; link?: string };
+// The message to move (see moveMessage): where it is, and, from a message shortcut, the message too,
+// with `away` when Cade isn't in its channel.
+type From = { channel: string; ts: string; threadTs?: string; author?: string; text?: string; files?: boolean; pinned?: boolean; link?: string; away?: boolean };
 // An open task, with the ts of its root message.
 type OpenTask = StoredTask & { ts: string };
 // What Move's form carries: the message, the shortcut's response_url, and the project, if known.
@@ -86,11 +87,13 @@ function taskOption(task: OpenTask) {
 // The message shortcuts work on any message, anywhere: a dev channel, any
 // other channel, a DM. New task and New incident open the task or
 // incident form, named from the message's first line; Move to existing
-// opens a form to pick an open task. Outside a dev channel, with more than
-// one group, each form asks for the project too, and Move to existing then
-// lists that project's open tasks. The message is copied as above, so it can be read in the task's
+// opens a form to pick an open task. New task and New incident always start
+// with the Project, chosen already in a dev channel or with only one group.
+// Outside a dev channel, with more than one group, Move to existing asks for
+// the project, then lists its open tasks. The message is copied as above, so it can be read in the task's
 // thread even by people who can't see where it was written; the link back
-// to it, and the note and reaction under it, work only where they can.
+// to it, and the note and reaction under it, work only where they can. In a
+// channel Cade isn't in, the forms say so, and to invite it.
 // Adding 🎫 or 🔀 to a message in a dev channel (see REACTIONS) does
 // the same in one click from Slack's hover bar, with a private reply
 // instead of a form (see reacted).
@@ -134,11 +137,11 @@ export default {
   ],
   actions: {
     [INCIDENT_ACTION]: async (payload, { env }) => {
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: incidentView(env, prompted(payload)) });
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: incidentView(env, prompted(env, payload)) });
       await respondLater(payload.response_url, { delete_original: true });
     },
     [TRACK_ACTION]: async (payload, { env }) => {
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: trackView(env, prompted(payload)) });
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: trackView(env, prompted(env, payload)) });
       await respondLater(payload.response_url, { delete_original: true });
     },
     // The form must open within Slack's three seconds of the click.
@@ -197,6 +200,7 @@ async function shortcutMessage(payload: SlackPayload, env: AppEnv) {
     }
   }
   const quoted = text.length > MAX_QUOTED ? `${text.slice(0, MAX_QUOTED)}…` : text;
+  const away = !(await isIn(env, channel));
   return {
     channel,
     ts,
@@ -206,7 +210,24 @@ async function shortcutMessage(payload: SlackPayload, env: AppEnv) {
     files: Boolean(files?.length) || quoted !== text,
     pinned: Boolean(pinnedTo?.includes(channel)),
     link: messageLink(payload),
+    ...(away && { away }),
   };
+}
+
+// Whether Cade is in `channel`, so it can note under a message there where it went, and read its
+// replies. A direct message counts as in: Cade is never in one, and there's no one to invite. A
+// private channel Cade isn't in is one Slack says isn't there. Not knowing counts as in, as the
+// warning that follows is only a warning.
+async function isIn(env: AppEnv, channel: string) {
+  if (roleOf(env, channel) === "channel" || channel.startsWith("D")) return true;
+  try {
+    const { channel: info } = await callSlack(env, "conversations.info", { channel });
+    return Boolean(info.is_im || info.is_mpim || info.is_member);
+  } catch (error) {
+    if (/channel_not_found/.test(error.message)) return false;
+    console.warn("Could not look up the channel", { channel, error: error.message });
+    return true;
+  }
 }
 
 // A link to the shortcut's message that opens its thread, from the
@@ -223,24 +244,14 @@ async function tell(env: AppEnv, payload: SlackPayload, text: string) {
   else await callSlack(env, "chat.postEphemeral", { channel: payload.channel.id, user: payload.user.id, text });
 }
 
-// The dev channel a shortcut's form is for, so it needn't ask for the
-// project: the one it was chosen in, or the only group's; undefined when
-// there's a choice to make.
-function knownProject(env: AppEnv, channel: string) {
-  if (roleOf(env, channel) === "channel") return channel;
-  const groups = projects(env);
-  return groups.length === 1 ? groups[0]!.channel : undefined;
-}
-
 // New task and New incident: their form, named from the message's first
-// line, for the known project, or asking for it.
-async function openStartForm(payload: SlackPayload, env: AppEnv, view: (env: AppEnv, origin: TrackOrigin) => SlackBlock) {
+// line, with the known project chosen, or asking for it.
+async function openStartForm(payload: SlackPayload, env: AppEnv, view: (env: AppEnv, origin: FormOrigin) => SlackBlock) {
   const from = await shortcutMessage(payload, env);
   if (!from) return;
-  const channel = knownProject(env, from.channel);
   await callSlack(env, "views.open", {
     trigger_id: payload.trigger_id,
-    view: view(env, { channel: channel!, move: from, title: firstLine(from.text) }),
+    view: view(env, { channel: knownProject(env, from.channel), move: from, title: firstLine(from.text) }),
   });
 }
 
@@ -282,6 +293,7 @@ async function moveForm(env: AppEnv, meta: MoveMeta, project: string | undefined
     close: plainText("Cancel"),
     blocks: [
       ...(meta.channel ? [] : [projectBlock(env, { actionId: PROJECT_ACTION, initial: project })]),
+      ...awayWarning({ move: meta.from }),
       tasks,
       { type: "context", elements: [mrkdwn(optionText(meta.title ?? firstLine(meta.from.text!)) || "_The message_")] },
     ],
@@ -465,11 +477,12 @@ function firstLine(text: string) {
   return text.split("\n").find((line) => line.trim())?.replace(/[*_~`>]/g, "").trim().slice(0, 150) ?? "";
 }
 
-// The form's origin, from a button on the question: the dev channel, the
-// message to move into the new thread, and its first line.
-function prompted(payload: SlackPayload) {
+// The form's origin, from a button on the question: the project, if the
+// message's channel says which, the message to move into the new thread, and
+// its first line.
+function prompted(env: AppEnv, payload: SlackPayload): FormOrigin {
   const { channel, ts, title } = readPayload<MessageButton>(MESSAGE_BUTTON, payload.actions[0].value, "New task button");
-  return { channel, move: { channel, ts }, title };
+  return { channel: knownProject(env, channel), move: { channel, ts }, title };
 }
 
 // Opens Move to existing's form, as the message shortcut does, and removes

@@ -182,6 +182,15 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools.find((tool) => tool.name === "update_task");
   assert.match(summaryTool.description, /only with changes the person has seen and approved/);
   assert.match(init.result.instructions, /Never invent or guess a value: if one is missing, or more than one thing could be meant, ask/);
+  // Links are opened by the agent as the person, never by Cade.
+  assert.match(init.result.instructions, /Cade doesn't open the links in messages: read one with your own tools, signed in as the person/);
+  // A message can go as the person, with their own Slack tools, or via Cade, which shows it as from an agent.
+  assert.match(init.result.instructions, /ask them to choose: send it as themselves.*or via Cade with send_thread_message.*"\(via AI agent\)"/);
+  assert.match(init.result.instructions, /\(summary_id\) always goes via Cade/);
+  assert.match(init.result.instructions, /send_thread_message: .*whether it goes as the person or via Cade/);
+  // Beyond Cade's channels the agent reads Slack with its own tools; finding new tasks stays with Cade.
+  assert.match(init.result.instructions, /To read Slack beyond Cade's channels.*use your own Slack tools.*direct message stays private/);
+  assert.match(init.result.instructions, /To find conversations that should become tasks, use get_channel_threads, which leaves out what Cade already tracks/);
 
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);

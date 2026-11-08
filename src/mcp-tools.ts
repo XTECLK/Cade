@@ -668,6 +668,7 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
             "Posts a message in a Slack thread as Cade, led by who it is from and ending with (via AI agent): a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
+            "If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. " +
             "Call this only with text the person has seen and approved.",
         inputSchema: {
             type: "object",

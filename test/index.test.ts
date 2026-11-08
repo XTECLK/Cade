@@ -1379,7 +1379,8 @@ test("tasks without pull requests show no PRs line", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
   assert.equal(allBlocks(calls[0].args).length, 3);
-  assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
+  // Made in Slack, not through an AI agent.
+  assert.match(footerLines(calls[0].args)[1], /^Tracked by <@\w+>$/);
 });
 
 test("@Cade pr add skips pull requests already linked", async (t) => {

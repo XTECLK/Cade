@@ -56,6 +56,7 @@ interface TaskRow {
   testers: string;
   prs: string;
   created_by: string;
+  via_agent: number;
   completed_at: string;
   source_incident: number;
   has_subtasks: number;
@@ -656,6 +657,7 @@ function taskToRow(task: Task) {
     testers: JSON.stringify(task.people.tester),
     prs: JSON.stringify(task.prs ?? []),
     created_by: task.createdBy,
+    via_agent: task.viaAgent ? 1 : 0,
     completed_at: task.completedAt ?? "",
     source_incident: task.incident ? 1 : 0,
     has_subtasks: task.subtasks ? 1 : 0,
@@ -680,6 +682,7 @@ function taskFromRow(row: TaskRow): StoredTask {
     },
     prs: JSON.parse(row.prs),
     createdBy: row.created_by,
+    viaAgent: Boolean(row.via_agent),
     completedAt: row.completed_at,
     // Whether it is an incident: always urgent and due immediately.
     incident: Boolean(row.source_incident),

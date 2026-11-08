@@ -766,7 +766,7 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
     const same = (await tasksWithStatuses(env, OPEN)).find((entry) => entry.channel === project!.channel && entry.task.title.trim().toLowerCase() === title.toLowerCase());
     if (same) throw new ToolError(`${project.name} already has an open ${same.task.incident ? "incident" : "task"} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
   }
-  const task: Task = { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user };
+  const task: Task = { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user, viaAgent: true };
   const ts = await createTask(env, task, { channel: project.channel, move: source });
   if (!ts) throw new ToolError(`Slack wouldn't take the ${incident ? "incident" : "task"} just now. Cade tries again in a few minutes, but without the summary, so check ${project.name}'s channel before trying again.`);
 
@@ -1349,7 +1349,12 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     told.push(changed ? `The change is posted in the task's thread.${skipped}` : `The task already had those values.${skipped}`);
     if (changed && changes.status === "CLIENT_REVIEW") told.push("It is in Client review now: ask the person who should approve it, then call send_approval_request.");
   }
-  if (summary !== undefined) told.push(await saveSummary(env, user, channel, ts, summary));
+  if (summary !== undefined) {
+    // The thread hears of a new summary, as nobody watches the notes page; the same one again says nothing.
+    const same = (await getNotes(env, channel, ts)).summary === summary;
+    told.push(await saveSummary(env, user, channel, ts, summary));
+    if (!same) await tellSummaryChanged(env, user, channel, ts);
+  }
   console.log("Task updated", { channel, ts, by: user, fields: Object.keys(changes), summary: summary?.length });
   const now = await loadTask(env, channel, ts);
   return {
@@ -1517,6 +1522,13 @@ async function updateAfterCall(env: AppEnv, user: string, { summary_id: id, item
   console.log("Executive summary call recorded", { id, project: group.name, user, changed: changed.length, added: addedCount });
   const text = `Recorded the call for summary #${id}: ${changed.length} task${changed.length === 1 ? "" : "s"} changed or taken out, ${addedCount} added. get_executive_summary shows both versions and which threads still need telling.`;
   return { text, data: { summary_id: id, changed, added: addedCount } };
+}
+
+// Tells the task's thread that `user`'s AI agent changed the summary, with a link to the notes page.
+async function tellSummaryChanged(env: AppEnv, user: string, channel: string, ts: string) {
+  const notes = (await loadTask(env, channel, ts))?.notes?.url;
+  const text = `<@${user}> updated the summary${notes ? ` on the <${notes}|notes page>` : ""}.\n_(via AI agent)_`;
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
 }
 
 // Saves the summary on the task's notes page, and returns what to tell the person.

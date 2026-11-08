@@ -301,9 +301,9 @@ const stored = (overrides: Partial<StoredTask> = {}): StoredTask => ({
   ...overrides,
 });
 
-test("update_task saves the summary, which it keeps the summary in the database, on the task's notes page", async (t) => {
+test("update_task saves the summary, which it keeps the summary in the database, on the task's notes page, and tells the thread", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored({ notes: { url: `${ORIGIN}/n/CDEV/1000000000.000100` } }));
-  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } } });
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "chat.postMessage": {} });
   const url = addressIn(await slash("mcp init", "UME"));
 
   const taskId = "CDEV:1000000000.000100";
@@ -312,12 +312,18 @@ test("update_task saves the summary, which it keeps the summary in the database,
   assert.match(result.text, /top of the task's notes page: https:\/\/worker\.example\.net\/n\/CDEV\/1000000000\.000100/);
   const row = await DB.prepare("SELECT summary, summary_by FROM task_notes").first();
   assert.deepEqual({ ...row }, { summary: "Fix login on Safari.\n- Ann owns it", summary_by: "UME" });
-  // Nothing is posted in the thread or sent to Google, and the card has its link already.
-  assert.deepEqual(calls.map((call) => call.method).filter((method) => method.startsWith("chat.") || method.startsWith("google:")), []);
+  // The thread is told, with the notes page's link; nothing goes to Google, and the card has its link already.
+  const posted = () => calls.filter((call) => call.method.startsWith("chat.") || call.method.startsWith("google:"));
+  assert.deepEqual(posted().map((call) => [call.method, call.args.channel, call.args.thread_ts, call.args.text]), [
+    ["chat.postMessage", "CDEV", "1000000000.000100", `<@UME> updated the summary on the <${ORIGIN}/n/CDEV/1000000000.000100|notes page>.\n_(via AI agent)_`],
+  ]);
 
-  // A later summary replaces it.
+  // A later summary replaces it, and is told too; the same one again says nothing.
   await tool(url, "update_task", { task_id: taskId, summary: "Second" });
   assert.equal((await DB.prepare("SELECT summary FROM task_notes").first()).summary, "Second");
+  assert.equal(posted().length, 2);
+  await tool(url, "update_task", { task_id: taskId, summary: " Second " });
+  assert.equal(posted().length, 2);
 });
 
 test("update_task with a summary links the notes page of an older task on its card, and says what's wrong with a call", async (t) => {
@@ -1153,6 +1159,10 @@ test("create_task makes a task or incident from a thread or from scratch, moves 
   assert.deepEqual([task.title, task.priority, task.dueDate, task.status, task.createdBy], ["Fix Safari checkout", "High", "31/01/2030", "TODO", "UME"]);
   assert.equal((await getNotes(env, "CDEV", "100.1")).summary, "Checkout fails on Safari.");
   assert.ok(calls.some((c) => c.method === "chat.postMessage" && c.args.thread_ts === "100.1" && /Moved from/.test(c.args.text)));
+  // Its card says an AI agent made it, beside who tracked it, and keeps saying so.
+  assert.equal(task.viaAgent, true);
+  const card = calls.find((c) => c.method === "chat.postMessage" && c.args.channel === "CDEV" && !c.args.thread_ts);
+  assert.match(JSON.stringify(card?.args), /Tracked by <@UME> _\(via AI agent\)_/);
 
   // An incident is urgent and immediate, and takes neither.
   assert.match((await tool(url, "create_task", { title: "Site down", incident: true, priority: "Low" })).text, /always Urgent and due immediately/);

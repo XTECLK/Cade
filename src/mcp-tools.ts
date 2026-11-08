@@ -693,7 +693,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Update a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
-            "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; the summary is saved quietly. " +
+            "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",

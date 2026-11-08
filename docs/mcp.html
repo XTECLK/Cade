@@ -142,6 +142,7 @@
 <tr><td><code>messages[].bot</code></td><td>boolean</td><td>yes</td><td>Whether a bot sent it</td></tr>
 <tr><td><code>messages[].text</code></td><td>string</td><td>yes</td><td>What it says, with &lt;@U…&gt; mentions as sent</td></tr>
 <tr><td><code>messages[].files</code></td><td>string[]</td><td>yes</td><td>Names of attached files</td></tr>
+<tr><td><code>messages[].links</code></td><td>string[]</td><td>yes</td><td>The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 </tbody>
 </table></div>
@@ -173,6 +174,7 @@
 <tr><td><code>messages[].bot</code></td><td>boolean</td><td>yes</td><td>Whether a bot sent it</td></tr>
 <tr><td><code>messages[].text</code></td><td>string</td><td>yes</td><td>What it says, with &lt;@U…&gt; mentions as sent</td></tr>
 <tr><td><code>messages[].files</code></td><td>string[]</td><td>yes</td><td>Names of attached files</td></tr>
+<tr><td><code>messages[].links</code></td><td>string[]</td><td>yes</td><td>The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person</td></tr>
 <tr><td><code>original_thread</code></td><td>object or null</td><td>yes</td><td>The thread a task was made from, or null</td></tr>
 <tr><td><code>original_thread.thread_id</code></td><td>string</td><td></td><td>The thread's ID, for get_thread_history</td></tr>
 <tr><td><code>original_thread.link</code></td><td>string</td><td></td><td>A link to the thread</td></tr>

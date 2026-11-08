@@ -412,7 +412,7 @@ async function reachableThread(env: AppEnv, user: string, channel: string, ts: s
   }
 }
 
-// A thread's messages as data: who, when, what, and the names of the files.
+// A thread's messages as data: who, when, what, the names of the files and the links in it.
 function messageData(messages: ThreadMessage[]) {
   return messages.map((message) => ({
     ts: String(message.ts),
@@ -421,7 +421,18 @@ function messageData(messages: ThreadMessage[]) {
     bot: Boolean(message.bot_id),
     text: message.text ?? "",
     files: (message.files ?? []).map((file) => file.name),
+    links: linksIn(message.text ?? ""),
   }));
+}
+
+// Slack sends a link as <address> or <address|label>, with & < > escaped.
+const SLACK_LINK = /<(https?:\/\/[^|>\s]+)(?:\|[^>]*)?>/g;
+
+// The web addresses in a message's Slack markup, once each, in the order written. Cade doesn't open
+// them: the agent reads them with its own tools, as the person, so a private one stays private.
+function linksIn(text: string) {
+  const links = [...text.matchAll(SLACK_LINK)].map(([, address]) => address!.replace(/&amp;/g, "&"));
+  return [...new Set(links)];
 }
 
 // A thread's messages, a line each.

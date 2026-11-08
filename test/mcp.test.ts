@@ -210,7 +210,7 @@ test("get_thread_history reads a thread, and a private channel only for someone 
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
 
   const mine = addressIn(await slash("mcp init", "UME"));
-  const { text, isError } = await tool(mine, "get_thread_history", { link });
+  const { text, isError, data } = await tool(mine, "get_thread_history", { link });
   assert.equal(isError, false, text);
   assert.equal(
     text,
@@ -222,6 +222,7 @@ test("get_thread_history reads a thread, and a private channel only for someone 
     ].join("\n"),
   );
   assert.deepEqual(calls.find((call) => call.method === "conversations.replies").args.ts, "1700000000.000100");
+  assert.deepEqual(data.messages.map((message) => message.links), [[], [], []]);
 
   // A link to a reply stands for its thread.
   await tool(mine, "get_thread_history", { link: `${link.replace("p1700000000000100", "p1700000060000200")}?thread_ts=1700000000.000100&cid=CDEV` });
@@ -235,6 +236,26 @@ test("get_thread_history reads a thread, and a private channel only for someone 
 
   assert.match((await tool(mine, "get_thread_history", { link: "https://example.com" })).text, /isn't a link to a Slack message/);
   assert.match((await tool(mine, "get_thread_history", { link: "https://acme.slack.com/archives/D1/p1700000000000100" })).text, /direct messages/);
+});
+
+test("get_thread_history and get_task_history list each message's links for the agent to open itself", async (t) => {
+  const text =
+    "Spec in <https://docs.google.com/document/d/abc/edit?a=1&amp;b=2|the doc>, PR <https://github.com/acme/app/pull/7>, " +
+    "again <https://github.com/acme/app/pull/7|#7>, mail <mailto:ann@acme.com|Ann>, <@UBOB> in <#CDEV|dev>";
+  const links = ["https://docs.google.com/document/d/abc/edit?a=1&b=2", "https://github.com/acme/app/pull/7"];
+  mock(t, {
+    "conversations.info": { channel: { name: "dev" } },
+    "conversations.replies": { messages: [{ user: "UBOB", ts: "1700000000.000100", text }] },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const fromSlack = await tool(url, "get_thread_history", { link: "https://acme.slack.com/archives/CDEV/p1700000000000100" });
+  assert.deepEqual(fromSlack.data.messages[0].links, links);
+
+  await putTask(env, "CDEV", "1700000000.000100", stored());
+  await DB.prepare("INSERT INTO messages (channel, task_ts, ts, user_id, text) VALUES ('CDEV', '1700000000.000100', '1700000000.000100', 'UBOB', ?)").bind(text).run();
+  const kept = await tool(url, "get_task_history", { task_id: "CDEV:1700000000.000100" });
+  assert.deepEqual(kept.data.messages[0].links, links);
 });
 
 test("get_thread_history joins a public channel Cade isn't in", async (t) => {

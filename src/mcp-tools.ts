@@ -133,8 +133,9 @@ const MESSAGE_ITEM = {
         bot: bool("Whether a bot sent it"),
         text: str("What it says, with <@U…> mentions as sent"),
         files: strings("Names of attached files"),
+        links: strings("The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person"),
     },
-    required: ["ts", "time", "user_id", "bot", "text", "files"],
+    required: ["ts", "time", "user_id", "bot", "text", "files", "links"],
 };
 
 const PERSON = {

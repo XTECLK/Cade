@@ -92,8 +92,8 @@ async function draw(env: AppEnv, user: string, tab: string) {
   const chosen = await getHomeProject(env, user);
   const project = all.find((group) => group.name === chosen) ?? all[0];
   const admin = isAdmin(env, user);
-  // The two parts of the tab, with Refresh, along the top of both.
-  const nav: SlackBlock = {
+  // The two parts of the tab, with Refresh, along the top of both, and a line under them.
+  const navRow: SlackBlock = {
     type: "actions",
     elements: [
       { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
@@ -101,17 +101,18 @@ async function draw(env: AppEnv, user: string, tab: string) {
       { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
     ],
   };
+  const nav: SlackBlock[] = [navRow, { type: "divider" }];
   if (tab === CONFIGURE) return await settingsView(env, user, nav, all, project);
   const addProject = { type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") };
   if (!project) {
     const none = "There are no projects yet.";
     return {
       type: "home",
-      blocks: [nav, admin ? { type: "section", text: mrkdwn(none), accessory: addProject } : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] }],
+      blocks: [...nav, admin ? { type: "section", text: mrkdwn(none), accessory: addProject } : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] }],
     };
   }
   // On Home, under the two parts: which project's tasks are shown, and (for an admin) Add project, then the task tabs.
-  const top: SlackBlock[] = [nav, { type: "actions", elements: [projectPicker(all, project), ...(admin ? [addProject] : [])] }];
+  const top: SlackBlock[] = [...nav, { type: "actions", elements: [projectPicker(all, project), ...(admin ? [addProject] : [])] }];
   const open = await groupTasks(env, project, OPEN, url);
   const today = todayIn(env);
   const tabRow = {
@@ -175,14 +176,14 @@ function projectPicker(groups: Project[], project: Project) {
 // project: AI agent says so when MCP is turned off, and has no button then. Projects is for admins
 // only: a project picker (the same choice as on Home), then that project's people and switches, with
 // Edit to change them in a form.
-async function settingsView(env: AppEnv, user: string, nav: SlackBlock, all: Project[], project: Project | undefined) {
+async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: Project[], project: Project | undefined) {
   const row = (title: string, now: string, action: string | false, label: string, value?: string) => ({
     type: "section",
     text: mrkdwn(`*${title}*\n${now}`),
     ...(action && { accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) } }),
   });
   const blocks: SlackBlock[] = [
-    nav,
+    ...nav,
     { type: "header", text: plainText("Just for you") },
     row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
     row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),

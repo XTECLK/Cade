@@ -2401,10 +2401,13 @@ test("Settings on the Home tab has the person's own setup, and for an admin a pr
   assert.equal(home.view.private_metadata, "mine");
   assert.deepEqual(home.view.blocks[0].elements.map((element) => element.text.text), ["Home", "Settings", "Refresh"]);
   assert.equal(home.view.blocks[0].elements[0].style, "primary");
-  assert.deepEqual(home.view.blocks[1].elements.map((element) => element.action_id), ["home:project", "home:project:add"]);
-  assert.deepEqual(home.view.blocks[2].elements.map((element) => element.text.text), ["My Tasks", "Unassigned", "All Tasks"]);
+  // A line between the top row and the rest, on Home as on Settings.
+  assert.equal(home.view.blocks[1].type, "divider");
+  assert.equal(member.view.blocks[1].type, "divider");
+  assert.deepEqual(home.view.blocks[2].elements.map((element) => element.action_id), ["home:project", "home:project:add"]);
+  assert.deepEqual(home.view.blocks[3].elements.map((element) => element.text.text), ["My Tasks", "Unassigned", "All Tasks"]);
   const memberHome = await open("home:section:home", "UME");
-  assert.deepEqual(memberHome.view.blocks[1].elements.map((element) => element.action_id), ["home:project"]);
+  assert.deepEqual(memberHome.view.blocks[2].elements.map((element) => element.action_id), ["home:project"]);
 });
 
 test("with no projects yet, Home offers an admin Add project, and Settings still has the person's own setup", async (t) => {
@@ -2416,10 +2419,10 @@ test("with no projects yet, Home offers an admin Add project, and Settings still
   const none = { ...env, PROJECTS: "[]" };
   const admin = { ...none, ADMINS: JSON.stringify(["UME"]) };
   const adminHome = await draw("home:section:home", admin);
-  assert.equal(adminHome[1].text.text, "There are no projects yet.");
-  assert.equal(adminHome[1].accessory.action_id, "home:project:add");
+  assert.equal(adminHome[2].text.text, "There are no projects yet.");
+  assert.equal(adminHome[2].accessory.action_id, "home:project:add");
   const memberHome = await draw("home:section:home", none);
-  assert.match(blockText(memberHome[1]), /There are no projects yet\. An admin adds one on this tab\./);
+  assert.match(blockText(memberHome[2]), /There are no projects yet\. An admin adds one on this tab\./);
   const adminSettings = (await draw("home:section:configure", admin)).map((block) => blockText(block) ?? "").join("\n");
   assert.match(adminSettings, /\*Suggestions\*/);
   assert.match(adminSettings, /Projects\n_There are no projects yet\. Add one with Add project on Home\._/);

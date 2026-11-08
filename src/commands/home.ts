@@ -10,14 +10,14 @@ import type { Handler } from "../types.ts";
 // the Unassigned view.
 export default {
   actions: {
-    // Home and Configure are the two parts of the tab; the tasks come back on the tab last used.
+    // Home and Settings are the two parts of the tab; the tasks come back on the tab last used.
     [HOME_ACTION]: async (payload, { env }) => {
       await publishHome(env, payload.user.id);
     },
     [CONFIGURE_ACTION]: async (payload, { env }) => {
       await publishHome(env, payload.user.id, CONFIGURE);
     },
-    // The person's own suggestions, off or on; Configure is drawn again to show it.
+    // The person's own suggestions, off or on; Settings is drawn again to show it.
     [SUGGESTIONS_ACTION]: async (payload, { env }) => {
       const { on } = readPayload<SuggestionsButton>(SUGGESTIONS_BUTTON, payload.actions[0].value, "Suggestions button");
       await setSuggestions(env, payload.user.id, on);

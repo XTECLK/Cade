@@ -171,7 +171,7 @@ is read from Slack as it is made, so Slack's 90-day limit on the free plan
 doesn't lose it. The task's card links two pages of the Worker (`web.ts`): its
 thread, `/t/<channel>/<ts>`, and its notes, `/n/<channel>/<ts>`, where the
 AI agent's summary and notes people type are kept (`task_notes`). Pages are
-for people who can read the channel and are signed in (Configure → Web pages on the Home tab signs out of every browser): the same window gives a
+for people who can read the channel and are signed in (Settings → Web pages on the Home tab signs out of every browser): the same window gives a
 link that works once and sets a 30-day cookie (`web_tokens`, hashes only). The
 links are built on `PUBLIC_URL`, or the address a request came by.
 
@@ -219,8 +219,8 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/format.ts` | Times in `TIMEZONE`, and Slack users' names |
 | `src/export.ts` | Keeping each tracked thread's messages in D1 (`messages`) |
 | `src/notes.ts`, `src/links.ts` | A task's notes page and the addresses of its pages |
-| `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, the Project settings button in Configure (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
-| `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Configure → Web pages, and who may read a channel |
+| `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, Edit under Projects in Settings (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
+| `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
 | `src/doc.ts` | Writing executive summaries to each group's Google Doc, and reading them back |
 | `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and `Secret.gs`, uncommitted, which only a new web app is pushed with |
 | `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
@@ -248,7 +248,7 @@ Cade is also an [MCP](https://modelcontextprotocol.io) server at `/mcp` (`src/mc
 reads threads and tasks and works on them as that person. It speaks Streamable HTTP in its simplest form: each POST is
 one JSON-RPC message (or a batch), answered with JSON, with no sessions or streams.
 
-- **Keys.** Configure → AI agent on the Home tab (`src/commands/configure.ts`) makes the person's API key, shown once,
+- **Keys.** Settings → AI agent on the Home tab (`src/commands/configure.ts`) makes the person's API key, shown once,
   with the endpoint and a link to the setup guide; revoking it there ends it. Only a hash is kept, in `mcp_tokens`. The
   key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
 - **Access.** Everything runs as the key's owner: a private channel's threads and tasks only for its members, and never

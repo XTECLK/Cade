@@ -2343,45 +2343,86 @@ test("the Home tab's project picker keeps the person's project for next time", a
   assert.equal(await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UME").first().then((row) => row.home_project), null);
 });
 
-test("Configure on the Home tab has the web pages, the AI agent (unless MCP is off) and, for an admin, the project settings", async (t) => {
+test("Settings on the Home tab has the person's own setup, and for an admin a project picker with that project's settings and Edit", async (t) => {
   const stored: Stored[] = [{ channel: "CDEV", ts: "1.1", task: { ...storedTask().task, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } } }];
-  const configure = async (user: string, environment: AppEnv = env, seed?: () => Promise<unknown>) => {
+  const open = async (action: string, user: string, environment: AppEnv = env, seed?: () => Promise<unknown>) => {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
     await seed?.();
-    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, view: { private_metadata: "mine" }, actions: [{ action_id: "home:section:configure" }] }), {}, environment);
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: user }, view: { private_metadata: "mine" }, actions: [{ action_id: action }] }), {}, environment);
     const view = calls.find((call) => call.method === "views.publish").args.view;
-    assert.equal(view.private_metadata, "configure");
     assert.deepEqual(duplicateActionIds(view.blocks), []);
-    const buttons = view.blocks.flatMap((block) => [...(block.elements ?? []), ...(block.accessory ? [block.accessory] : [])]).filter((element) => element.type === "button");
-    return { names: buttons.map((button) => button.text.text), settings: buttons.find((button) => button.action_id === "home:settings"), text: view.blocks.map((block) => blockText(block) ?? "").join("\n") };
+    const elements = view.blocks.flatMap((block) => [...(block.elements ?? []), ...(block.accessory ? [block.accessory] : [])]);
+    const buttons = elements.filter((element) => element.type === "button");
+    return {
+      view,
+      names: buttons.map((button) => button.text.text),
+      pickers: elements.filter((element) => element.action_id === "home:project").length,
+      settings: buttons.find((button) => button.action_id === "home:settings"),
+      text: view.blocks.map((block) => blockText(block) ?? "").join("\n"),
+    };
   };
+  const settings = (user: string, environment?: AppEnv, seed?: () => Promise<unknown>) => open("home:section:configure", user, environment, seed);
   const admin = { ...env, ADMINS: JSON.stringify(["UME"]) };
-  // Everyone: the two parts, then how each setup stands now, with a button to change it. The task tabs are not there.
-  const member = await configure("UME");
-  assert.deepEqual(member.names, ["Refresh", "Home", "Configure", "Manage", "Manage", "Turn off"]);
-  assert.match(member.text, /\*Web pages\*\n:x: Not signed in on any browser/);
+  // Everyone: Home, Settings and Refresh along the top, then their own setup, each with how it stands and a button to change it.
+  // No project picker, task tabs or Add project there.
+  const member = await settings("UME");
+  assert.equal(member.view.private_metadata, "configure");
+  assert.deepEqual(member.names, ["Home", "Settings", "Refresh", "Manage", "Manage", "Turn off"]);
+  assert.equal(member.view.blocks[0].elements[1].style, "primary");
+  assert.equal(member.pickers, 0);
+  assert.match(member.text, /Just for you\n\*Web pages\*\n:x: Not signed in on any browser/);
   assert.match(member.text, /\*AI agent\*\n:x: No key yet/);
-  assert.doesNotMatch(member.text, /Project settings/);
+  assert.doesNotMatch(member.text, /Projects|Project settings/);
   // The picture follows what the person has done, without opening anything.
-  const set = await configure("UME", env, async () => {
+  const set = await settings("UME", env, async () => {
     await DB.prepare("INSERT INTO web_tokens (token_hash, user_id, kind, expires_at) VALUES ('h1', 'UME', 'session', datetime('now', '+1 day')), ('h2', 'UME', 'session', datetime('now', '+1 day')), ('h3', 'UME', 'session', datetime('now', '-1 day'))").run();
     await DB.prepare("INSERT INTO mcp_tokens (user_id, token_hash) VALUES ('UME', 'k1')").run();
   });
   assert.match(set.text, /:white_check_mark: Signed in on 2 browsers/);
   assert.match(set.text, /:white_check_mark: Configured · key made \d{4}-\d{2}-\d{2} · \d+ tools/);
-  // An admin also has the project settings, for the project shown, with its switches.
-  const asAdmin = await configure("UME", admin);
-  assert.deepEqual(asAdmin.names, ["Add project", "Refresh", "Home", "Configure", "Manage", "Manage", "Turn off", "Change"]);
+  // An admin also has Projects: the picker, then the picked project's people and switches, with Edit for the form.
+  const asAdmin = await settings("UME", admin);
+  assert.deepEqual(asAdmin.names, ["Home", "Settings", "Refresh", "Manage", "Manage", "Turn off", "Edit"]);
+  assert.equal(asAdmin.pickers, 1);
   assert.equal(asAdmin.settings.value, "CDEV");
-  assert.match(asAdmin.text, /\*Project settings\*\n\*acme\*: everyone in the workspace\nTask change detection: on  ·  New task detection: on/);
+  assert.match(asAdmin.text, /Projects\n[\s\S]*\*Project settings\*\n\*acme\*: everyone in the workspace\nTask change detection: on  ·  New task detection: on/);
   // MCP off: it says so, with no button.
-  const off = await configure("UME", { ...env, MCP: "off" });
-  assert.deepEqual(off.names, ["Refresh", "Home", "Configure", "Manage", "Turn off"]);
+  const off = await settings("UME", { ...env, MCP: "off" });
+  assert.deepEqual(off.names, ["Home", "Settings", "Refresh", "Manage", "Turn off"]);
   assert.match(off.text, /\*AI agent\*\n:x: Turned off by an admin/);
-  // Home comes back to the tasks, on the tab last used.
-  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
-  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:section:home" }] }));
-  assert.equal(calls.find((call) => call.method === "views.publish").args.view.private_metadata, "mine");
+  // Suggestions name every project where an admin turned them off, whichever project is picked.
+  const projectsOff = (env.PROJECTS as Project[]).map((pair) => (pair.channel === "CDEV" ? pair : { ...pair, taskChangeDetection: false }));
+  const named = await settings("UME", { ...env, PROJECTS: projectsOff });
+  const others = projectsOff.filter((pair) => pair.channel !== "CDEV").map((pair) => `\\*${pair.name}\\*`).join(", ");
+  assert.match(named.text, new RegExp(`Turned off for everyone by an admin in ${others}\\.`));
+
+  // Home: the same top row, then the project picker with Add project (for an admin), then the task tabs.
+  const home = await open("home:section:home", "UME", admin);
+  assert.equal(home.view.private_metadata, "mine");
+  assert.deepEqual(home.view.blocks[0].elements.map((element) => element.text.text), ["Home", "Settings", "Refresh"]);
+  assert.equal(home.view.blocks[0].elements[0].style, "primary");
+  assert.deepEqual(home.view.blocks[1].elements.map((element) => element.action_id), ["home:project", "home:project:add"]);
+  assert.deepEqual(home.view.blocks[2].elements.map((element) => element.text.text), ["My Tasks", "Unassigned", "All Tasks"]);
+  const memberHome = await open("home:section:home", "UME");
+  assert.deepEqual(memberHome.view.blocks[1].elements.map((element) => element.action_id), ["home:project"]);
+});
+
+test("with no projects yet, Home offers an admin Add project, and Settings still has the person's own setup", async (t) => {
+  const draw = async (action: string, environment: AppEnv) => {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: action }] }), {}, environment);
+    return calls.find((call) => call.method === "views.publish").args.view.blocks;
+  };
+  const none = { ...env, PROJECTS: "[]" };
+  const admin = { ...none, ADMINS: JSON.stringify(["UME"]) };
+  const adminHome = await draw("home:section:home", admin);
+  assert.equal(adminHome[1].text.text, "There are no projects yet.");
+  assert.equal(adminHome[1].accessory.action_id, "home:project:add");
+  const memberHome = await draw("home:section:home", none);
+  assert.match(blockText(memberHome[1]), /There are no projects yet\. An admin adds one on this tab\./);
+  const adminSettings = (await draw("home:section:configure", admin)).map((block) => blockText(block) ?? "").join("\n");
+  assert.match(adminSettings, /\*Suggestions\*/);
+  assert.match(adminSettings, /Projects\n_There are no projects yet\. Add one with Add project on Home\._/);
 });
 
 test("npm run config sets MCP on or off from mcp", async () => {
@@ -3758,7 +3799,7 @@ test("a suggestion asks whoever wrote the message, privately, with Accept, Edit�
   assert.deepEqual(suggestionButtons(question).map((button) => button.text.text), ["Accept", "Edit…", "Reject"]);
 });
 
-test("suggestions turned off in Configure aren't offered to that person, nor their messages read with AI, until turned on", async (t) => {
+test("suggestions turned off in Settings aren't offered to that person, nor their messages read with AI, until turned on", async (t) => {
   const { environment, asked } = aiEnv(aiRead({ reviewer: add("UMIA") }));
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [taskWith("IN_PROGRESS")] });
   const turn = async (on: boolean) => {
@@ -3786,7 +3827,7 @@ test("suggestions turned off in Configure aren't offered to that person, nor the
   await send("/slack/events", threadReply("<@UMIA> can you review this?", { user: "UACTOR", ts: "100.7" }), {}, environment);
   assert.equal(questions(), 2);
   // Each question says where to turn them off.
-  assert.match(blockText(calls.filter((call) => call.method === "chat.postEphemeral").at(-1).args.blocks.at(-1)), /Home tab → Configure → Suggestions/);
+  assert.match(blockText(calls.filter((call) => call.method === "chat.postEphemeral").at(-1).args.blocks.at(-1)), /Home tab → Settings → Suggestions/);
 });
 
 test("three rejects in a row offer to turn suggestions off: Accept or Edit… starts the count again, Keep them stops it for 30 days", async (t) => {
@@ -3819,7 +3860,7 @@ test("three rejects in a row offer to turn suggestions off: Accept or Edit… st
   assert.equal(offer.replace_original, true);
   assert.match(offer.text, /turned down my last 3 suggestions/);
   assert.deepEqual(suggestionButtons(offer).map((button) => button.text.text), ["Turn off", "Keep them"]);
-  assert.match(blockText(offer.blocks.at(-1)), /Home tab → Configure → Suggestions/);
+  assert.match(blockText(offer.blocks.at(-1)), /Home tab → Settings → Suggestions/);
 
   // Keep them: no offer for the next rejects, and suggestions stay on.
   assert.match((await click(offerButton(offer, "Keep them"))).text, /won't ask about this for 30 days/);
@@ -3831,7 +3872,7 @@ test("three rejects in a row offer to turn suggestions off: Accept or Edit… st
   const again = await reject();
   assert.equal(again.replace_original, true);
 
-  // Turn off: the same switch as Configure, so the next message gets no question.
+  // Turn off: the same switch as Settings, so the next message gets no question.
   assert.match((await click(offerButton(again, "Turn off"))).text, /won't suggest changes from your messages/);
   assert.equal(await suggest(), undefined);
 });

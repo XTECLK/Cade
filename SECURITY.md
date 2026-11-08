@@ -18,4 +18,4 @@ a vulnerability.
 
 - Never commit tokens or secrets. They are set with `npx wrangler secret put` and kept out of files; `cade.config.json` and `.cade/` are ignored by git.
 - If a token leaks, rotate it in Slack or Google and set the new one as a Worker secret.
-- Revoke key (Configure → AI agent on the app's Home tab) deletes your MCP key.
+- Revoke key (Settings → AI agent on the app's Home tab) deletes your MCP key.

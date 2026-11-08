@@ -5,7 +5,7 @@ import type { AppEnv } from "./env.ts";
 export type SettingKey = "taskChangeDetection" | "newTaskDetection" | "activeTasksPinning" | "summaryCanvas" | "aiAgentSummary";
 export type SettingChoice = "config" | "on" | "off";
 
-// The project settings that can be changed in the form the Project settings button in Configure opens (see commands/project.ts), each on or off.
+// The project settings that can be changed in the form Edit opens, under Projects in Settings on the Home tab (see commands/project.ts), each on or off.
 // A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS: { key: SettingKey; label: string; about: string }[] = [

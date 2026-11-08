@@ -44,7 +44,7 @@ export type TaskRef = { channel: string; ts: string };
 
 // ---- The payloads ----
 
-// Turn off or Turn on, for the person's own suggestions, in the Home tab's Configure (home.ts).
+// Turn off or Turn on, for the person's own suggestions, in the Home tab's Settings (home.ts).
 export const SUGGESTIONS_BUTTON = object({ on: { type: "boolean" } });
 export type SuggestionsButton = { on: boolean };
 

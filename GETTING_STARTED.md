@@ -54,9 +54,9 @@ values).
 | --- | --- | --- | --- |
 | `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: send the Add project button in a channel to add it (an `admins` person), the Project settings button to change its switches; projects there are kept in Cade's database (tables `projects` and `project_settings`), so `projects` can be left out of the file. | Write them by hand, or leave it out and use the Add project button on the app's Home tab (step 8). |
 | `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `admins` | Optional (none) | The Slack user IDs of the people who can add projects and change each project's switches from Slack (Configure on the app's Home tab), without editing the file. Everyone else is told only an admin can. | `npm run setup` asks for the first one. Or add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
+| `admins` | Optional (none) | The Slack user IDs of the people who can add projects and change each project's switches from Slack (Settings on the app's Home tab), without editing the file. Everyone else is told only an admin can. | `npm run setup` asks for the first one. Or add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
 | `aiModel` | Optional | The Workers AI text model that reads messages for suggestions, one for every project, such as `"@cf/google/gemma-4-26b-a4b-it"`. Without it, the default, `@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read these messages well. | Set `"aiModel"` at the top of `cade.config.json`, then `npm run config`. |
-| `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (Configure → AI agent on the app's Home tab). `false` turns the MCP endpoint off: it answers 404, no keys are given and the new-task prompt for an agent isn't shown. Keys already made stop working, and can still be revoked. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
+| `mcp` | Optional (true) | Whether people can connect their AI agent to Cade (Settings → AI agent on the app's Home tab). `false` turns the MCP endpoint off: it answers 404, no keys are given and the new-task prompt for an agent isn't shown. Keys already made stop working, and can still be revoked. | Set `"mcp": false` in `cade.config.json`, then `npm run config`. |
 | `googleUrl` | Required to add projects | The Google web app's URL (`https://script.google.com/…/exec`), one for every project's Doc. Every project has a Google Doc for its executive summaries, made for it by the Add project button; without Google set up, neither works. A project from the config file can name an existing Doc as `workDoc`. | Set for you by `npm run google:create` (step 7). |
 
 Each entry in `projects` takes these. Nothing else is set at the top of the file: the settings below belong to a project, so two projects can differ.
@@ -321,7 +321,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
 - Slack's free plan hides messages older than 90 days, including old tasks'
   threads. Cade keeps every message of a tracked task's thread in its
   database as it is sent, so the task's history page still has them, and
-  so do the tasks themselves. On the app's Home tab, press Configure → Web pages for a link that signs
+  so do the tasks themselves. On the app's Home tab, press Settings → Web pages for a link that signs
   you in to those pages.
 - D1's free plan allows 100,000 row writes a day and 500 MB per database;
   each change to a task is a single row write.
@@ -341,7 +341,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
   one.
 - **Google Doc**: each group's work doc holds its executive summaries. See
   [google/README.md](google/README.md). Task threads and notes are in the
-  database, on pages of the Worker (Configure → Web pages on the app's Home tab to open them).
+  database, on pages of the Worker (Settings → Web pages on the app's Home tab to open them).
 
 ## Using Cade
 

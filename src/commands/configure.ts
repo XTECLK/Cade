@@ -31,7 +31,7 @@ const section = (text: string): SlackBlock => ({ type: "section", text: mrkdwn(t
 const button = (action_id: string, text: string, extra: SlackBlock = {}) => ({ type: "button", action_id, text: plainText(text), ...extra });
 const modal = (title: string, blocks: SlackBlock[]) => ({ type: "modal", title: plainText(title), close: plainText("Close"), blocks });
 
-// Whether the person is signed in to the web pages, for the Configure part of the Home tab and the modal.
+// Whether the person is signed in to the web pages, for the Settings part of the Home tab and the modal.
 export async function webLine(env: AppEnv, user: string) {
   const browsers = await webSessionsOf(env, user);
   return browsers ? `:white_check_mark: Signed in on ${browsers} browser${browsers === 1 ? "" : "s"}` : ":x: Not signed in on any browser";
@@ -59,7 +59,7 @@ export async function webView(env: AppEnv, user: string, result?: string) {
   ]);
 }
 
-// Whether MCP is on for this Cade and the person has a key, for the Configure part of the Home tab.
+// Whether MCP is on for this Cade and the person has a key, for the Settings part of the Home tab.
 export async function mcpLine(env: AppEnv, user: string) {
   if (!mcpEnabled(env)) return ":x: Turned off by an admin";
   const made = await mcpTokenCreated(env, user);

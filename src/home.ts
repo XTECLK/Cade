@@ -13,7 +13,7 @@ import type { TaskEntry } from "./commands/tasks.ts";
 import type { Role, SlackBlock, Status, Task } from "./types.ts";
 
 type Tab = keyof typeof TABS;
-// What the Home tab shows: a view of the tasks, or Configure.
+// What the Home tab shows: a view of the tasks, or Settings.
 export type HomeTab = Tab | typeof CONFIGURE;
 type Section = { role: Role; emoji: string; title: string; ready: Status[]; empty: string };
 
@@ -45,15 +45,17 @@ export const CLAIM_ACTION = "home:claim";
 // is a project's name; with none chosen, or one that is gone, the first project is shown.
 export const PROJECT_ACTION = "home:project";
 
-// The two parts of the tab, as buttons under the picker: the person's tasks, and Configure, with the
-// setup buttons (see commands/configure.ts) and, for an admin, the project's settings. Which part is
-// open isn't kept: the tab opens on tasks.
+// The two parts of the tab, as the buttons along the top: Home, the person's tasks, and Settings, with
+// their own setup (see commands/configure.ts) and, for an admin, each project's settings. Which part is
+// open isn't kept: the tab opens on tasks. Settings was called Configure, which its ids still say, so a
+// Home tab drawn before then keeps working.
 export const HOME_ACTION = "home:section:home";
 export const CONFIGURE_ACTION = "home:section:configure";
 export const CONFIGURE = "configure";
+// Edit, under Projects in Settings: opens the picked project's settings form (see commands/project.ts).
 export const SETTINGS_ACTION = "home:settings";
 export const ADD_PROJECT_ACTION = "home:project:add";
-// Turn off / Turn on, in Configure: the person's own suggestions (see suggestionsRow).
+// Turn off / Turn on, in Settings: the person's own suggestions (see suggestionsRow).
 export const SUGGESTIONS_ACTION = "home:suggestions";
 
 // The buttons along the top, each a view of the open tasks. Slack has no
@@ -69,7 +71,7 @@ const DEFAULT_TAB = "mine";
 // with the Assign to me button).
 const MAX_LISTED = 20;
 
-// Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Configure, which isn't.
+// Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Settings, which isn't.
 // With none, it opens on the tasks tab they were last on.
 export async function publishHome(env: AppEnv, user: string, tab?: string) {
   if (TABS[tab as Tab]) await setHomeTab(env, user, tab!);
@@ -77,7 +79,7 @@ export async function publishHome(env: AppEnv, user: string, tab?: string) {
   await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab) });
 }
 
-// The view carries its tab (or Configure), for the project picker to draw it again on.
+// The view carries its tab (or Settings), for the project picker to draw it again on.
 export async function homeView(env: AppEnv, user: string, tab: string = DEFAULT_TAB) {
   if (!TABS[tab as Tab] && tab !== CONFIGURE) tab = DEFAULT_TAB;
   return { ...(await draw(env, user, tab)), private_metadata: tab };
@@ -89,28 +91,27 @@ async function draw(env: AppEnv, user: string, tab: string) {
   // The person's last project, unless it is gone from the settings: then the first.
   const chosen = await getHomeProject(env, user);
   const project = all.find((group) => group.name === chosen) ?? all[0];
-  // The project picker, Add project (for an admin) and Refresh share a row, then the two parts of the tab, then (for tasks) the tabs.
-  const top: SlackBlock[] = [
-    {
-      type: "actions",
-      elements: [
-        ...(project ? [projectPicker(all, project)] : []),
-        ...(isAdmin(env, user) ? [{ type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") }] : []),
-        { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
-      ],
-    },
-    {
-      type: "actions",
-      elements: [
-        { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
-        { type: "button", action_id: CONFIGURE_ACTION, text: plainText("Configure"), ...(tab === CONFIGURE && { style: "primary" }) },
-      ],
-    },
-  ];
+  const admin = isAdmin(env, user);
+  // The two parts of the tab, with Refresh, along the top of both.
+  const nav: SlackBlock = {
+    type: "actions",
+    elements: [
+      { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
+      { type: "button", action_id: CONFIGURE_ACTION, text: plainText("Settings"), ...(tab === CONFIGURE && { style: "primary" }) },
+      { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
+    ],
+  };
+  if (tab === CONFIGURE) return await settingsView(env, user, nav, all, project);
+  const addProject = { type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") };
   if (!project) {
-    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_There are no projects yet. An admin adds one with the Add project button._")] }] };
+    const none = "There are no projects yet.";
+    return {
+      type: "home",
+      blocks: [nav, admin ? { type: "section", text: mrkdwn(none), accessory: addProject } : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] }],
+    };
   }
-  if (tab === CONFIGURE) return await configureView(env, user, top, project);
+  // On Home, under the two parts: which project's tasks are shown, and (for an admin) Add project, then the task tabs.
+  const top: SlackBlock[] = [nav, { type: "actions", elements: [projectPicker(all, project), ...(admin ? [addProject] : [])] }];
   const open = await groupTasks(env, project, OPEN, url);
   const today = todayIn(env);
   const tabRow = {
@@ -143,9 +144,9 @@ async function draw(env: AppEnv, user: string, tab: string) {
 
   const blocks: SlackBlock[] = [
     ...top,
+    tabRow,
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(summary)] },
-    tabRow,
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });
@@ -169,40 +170,49 @@ function projectPicker(groups: Project[], project: Project) {
   };
 }
 
-// The Configure part: the whole picture without a click, a section for each setup with how it stands
-// now and a button to change it. AI agent says so when MCP is turned off, and has no button then; Project
-// settings is for admins only, and lists the project's switches.
-async function configureView(env: AppEnv, user: string, top: SlackBlock[], project: Project) {
+// The Settings part: the whole picture without a click, a section for each setup with how it stands
+// now and a button to change it, in two groups. Just for you is the person's own, the same in every
+// project: AI agent says so when MCP is turned off, and has no button then. Projects is for admins
+// only: a project picker (the same choice as on Home), then that project's people and switches, with
+// Edit to change them in a form.
+async function settingsView(env: AppEnv, user: string, nav: SlackBlock, all: Project[], project: Project | undefined) {
   const row = (title: string, now: string, action: string | false, label: string, value?: string) => ({
     type: "section",
     text: mrkdwn(`*${title}*\n${now}`),
     ...(action && { accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) } }),
   });
-  const members = projectMembers(env, project.channel);
-  const switches = SETTINGS.map(({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`).join("  ·  ");
-  const blocks = [
-    ...top,
-    { type: "header", text: plainText("Configure") },
+  const blocks: SlackBlock[] = [
+    nav,
+    { type: "header", text: plainText("Just for you") },
     row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
     row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
-    await suggestionsRow(env, user, project),
-    ...(isAdmin(env, user)
-      ? [row("Project settings", `*${project.name}*: ${members.length ? `${members.length} ${members.length === 1 ? "person" : "people"} picked` : "everyone in the workspace"}\n${switches}`, SETTINGS_ACTION, "Change", project.channel)]
-      : []),
-    { type: "divider" },
-    { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] },
+    await suggestionsRow(env, user, all),
   ];
+  if (isAdmin(env, user)) {
+    blocks.push({ type: "divider" }, { type: "header", text: plainText("Projects") });
+    if (project) {
+      const members = projectMembers(env, project.channel);
+      const people = members.length ? `${members.length} ${members.length === 1 ? "person" : "people"} picked` : "everyone in the workspace";
+      const switches = SETTINGS.map(({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`).join("  ·  ");
+      blocks.push({ type: "actions", elements: [projectPicker(all, project)] }, row("Project settings", `*${project.name}*: ${people}\n${switches}`, SETTINGS_ACTION, "Edit", project.channel));
+    } else {
+      blocks.push({ type: "context", elements: [mrkdwn("_There are no projects yet. Add one with Add project on Home._")] });
+    }
+  }
+  blocks.push({ type: "divider" }, { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
 }
 
 // The person's own switch for the suggestions Cade offers them from their messages in task threads
-// (see suggest.ts). It can only turn them off for them: when the project has them off, that's said too.
-async function suggestionsRow(env: AppEnv, user: string, project: Project) {
+// (see suggest.ts). It can only turn them off for them: the projects where an admin has them off for
+// everyone are named too, as the switch is the same wherever they write.
+async function suggestionsRow(env: AppEnv, user: string, all: Project[]) {
   const on = await suggestionsOn(env, user);
   const now = on
     ? ":white_check_mark: On. Cade privately offers to update a task from what you write in its thread."
     : ":x: Off for you. Cade won't offer to update a task from your messages, so update it yourself.";
-  const projectOff = settingOn(env, project.channel, "taskChangeDetection") === false ? `\n_Turned off for everyone in *${project.name}* by an admin._` : "";
+  const off = all.filter((candidate) => settingOn(env, candidate.channel, "taskChangeDetection") === false).map((candidate) => `*${escapeSlack(candidate.name)}*`);
+  const projectOff = off.length ? `\n_Turned off for everyone by an admin in ${off.join(", ")}._` : "";
   return {
     type: "section",
     text: mrkdwn(`*Suggestions*\n${now}${projectOff}`),
@@ -219,9 +229,9 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
   const entries = (unassigned ? open.filter((entry) => !(Object.keys(ROLES) as Role[]).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
   const blocks: SlackBlock[] = [
     ...top,
+    tabRow,
     { type: "header", text: plainText(unassigned ? "Unassigned tasks" : "All open tasks") },
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
-    tabRow,
     { type: "divider" },
   ];
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });

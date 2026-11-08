@@ -201,10 +201,9 @@ test("the Project settings button opens a form with the channel's project, its n
   const view = JSON.parse(args.view);
   assert.equal(view.callback_id, "project:settings");
   assert.equal(view.private_metadata, "CDEV");
-  // The project list, with this channel's project chosen, and a choice for each switch.
-  const picker = view.blocks[0].accessory;
-  assert.deepEqual(picker.options.map((option) => option.text.text), ["acme"]);
-  assert.equal(picker.initial_option.value, "CDEV");
+  // The project it was opened for, by name, with no list to pick another, and a choice for each switch.
+  assert.equal(view.blocks[0].text.text, "*acme*");
+  assert.equal(view.blocks.some((block) => block.accessory?.type === "static_select"), false);
   assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["members", "s_taskChangeDetection", "s_newTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
@@ -271,24 +270,15 @@ test("the project's people are picked in the form and kept, and emptying the lis
   assert.deepEqual(await members(), []);
 });
 
-test("picking another project in the form shows its settings, and a project added from the Home tab is one", async (t) => {
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, "views.update": {}, "views.publish": {}, "auth.test": { url: "https://acme.slack.com/" } });
+test("a project added from the Home tab opens its own settings, as one kept in Cade's database", async (t) => {
+  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, "views.update": {}, "views.open": {}, "views.publish": {}, "auth.test": { url: "https://acme.slack.com/" } });
   await interact(addForm());
-  const pick = { type: "block_actions", user: { id: "UADMIN" }, view: { id: "V1", hash: "H1" }, actions: [{ action_id: "project:pick", selected_option: { value: "CNEW" } }] };
-  await interact(pick);
-  const update = calls.find((call) => call.method === "views.update" && call.args.view_id === "V1");
-  assert.equal(update.args.view_id, "V1");
-  assert.equal(update.args.hash, "H1");
-  const view = JSON.parse(update.args.view);
+  await openSettings("CNEW");
+  const view = JSON.parse(calls.filter((call) => call.method === "views.open").at(-1).args.view);
   assert.equal(view.private_metadata, "CNEW");
-  assert.deepEqual(view.blocks[0].accessory.options.map((option) => option.text.text), ["acme", "payments"]);
-  assert.equal(view.blocks[0].accessory.initial_option.value, "CNEW");
+  assert.equal(view.blocks[0].text.text, "*payments*");
   assert.match(select(view, "activeTasksPinning").element.options[0].text.text, /^Use the default \(/);
   assert.match(view.blocks[1].elements[0].text, /kept in Cade's database/);
-  // A non-admin's pick does nothing.
-  const before = calls.length;
-  await interact({ ...pick, user: { id: "UMEMBER" } });
-  assert.equal(calls.length, before);
 });
 
 test("the web pages modal's sign-out button ends every browser session of the person, and no one else's", async (t) => {

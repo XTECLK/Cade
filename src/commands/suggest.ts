@@ -95,7 +95,7 @@ export default {
 
 // The work intent's handler: asks whoever wrote the message, privately, with
 // the summary of what it suggests, if anything. Someone who turned suggestions off for
-// themselves (Home tab → Configure) is asked nothing, and their message isn't sent to the model.
+// themselves (Home tab → Settings) is asked nothing, and their message isn't sent to the model.
 async function suggestWork(message: PlainMessage, env: AppEnv) {
   if (!(await suggestionsOn(env, message.user))) return;
   const about = await threadTask(env, message);

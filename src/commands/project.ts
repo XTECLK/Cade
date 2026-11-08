@@ -4,7 +4,7 @@ import { ensureWorkDoc } from "../doc.ts";
 import { googleEnabled } from "../google.ts";
 import { ADD_PROJECT_ACTION, SETTINGS_ACTION, publishHome } from "../home.ts";
 import { SETTINGS, applyMembers, applySettings, choicesOf, configEnv, isAdmin, projectMembers, settingOn, withSettings } from "../settings.ts";
-import { callSlack, mrkdwn, plainText } from "../slack.ts";
+import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, SlackPayload } from "../types.ts";
@@ -12,9 +12,8 @@ import type { Context, SlackPayload } from "../types.ts";
 
 const SETTINGS_VIEW = "project:settings";
 const ADD_VIEW = "project:add";
-const PICK_ACTION = "project:pick";
 
-// Admins manage projects from Configure on the Home tab (see home.ts), not with commands:
+// Admins manage projects from Settings on the Home tab (see home.ts), not with commands:
 //   Add project       opens a form: a channel, a name (the channel's own by default), the people who work on
 //                     it and each switch (see settings.ts). Submitting checks them, and then makes the project
 //                     as one added to cade.config.json would be: its tasks are tracked in that channel (see
@@ -22,12 +21,12 @@ const PICK_ACTION = "project:pick";
 //                     (so Google must be set up): without it nothing is added. The form turns into
 //                     "Adding…", then says whether it worked, and why not. The name and channel can't be
 //                     changed afterwards.
-//   Project settings  opens a form with a project's switches, each following the config or turned on or off,
-//                     and a list to pick the project from.
+//   Project settings  opens a form with the switches of the project picked on the Home tab, each following
+//                     the config or turned on or off.
 // Only the admins listed in cade.config.json can use either.
 export default {
   views: { [SETTINGS_VIEW]: saveSettings, [ADD_VIEW]: addProjectSubmit },
-  actions: { [PICK_ACTION]: pickProject, [SETTINGS_ACTION]: openSettings, [ADD_PROJECT_ACTION]: openAddProject },
+  actions: { [SETTINGS_ACTION]: openSettings, [ADD_PROJECT_ACTION]: openAddProject },
 } satisfies Handler;
 
 const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md), then try again.";
@@ -35,8 +34,8 @@ const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, 
 const CHOICES = { config: "Use the config", on: "On", off: "Off" };
 const state = (on: boolean | "some") => (on === "some" ? "partly on" : on ? "on" : "off");
 
-// The form for the project with `channel` (the first project if it is none): a list of projects to
-// switch between, and a choice for each setting. Name and channel stay as they were set.
+// The form for the project with `channel` (the first project if it is none): its name, and a choice
+// for each setting. Name and channel stay as they were set.
 async function settingsView(env: AppEnv, channel: string) {
   const list = projects(env);
   // The button that opens it is only shown with a project, so there is one.
@@ -44,7 +43,6 @@ async function settingsView(env: AppEnv, channel: string) {
   const config = configEnv(env);
   const choices = await choicesOf(env, project.channel);
   const option = (text: string, value: string) => ({ text: plainText(text.slice(0, 75)), value });
-  const picks = list.slice(0, 100).map((candidate) => option(candidate.name, candidate.channel));
   return {
     type: "modal",
     callback_id: SETTINGS_VIEW,
@@ -53,12 +51,8 @@ async function settingsView(env: AppEnv, channel: string) {
     submit: plainText("Save"),
     close: plainText("Cancel"),
     blocks: [
-      {
-        type: "section",
-        text: mrkdwn("*Project*"),
-        accessory: { type: "static_select", action_id: PICK_ACTION, initial_option: picks.find((pick) => pick.value === project.channel), options: picks },
-      },
-      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. Picking another project drops changes you haven't saved.`)] },
+      { type: "section", text: mrkdwn(`*${escapeSlack(project.name)}*`) },
+      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. To change another project, pick it on the Home tab.`)] },
       {
         type: "input",
         block_id: "members",
@@ -81,20 +75,10 @@ async function settingsView(env: AppEnv, channel: string) {
   };
 }
 
-// The Project settings button in Configure on the Home tab: opens the form for the project it carries.
+// Edit, under Projects in Settings on the Home tab: opens the form for the project it carries.
 async function openSettings(payload: SlackPayload, { env }: Context) {
   if (!isAdmin(env, payload.user.id)) return;
   await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await settingsView(env, payload.actions[0].value) });
-}
-
-// Another project picked in the form: show its settings in its place.
-async function pickProject(payload: SlackPayload, { env }: Context) {
-  if (!isAdmin(env, payload.user.id)) return;
-  await callSlack(env, "views.update", {
-    view_id: payload.view.id,
-    hash: payload.view.hash,
-    view: await settingsView(env, payload.actions[0].selected_option.value),
-  });
 }
 
 // The form saved: each setting goes back to the config or is kept on or off.

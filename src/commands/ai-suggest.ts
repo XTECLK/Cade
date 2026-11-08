@@ -24,7 +24,7 @@ const TURN_OFF_ACTION = "ai-suggest:turn-off";
 const KEEP_ACTION = "ai-suggest:keep";
 
 // Rejecting this many suggestions in a row, with no Accept or Edit… between, offers to turn them
-// off for the person (the same switch as Configure → Suggestions in the Home tab). Keep them stops
+// off for the person (the same switch as Settings → Suggestions in the Home tab). Keep them stops
 // the count for KEEP_DAYS, so they aren't asked again soon. Nothing is turned off without them.
 const REJECTS_BEFORE_OFFER = 3;
 const KEEP_DAYS = 30;
@@ -43,7 +43,7 @@ function turnOffOffer(rejects: number) {
           { type: "button", action_id: KEEP_ACTION, text: plainText("Keep them"), value: "{}" },
         ],
       },
-      { type: "context", elements: [mrkdwn("You can change this any time in Cade's Home tab → Configure → Suggestions.")] },
+      { type: "context", elements: [mrkdwn("You can change this any time in Cade's Home tab → Settings → Suggestions.")] },
     ],
   };
 }
@@ -127,7 +127,7 @@ export async function askToChange(env: AppEnv, message: PlainMessage, { target, 
         ],
       },
       // Where to turn these off, as there's no button for it here (see suggestionsRow in home.ts).
-      { type: "context", elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Configure → Suggestions.")] },
+      { type: "context", elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Settings → Suggestions.")] },
     ],
   });
 }
@@ -191,7 +191,7 @@ export default {
     [TURN_OFF_ACTION]: async (payload, { env }) => {
       await setSuggestions(env, payload.user.id, false);
       console.log("Suggestions turned off", { user: payload.user.id, from: "offer" });
-      await respondLater(payload.response_url, { replace_original: true, text: "Done. I won't suggest changes from your messages. To get them back, open Cade's Home tab → Configure → Suggestions." });
+      await respondLater(payload.response_url, { replace_original: true, text: "Done. I won't suggest changes from your messages. To get them back, open Cade's Home tab → Settings → Suggestions." });
     },
     [KEEP_ACTION]: async (payload, { env }) => {
       await pauseRejects(env, payload.user.id, KEEP_DAYS);

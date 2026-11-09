@@ -1,5 +1,4 @@
 import { projects, findProject } from "../channels.ts";
-import { userNames } from "../format.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { assigned, onTheirPlate, request } from "../notify.ts";
 import { STATUSES, loadTask, saveTask } from "../tasks.ts";
@@ -9,6 +8,7 @@ import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { TaskEntry } from "./tasks.ts";
 import type { SlackBlock, SlackPayload, Status } from "../types.ts";
+import { nameMap } from "../export.ts";
 import { STANDUP_TASK, STANDUP_WALK, readPayload } from "../payloads.ts";
 
 // A walk through the tasks, as its buttons carry it: m, the mode ("people" or
@@ -134,15 +134,15 @@ async function steps(env: AppEnv, walk: Walk, url: string): Promise<Step[]> {
   if (walk.m === "unassigned") return unassigned.map((entry) => ({ entries: [entry] }));
 
   const owners = [...new Set(tasks.flatMap((entry) => entry.task.people.owner))];
-  const names = Object.fromEntries(
-    await Promise.all(owners.map(async (id) => [id, await userNames(env, [id])])),
-  );
+  const names = await nameMap(env, owners);
+  // nameMap names every ID it is given, the ID itself if nothing better.
+  const name = (id: string) => names.get(id) ?? id;
   // Whoever runs it goes first.
   const order = (id: string) => (id === walk.l ? 0 : 1);
-  owners.sort((a, b) => order(a) - order(b) || names[a].localeCompare(names[b]));
+  owners.sort((a, b) => order(a) - order(b) || name(a).localeCompare(name(b)));
   const people = owners.map((person) => ({
     person,
-    name: names[person],
+    name: name(person),
     entries: tasks.filter((entry) => entry.task.people.owner.includes(person)).sort(byUrgency),
   }));
   return unassigned.length ? [...people, { entries: unassigned }] : people;

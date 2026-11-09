@@ -12,6 +12,7 @@ import {
   putCanvas,
 } from "./db.ts";
 import { byUrgency, groupTasks, threadLink } from "./commands/tasks.ts";
+import { nameMap } from "./export.ts";
 import { formatTime } from "./format.ts";
 import { callSlack } from "./slack.ts";
 import { PRIORITIES, STATUSES } from "./tasks.ts";
@@ -55,6 +56,15 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
     ...entry,
     closedAt: entry.task.completedAt,
   }));
+  const archived = (await archivedTasks(env, group.channel, MAX_CLOSED)).map(({ ts, task }) => ({
+    task,
+    incident: task.incident,
+    link: threadLink(url, group.channel, ts),
+  }));
+  const names = await nameMap(env, new Set([...tasks, ...archived].flatMap(({ task }) => Object.values(task.people).flat())));
+  // People are named, not mentioned: Slack notifies a canvas's mentions
+  // again on every write. Names come from the ones kept in D1 (see nameMap).
+  const people = (ids: string[]) => (ids.length ? ids.map((id) => `@${cell(names.get(id) ?? id)}`).join(", ") : "—");
   const row = ({ task, incident, link }: Listed): Row => [
     title(task.title, incident, link),
     unbroken(STATUSES[task.status]),
@@ -64,11 +74,6 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
     people(task.people.reviewer),
     people(task.people.tester),
   ];
-  const archived = (await archivedTasks(env, group.channel, MAX_CLOSED)).map(({ ts, task }) => ({
-    task,
-    incident: task.incident,
-    link: threadLink(url, group.channel, ts),
-  }));
   return document(updated, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map(row) }, "tasks");
 }
 
@@ -145,8 +150,7 @@ export async function writeSummary(env: AppEnv, channel: string, { full = false,
   const hash = await sha256(markdown);
   if (canvasId) {
     try {
-      // Unchanged since the last write: skip it, as Slack may notify the
-      // mentioned people again for every write. A full resync always writes.
+      // Unchanged since the last write: skip it. A full resync always writes.
       if (!full && (await getCanvasHash(env, channel)) === hash) return "The summary in this channel's canvas is already up to date.";
       await writeCanvas(env, canvasId, markdown);
       await setCanvasHash(env, channel, hash);
@@ -273,7 +277,8 @@ function unbroken(text: string) {
   return text.replace(/ /g, "\u00a0");
 }
 
-// People as canvas mentions, or a dash for no one.
-function people(ids: string[]) {
-  return ids.length ? ids.map((id) => `![](@${id})`).join(", ") : "—";
+// A name as table-cell text: on one line, with what would end the cell or
+// start markup escaped.
+function cell(text: string) {
+  return text.replace(/\s+/g, " ").replace(/([[\]|\\*_~`])/g, "\\$1");
 }

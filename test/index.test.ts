@@ -3030,7 +3030,7 @@ const standupTasks = () => ({
 });
 
 test("/cade standup starts with whoever runs it, then everyone by name, then tasks with no owner", async (t) => {
-  const { now, later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
+  const { calls, now, later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
   assert.equal(now, "");
   assert.equal(later.response_type, "ephemeral");
   assert.equal(later.blocks[0].text.text, "*Standup: <@UACTOR>*  ·  1 of 4");
@@ -3067,6 +3067,10 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
 
   const back = await clickButton(t, nobody, "◀ Back");
   assert.equal(back.blocks[0].text.text, "*Standup: <@UBOB>*  ·  3 of 4");
+  // Each step sorts the owners by name, but the names are kept after the
+  // first look-up rather than asked of Slack on every click.
+  const asked = calls.filter((call) => call.method === "users.info").map((call) => call.args.user);
+  assert.deepEqual(asked.sort(), ["UACTOR", "UALICE", "UBOB"]);
 });
 
 test("a standup's status menu sets the status and tells the task's thread", async (t) => {
@@ -4310,6 +4314,7 @@ const summaryRows = (markdown, section = "Open") =>
 const unbroken = (row) => row.replace(/\u00a0/g, "~");
 
 const canvasResponses = {
+  ...slackUsers,
   "auth.test": { url: "https://acme.slack.com/" },
   "conversations.canvases.create": { canvas_id: "F0CANVAS" },
 };
@@ -4340,14 +4345,14 @@ test("/cade resync summary puts the group's open tasks in the dev channel's canv
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
   assert.deepEqual(summaryRows(markdown), [
-    `| **Incident:** [Checkout is down]${thread("CDEV", "100.8")} | :memo:~To~do | :red_circle:~Urgent | Immediate | — | — | ![](@UALICE), ![](@UBOB) |`,
+    `| **Incident:** [Checkout is down]${thread("CDEV", "100.8")} | :memo:~To~do | :red_circle:~Urgent | Immediate | — | — | @Alice, @Bob |`,
     `| [High, sooner]${thread("CDEV", "100.3")} | :arrow_forward:~In~progress | :large_orange_circle:~High | 01/11/2026 | — | — | — |`,
-    `| [High \\| \\[later\\]]${thread("CDEV", "100.2")} | :memo:~To~do | :large_orange_circle:~High | 05/11/2026 | — | ![](@UBOB) | — |`,
-    `| [Low task]${thread("CDEV", "100.1")} | :memo:~To~do | :large_green_circle:~Low | 31/10/2026 | ![](@UALICE) | — | — |`,
+    `| [High \\| \\[later\\]]${thread("CDEV", "100.2")} | :memo:~To~do | :large_orange_circle:~High | 05/11/2026 | — | @Bob | — |`,
+    `| [Low task]${thread("CDEV", "100.1")} | :memo:~To~do | :large_green_circle:~Low | 31/10/2026 | @Alice | — | — |`,
   ]);
   // Done tasks follow, most recently done first.
   assert.deepEqual(summaryRows(markdown, "Closed"), [
-    `| [Done later]${thread("CDEV", "100.5")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | ![](@UBOB) | — | — |`,
+    `| [Done later]${thread("CDEV", "100.5")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | @Bob | — | — |`,
     `| [Done task]${thread("CDEV", "100.4")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | — | — | — |`,
   ]);
 
@@ -4381,6 +4386,24 @@ test("a summary write is skipped when the canvas would not change, but a full re
   calls.length = 0;
   await writeSummary(env, "CDEV", { full: true });
   assert.equal(calls.filter((call) => call.method === "canvases.edit").length, 2);
+});
+
+test("the summary names people rather than mentioning them, with names kept from the first look-up", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  const record = historyTask("100.1", { title: "Low task", owners: ["UALICE"], reviewers: ["UBOB"] });
+  await putTask(env, "CDEV", record.ts, record.task);
+  await runTasksCommand("resync summary", "CDEV", env);
+  const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  // A canvas mention notifies the person again on every write.
+  assert.ok(!markdown.includes("![](@"));
+  assert.match(summaryRows(markdown)[0], /\| @Alice \| @Bob \| — \|$/);
+  assert.deepEqual(calls.filter((call) => call.method === "users.info").map((call) => call.args.user).sort(), ["UALICE", "UBOB"]);
+
+  // Rewritten, the names come from the database, not Slack.
+  calls.length = 0;
+  await writeSummary(env, "CDEV", { full: true });
+  assert.ok(calls.some((call) => call.method === "canvases.edit"));
+  assert.ok(!calls.some((call) => call.method === "users.info"));
 });
 
 test("the summary uses the canvas the channel already has", async (t) => {
@@ -4429,7 +4452,7 @@ test("a task change rewrites the summaries of its group that have one", async (t
   await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   const edit = calls.find((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0CANVAS");
-  assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| \[Fix login\]\(https:[^)]+\) \| :memo:~To~do \| :large_orange_circle:~High \| 31\/10\/2026 \| !\[\]\(@UBOB\) \|/);
+  assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| \[Fix login\]\(https:[^)]+\) \| :memo:~To~do \| :large_orange_circle:~High \| 31\/10\/2026 \| @Bob \|/);
 });
 
 test("a new task makes its group's summary canvas; other changes only rewrite one there is", async (t) => {

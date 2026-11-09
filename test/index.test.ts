@@ -135,7 +135,12 @@ type Replies = { stored?: readonly Stored[]; doc?: unknown } & Record<string, un
 
 // What Slack answers unless a test says otherwise: everyone in these tests is in every channel.
 const EVERYONE = ["UACTOR", "UADMIN", "UALICE", "UANN", "UBOB", "UCLICKER", "UCLIENT", "UCREATOR", "UDEV", "UDEV1", "UDEV2", "ULEAD", "UME", "UMIA", "UOTHER", "UPM", "UREX", "URIA", "UTC", "UTESS", "UTOM", "UZED", "UZOE"];
-const DEFAULTS: Record<string, unknown> = { "conversations.members": { members: EVERYONE } };
+// What Slack always sends that a test doesn't set itself: a new canvas's ID,
+// without which saving the summary's canvas fails.
+const DEFAULTS: Record<string, unknown> = {
+  "conversations.members": { members: EVERYONE },
+  "conversations.canvases.create": { canvas_id: "F0CANVAS" },
+};
 
 function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) {
   DB.reset();
@@ -518,6 +523,7 @@ test("a failed pin does not stop the task from being announced", async (t) => {
     calls.push(method);
     if (method === "pins.add") return Response.json({ ok: false, error: "missing_scope" });
     if (method === "chat.getPermalink") return Response.json({ ok: true, permalink: "https://slack.example/p100" });
+    if (method === "conversations.canvases.create") return Response.json({ ok: true, canvas_id: "F0CANVAS" });
     return Response.json({ ok: true, channel: "CDEV", ts: "100.1" });
   };
   t.after(() => {

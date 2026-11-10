@@ -82,7 +82,6 @@ const CHANGES = object(
     priority: text,
     dueDate: text,
     prs: object({ add: texts, remove: texts }, []),
-    subtasks: { type: "boolean" },
     blocked: object({ on: { type: "boolean" }, reason: text }, ["on"]),
   },
   [],

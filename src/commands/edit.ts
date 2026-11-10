@@ -11,14 +11,6 @@ type Origin = { channel: string; ts: string };
 
 const EDIT_VIEW = "task:edit";
 
-// The checkbox for a task done in parts: Cade suggests no status changes for it, since a message
-// about one part says nothing about the whole. Pull requests are still tracked.
-const SUBTASKS_OPTION = {
-  text: plainText("Has subtasks"),
-  description: plainText("Cade won't suggest status changes from messages. Pull requests are still tracked."),
-  value: "subtasks",
-};
-
 // The checkbox and reason for a blocked task: it keeps its status, and shows as blocked on its card.
 const BLOCKED_OPTION = {
   text: plainText("Blocked"),
@@ -120,18 +112,6 @@ export function editForm(
         : [{ type: "context", elements: [mrkdwn("Incidents are always :red_circle: Urgent and due Immediate.")] }]),
       {
         type: "input",
-        block_id: "subtasks",
-        optional: true,
-        label: plainText("Subtasks"),
-        element: {
-          type: "checkboxes",
-          action_id: "value",
-          options: [SUBTASKS_OPTION],
-          ...((changes.subtasks ?? task.subtasks) && { initial_options: [SUBTASKS_OPTION] }),
-        },
-      },
-      {
-        type: "input",
         block_id: "blocked",
         optional: true,
         label: plainText("Blocked"),
@@ -203,7 +183,6 @@ function saveEdit(payload: SlackPayload, context: Context) {
         changes.priority = (values.priority?.value.selected_option?.value ?? task.priority) as Priority;
         changes.dueDate = formatDueDate(values.due_date!.value.selected_date);
       }
-      changes.subtasks = (values.subtasks?.value.selected_options ?? []).length > 0;
       changes.blocked = (values.blocked?.value.selected_options ?? []).length > 0
         ? { on: true, reason: values.blocked_reason?.value.value ?? "" }
         : { on: false };

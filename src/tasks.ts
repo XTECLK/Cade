@@ -148,13 +148,12 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
     task.notes && `Extra notes <${task.notes.url}|here>`,
     task.export && `Full history <${task.export.url}|here>`,
   ].filter(Boolean);
-  // A subtask's card says whose it is first; a task's says how its subtasks stand, under its status. Real
-  // subtasks say more than the "Has subtasks" marker, so it gives way to them.
+  // A subtask's card says whose it is first; a task's says how its subtasks stand, under its status.
   const subtasks = subtasksLine(task);
   // Three blocks, each a few lines: whose subtask it is and its pages; the work (its status, subtasks,
   // pull requests and people); and who tracked it. Lines in a block sit closer than the blocks do, so
   // the card reads in those three parts. A block with nothing in it is left out.
-  const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && !subtasks && task.subtasks, !archivedBy && blockedLine(task)).text;
+  const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && blockedLine(task)).text;
   const card: SlackBlock[] = [
     [task.parent && parentLine(task.parent), links.length && links.join("  ·  ")],
     [status, subtasks, ...(task.prs?.length ? prLines(task) : []), people || "_Unassigned_"],
@@ -191,11 +190,11 @@ export function subtasksLine(task: Pick<Task, "subtaskCounts">) {
   return open + closed ? `Subtasks: ${open} open  ·  ${closed} closed` : "";
 }
 
-// Whether the task is done in parts, so a message about one part mustn't move it: marked so by hand,
-// or with subtasks of its own.
-export function inParts(task: Pick<Task, "subtasks" | "subtaskCounts">) {
+// Whether the task is done in parts, so a message about one part mustn't move it: it has subtasks of
+// its own, open or closed.
+export function inParts(task: Pick<Task, "subtaskCounts">) {
   const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
-  return Boolean(task.subtasks) || open + closed > 0;
+  return open + closed > 0;
 }
 
 // The statuses that speak of the whole task, which it reaches only once all its subtasks are done: the
@@ -234,10 +233,10 @@ export function smallText(lines: (string | false | null | undefined | 0)[]) {
   return { type: "context", elements: [mrkdwn(lines.join("\n").slice(0, 3000))] };
 }
 
-// A card's line under its title, in small text: the status, the due date and, for a task done in
-// parts, a marker that its status is set by hand, leaving out those not set.
-export function metaLine(status: string, dueDate?: string | null, subtasks?: unknown, blocked?: string | false | null) {
-  return mrkdwn([status, blocked, dueDate && `Due ${dueDate}`, subtasks && ":jigsaw: Has subtasks"].filter(Boolean).join("  ·  "));
+// A card's line under its title, in small text: the status, whether it is blocked, and the due date,
+// leaving out those not set.
+export function metaLine(status: string, dueDate?: string | null, blocked?: string | false | null) {
+  return mrkdwn([status, blocked, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
 }
 
 // Longest blocked reason kept, so a long message doesn't fill a card.

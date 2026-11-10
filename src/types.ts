@@ -25,8 +25,6 @@ export interface Task {
   viaAgent?: boolean;
   completedAt?: string;
   incident?: boolean;
-  // Whether it is done in parts, so no status changes are suggested for it.
-  subtasks?: boolean;
   blocked?: boolean;
   blockedReason?: string;
   // The task's root message.
@@ -276,7 +274,6 @@ export interface Changes {
   priority?: Priority;
   dueDate?: string;
   prs?: { add?: string[]; remove?: string[] };
-  subtasks?: boolean;
   blocked?: { on: boolean; reason?: string };
 }
 
@@ -292,6 +289,5 @@ export interface Change {
   priority: { from: Priority; to: Priority } | null;
   dueDate: { from?: string; to: string } | null;
   status: { from: Status; to: Status } | null;
-  subtasks: { to: boolean } | null;
   blocked: { to: boolean; reason: string } | null;
 }

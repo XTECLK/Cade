@@ -729,12 +729,11 @@ test("update_task changes a task for the person and tells its thread, only with 
   assert.equal(task.priority, "Urgent");
   assert.equal(task.dueDate, "31/01/2030");
   assert.deepEqual(task.people.owner, ["UREX"]);
-  // The other roles, and has_subtasks, which stops status suggestions from people's messages.
-  const roles = await tool(url, "update_task", { task_id: TASK, reviewer: { add: ["UBOB"] }, tester: { add: ["UANN"] }, has_subtasks: true });
+  // The other roles.
+  const roles = await tool(url, "update_task", { task_id: TASK, reviewer: { add: ["UBOB"] }, tester: { add: ["UANN"] } });
   assert.match(roles.text, /^Done\./);
   const withRoles = await getTask(env, "CDEV", "1700000000.000100");
-  assert.deepEqual([withRoles.people.owner, withRoles.people.reviewer, withRoles.people.tester, withRoles.subtasks], [["UREX"], ["UBOB"], ["UANN"], true]);
-  assert.match((await tool(url, "update_task", { task_id: TASK, has_subtasks: "yes" })).text, /has_subtasks is true or false/);
+  assert.deepEqual([withRoles.people.owner, withRoles.people.reviewer, withRoles.people.tester], [["UREX"], ["UBOB"], ["UANN"]]);
   assert.match((await tool(url, "update_task", { task_id: TASK, reviewer: { add: ["UBOB"], remove: ["UBOB"] } })).text, /reviewer: the same person is in add and remove/);
   const posted = calls.find((call) => call.method === "chat.postMessage");
   assert.match(posted.args.text, /<@UME> set the priority/);
@@ -1758,7 +1757,8 @@ test("a tool's arguments are checked against its inputSchema before it runs, say
   // So is one inside an object, and a wrong type there.
   await refused("update_task", { task_id: TASK, prs: { add: [], drop: [] } }, /^prs\.drop isn't something this takes; it takes prs\.add, prs\.remove/);
   await refused("update_task", { task_id: TASK, owner: { add: "UREX" } }, /^owner\.add is a list\./);
-  await refused("update_task", { task_id: TASK, has_subtasks: "yes" }, /^has_subtasks is true or false\./);
+  // has_subtasks is gone: a task is done in parts when it has subtasks of its own.
+  await refused("update_task", { task_id: TASK, has_subtasks: true }, /^has_subtasks isn't something this takes/);
   await refused("update_task", { task_id: 42 }, /^task_id is text\./);
   await refused("get_tasks", { unassigned: "yes" }, /^unassigned is true or false\./);
   await refused("get_task", { task_id: TASK, fields: ["title", "nope"] }, /^fields is a list of: title, /);

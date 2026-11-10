@@ -64,7 +64,7 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
   const told = Object.fromEntries(mentioned.map((id) => [id, null]));
-  const change: Change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, subtasks: null, blocked: null };
+  const change: Change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, blocked: null };
 
   // Only the roles there are now: a suggestion posted before owners were
   // called that names developers.
@@ -95,11 +95,6 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     }
   }
 
-  if ("subtasks" in changes && Boolean(changes.subtasks) !== Boolean(task.subtasks)) {
-    task.subtasks = Boolean(changes.subtasks);
-    change.subtasks = { to: task.subtasks };
-  }
-
   // Blocked, or no longer, with a reason when blocking; a new reason on a blocked task is a change too.
   if (changes.blocked) {
     const on = Boolean(changes.blocked.on);
@@ -119,7 +114,7 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     setStatusFields(task, moving);
   }
 
-  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.subtasks || change.blocked);
+  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.blocked);
   if (changed) await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source);
   if (change.status && !quiet) await tellMainTask(env, channel, ts, change.status, user);

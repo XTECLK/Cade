@@ -250,7 +250,6 @@ const TASK_ITEM = {
         priority: choice("The task's priority", PRIORITY_NAMES),
         due_date: str("DD/MM/YYYY, or empty for none"),
         incident: bool("Whether it is an incident: something broken now, always Urgent"),
-        has_subtasks: bool("Whether it is done in parts, so Cade suggests no status changes from messages"),
         blocked: bool("Whether it is blocked: it keeps its status and shows as blocked on its card"),
         blocked_reason: str("Why it is blocked, in a short phrase, or empty"),
         link: str("A link to the task's message"),
@@ -731,7 +730,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 due_date: str('DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident\'s never changes'),
                 blocked: bool("true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens"),
                 blocked_reason: str("Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason"),
-                has_subtasks: bool("true when the task is done in parts (subtasks): Cade then suggests no status changes from people's messages, and the status is set by hand. Pull requests are still tracked"),
                 summary: str(`The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most ${MAX_SUMMARY} characters. Replaces any earlier one`),
                 prs: {
                     type: "object",

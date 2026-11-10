@@ -3912,7 +3912,7 @@ test("an incident's priority and due date can't be changed, and its Edit form le
   const calls = mockSlack(t, { stored: [incidentTask()] });
   await send("/slack/interactions", cardMenuClick("edit"));
   const form = calls[0].args.view;
-  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "subtasks", "blocked", "blocked_reason", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "blocked", "blocked_reason", "prs"]);
   assert.match(blockText(form.blocks[4]), /Incidents are always :red_circle: Urgent and due Immediate/);
 });
 
@@ -3949,9 +3949,10 @@ const answerSuggestion = (question, index = 0, user = "UACTOR") => {
 
 // A suggestion read by AI: `text` sent in the task's thread, with the model answering `raw` (see
 // aiRead). Resolves to the calls made and the private question asked, if any.
+// `record` is the task, or the task and others stored with it, such as its subtasks.
 const aiSuggestion = async (t, text, record, raw, { user = "UACTOR", settings = {} } = {}) => {
   const { environment, asked } = aiEnv(aiRead(raw));
-  const calls = mockSlack(t, { stored: [record] });
+  const calls = mockSlack(t, { stored: [record].flat() });
   await send("/slack/events", threadReply(text, { user }), {}, { ...environment, ...settings });
   return { calls, question: ephemeral(calls), asked };
 };
@@ -4818,7 +4819,7 @@ test("a task with subtasks only moves to DONE, and only for a message about the 
   const people = { owner: [], reviewer: [], tester: [] };
   const allowed = { roles: [], status: true, details: false };
   const status = (task, text, to) => checkChanges(aiRead({ status: to }), { task, message: { user: "UACTOR", mentions: [], text }, allowed })?.status ?? null;
-  const parts = { status: "IN_PROGRESS", people, subtasks: true };
+  const parts = { status: "IN_PROGRESS", people, subtaskCounts: { open: 1, closed: 1 } };
   assert.equal(status(parts, "we can close this as done", "DONE"), "DONE");
   assert.equal(status(parts, "all subtasks are done", "DONE"), "DONE");
   assert.equal(status(parts, "subtask 2 is done", "DONE"), null);
@@ -4829,8 +4830,10 @@ test("a task with subtasks only moves to DONE, and only for a message about the 
   assert.equal(status({ ...parts, status: "TODO" }, "started on subtask 1", "IN_PROGRESS"), "IN_PROGRESS");
   assert.equal(status(parts, "started on subtask 2", "IN_PROGRESS"), null);
   assert.equal(status({ ...parts, status: "TODO" }, "ready for review", "IN_REVIEW"), null);
-  // Without subtasks the same words move it as before.
-  assert.equal(status({ ...parts, subtasks: false }, "ready for review", "IN_REVIEW"), "IN_REVIEW");
+  // Without subtasks the same words move it as before, even for a task the old "Has subtasks" box was
+  // ticked on: only real subtasks make a task done in parts now.
+  assert.equal(status({ ...parts, subtaskCounts: undefined }, "ready for review", "IN_REVIEW"), "IN_REVIEW");
+  assert.equal(status({ ...parts, subtaskCounts: undefined, subtasks: true }, "ready for review", "IN_REVIEW"), "IN_REVIEW");
 });
 
 test("AI's changes are checked against the message and the task", async () => {
@@ -4938,7 +4941,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "blocked", "blocked_reason", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason", "prs"]);
   assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
   assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
   assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
@@ -5148,7 +5151,7 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const form = calls[0].args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "subtasks", "blocked", "blocked_reason", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason", "prs"]);
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
@@ -5633,16 +5636,14 @@ test("AI doesn't move a task's status for work done on only a part of it", async
 });
 
 test("a task with subtasks gets no status suggestion for a part, but its pull requests and people are still suggested", async (t) => {
-  const withSubtasks = (record) => {
-    record.task.subtasks = true;
-    return record;
-  };
+  // A real subtask of the task (100.1), which makes it done in parts.
+  const withSubtasks = (record) => [record, subtaskOf("100.2")];
   for (const [text, record, raw, changes] of [
     // A part reaching a stage isn't the whole task reaching it.
     ["lgtm", withSubtasks(taskWith("IN_REVIEW", { reviewers: ["UACTOR"] })), { status: "IN_TESTING" }, null],
     // People still are, and the status that would come with asking for a test is left out.
     ["<@UTOM> please test it", withSubtasks(taskWith("IN_PROGRESS")), { tester: add("UTOM"), status: "IN_TESTING" }, { people: { tester: add("UTOM") } }],
-    // Without the flag the same answer moves the status.
+    // Without subtasks the same answer moves the status.
     ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), { status: "IN_TESTING" }, { status: "IN_TESTING" }],
   ] as const) {
     const { question } = await aiSuggestion(t, text, record, raw);
@@ -5650,14 +5651,13 @@ test("a task with subtasks gets no status suggestion for a part, but its pull re
   }
 });
 
-test("the Edit form toggles subtasks, which the card shows and the thread is told", async (t) => {
+test("the Edit form has no Has subtasks box, and a form opened before it went changes nothing for it", async (t) => {
   const record = ownTask({ owners: ["UREX"] });
   const calls = mockSlack(t, { stored: [record] });
   await send("/slack/interactions", cardMenuClick("edit"));
   const form = calls[0].args.view;
-  const box = form.blocks.find((block) => block.block_id === "subtasks");
-  assert.equal(box.element.type, "checkboxes");
-  assert.equal(box.element.initial_options, undefined);
+  assert.equal(form.blocks.some((block) => block.block_id === "subtasks"), false);
+  // An Edit form opened before the box went still sends it; it's ignored.
   const values = {
     owner: { value: { selected_users: ["UREX"] } },
     reviewer: { value: { selected_users: [] } },
@@ -5669,11 +5669,8 @@ test("the Edit form toggles subtasks, which the card shows and the thread is tol
     subtasks: { value: { selected_options: [{ value: "subtasks" }] } },
   };
   await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values } } }));
-  assert.equal((await savedTask()).subtasks, true);
-  const card = calls.filter((call) => call.method === "chat.update").at(-1);
-  assert.match(JSON.stringify(card.args), /:jigsaw: Has subtasks/);
-  const post = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").at(-1);
-  assert.match(post.args.text, /<@UACTOR> marked this as having subtasks\./);
+  assert.equal("subtasks" in (await savedTask()), false);
+  assert.ok(!calls.some((call) => /Has subtasks|having subtasks/.test(JSON.stringify(call.args))));
 });
 
 test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout without it", async () => {
@@ -5863,8 +5860,6 @@ test("a subtask moving to Done moves it from open to closed on its task's card",
   await send("/slack/events", threadEvent("<@UBOT> status done", { thread_ts: "100.2" }));
   const parent = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  1 closed\n/);
-  // The "Has subtasks" marker gives way to the real ones.
-  assert.doesNotMatch(cardText(parent), /Has subtasks/);
 });
 
 test("View subtasks lists a task's subtasks, open first, each linking to its thread", async (t) => {

@@ -79,12 +79,6 @@ export function dueDateChanged(user: string, dueDate: string | undefined) {
   return dueDate ? `<@${user}> set the due date to ${dueDate}.` : `<@${user}> removed the due date.`;
 }
 
-export function subtasksChanged(user: string, on: boolean) {
-  return on
-    ? `<@${user}> marked this as having subtasks.`
-    : `<@${user}> marked this as having no subtasks.`;
-}
-
 export function blockedChanged(user: string, on: boolean, reason?: string) {
   return on ? `<@${user}> marked this as blocked${reason ? `: ${escapeSlack(reason)}` : "."}` : `<@${user}> unblocked this.`;
 }
@@ -100,7 +94,7 @@ export function blockedChanged(user: string, on: boolean, reason?: string) {
 // nothing else.
 
 // The change log: a line for each thing that changed, who changed it.
-export function changeLog({ user, told, people, prs, priority, dueDate, status, subtasks, blocked }: Change) {
+export function changeLog({ user, told, people, prs, priority, dueDate, status, blocked }: Change) {
   return [
     prs?.added.length && linked(user, prs.added),
     prs?.removed.length && unlinked(user, prs.removed),
@@ -111,7 +105,6 @@ export function changeLog({ user, told, people, prs, priority, dueDate, status, 
     priority && priorityChanged(user, priority.to),
     dueDate && dueDateChanged(user, dueDate.to),
     status && statusChanged(user, status.to),
-    subtasks && subtasksChanged(user, subtasks.to),
     blocked && blockedChanged(user, blocked.to, blocked.reason),
   ].filter(Boolean) as string[];
 }

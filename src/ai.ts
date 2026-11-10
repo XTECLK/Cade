@@ -317,7 +317,7 @@ function partsMayMoveTo(task: Pick<Task, "status">, status: string) {
 // Whether a status the model proposed fits the message. A message about only a part never moves a
 // task, except to start one done in parts. That moves to DONE only when the message speaks of the
 // whole, and from TODO to IN_PROGRESS on any work begun.
-export function statusFits(status: string, task: Pick<Task, "status" | "subtasks" | "subtaskCounts">, text: string) {
+export function statusFits(status: string, task: Pick<Task, "status" | "subtaskCounts">, text: string) {
   if (!inParts(task)) return !PARTIAL.test(text);
   if (!partsMayMoveTo(task, status)) return false;
   if (status === "IN_PROGRESS") return true;

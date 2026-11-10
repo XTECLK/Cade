@@ -61,7 +61,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at | original_thread | original_thread_state | releases | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at | original_thread | original_thread_state | releases | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -76,7 +76,6 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's priority</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td></td><td>Whether it is an incident: something broken now, always Urgent</td></tr>
-<tr><td><code>has_subtasks</code></td><td>boolean</td><td></td><td>Whether it is done in parts, so Cade suggests no status changes from messages</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
@@ -210,7 +209,7 @@
 <tr><td><code>completed_from</code></td><td>string</td><td></td><td>Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)</td></tr>
 <tr><td><code>completed_to</code></td><td>string</td><td></td><td>Only tasks marked Done on or before this day (YYYY-MM-DD)</td></tr>
 <tr><td><code>include_open</code></td><td>boolean</td><td></td><td>With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -228,7 +227,6 @@
 <tr><td><code>tasks[].priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's priority</td></tr>
 <tr><td><code>tasks[].due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>tasks[].incident</code></td><td>boolean</td><td></td><td>Whether it is an incident: something broken now, always Urgent</td></tr>
-<tr><td><code>tasks[].has_subtasks</code></td><td>boolean</td><td></td><td>Whether it is done in parts, so Cade suggests no status changes from messages</td></tr>
 <tr><td><code>tasks[].blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>tasks[].blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>tasks[].link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
@@ -658,7 +656,6 @@
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason</td></tr>
-<tr><td><code>has_subtasks</code></td><td>boolean</td><td></td><td>true when the task is done in parts (subtasks): Cade then suggests no status changes from people's messages, and the status is set by hand. Pull requests are still tracked</td></tr>
 <tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, &quot;- &quot; for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one</td></tr>
 <tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; one already sent to the client for approval can't be unlinked here. Cade can't see repositories, so check a pull request with your own tools first</td></tr>
 <tr><td><code>prs.add</code></td><td>string[]</td><td></td><td>Pull requests to link to the task, as links</td></tr>

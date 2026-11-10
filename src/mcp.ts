@@ -485,7 +485,6 @@ function taskData(env: AppEnv, channel: string, ts: string, task: Task, link: st
     priority: task.priority,
     due_date: task.dueDate || "",
     incident: Boolean(task.incident),
-    has_subtasks: Boolean(task.subtasks),
     blocked: Boolean(task.blocked),
     blocked_reason: task.blockedReason || "",
     link,
@@ -1332,10 +1331,6 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     changes.priority = args.priority;
   }
   if (args.due_date !== undefined) changes.dueDate = dueDateOf(args.due_date);
-  if (args.has_subtasks !== undefined) {
-    if (typeof args.has_subtasks !== "boolean") throw new ToolError("has_subtasks is true or false.");
-    changes.subtasks = args.has_subtasks;
-  }
   if (args.blocked !== undefined || args.blocked_reason !== undefined) {
     if (args.blocked !== undefined && typeof args.blocked !== "boolean") throw new ToolError("blocked is true or false.");
     if (args.blocked_reason !== undefined && typeof args.blocked_reason !== "string") throw new ToolError("blocked_reason is text.");
@@ -1369,7 +1364,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
     refuseSecrets(summary, "The summary");
   }
-  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, has_subtasks, blocked, owner, reviewer, tester, prs or summary.");
+  if (!Object.keys(changes).length && summary === undefined) throw new ToolError("Nothing to change: give a status, priority, due_date, blocked, owner, reviewer, tester, prs or summary.");
 
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told: string[] = [];

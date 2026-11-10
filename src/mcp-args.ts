@@ -5,7 +5,7 @@ export type GetTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
   // Only these fields, to keep the result small; task_id is always there. Default: all
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "releases" | "subtasks")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "releases" | "subtasks")[];
 };
 
 export type GetThreadHistoryArgs = {
@@ -38,7 +38,7 @@ export type GetTasksArgs = {
   // With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status
   include_open?: boolean;
   // The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
   // How many tasks to return, most urgent first. Default 20
   limit?: number;
 };
@@ -174,8 +174,6 @@ export type UpdateTaskArgs = {
   blocked?: boolean;
   // Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason
   blocked_reason?: string;
-  // true when the task is done in parts (subtasks): Cade then suggests no status changes from people's messages, and the status is set by hand. Pull requests are still tracked
-  has_subtasks?: boolean;
   // The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one
   summary?: string;
   // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; one already sent to the client for approval can't be unlinked here. Cade can't see repositories, so check a pull request with your own tools first

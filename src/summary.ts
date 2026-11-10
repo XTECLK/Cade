@@ -296,7 +296,7 @@ function table(columns: string[], rows: Row[]) {
 // would end the link or the cell escaped. A subtask's is led by ↳.
 function title(text: string, incident: boolean | undefined, link: string, sub = false) {
   const cell = `[${text.replace(/\s+/g, " ").replace(/([[\]|\\])/g, "\\$1")}](${link})`;
-  return `${sub ? "↳ " : ""}${incident ? `**Incident:** ${cell}` : cell}`;
+  return `${sub ? "↳ " : ""}${incident ? `\\[Incident\\] ${cell}` : cell}`;
 }
 
 function priority(name: Priority) {

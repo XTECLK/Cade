@@ -1,7 +1,7 @@
 import { subtasksOf } from "../db.ts";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { applyChanges } from "./changes.ts";
-import { INCIDENT, NOT_A_TASK, STATUSES, loadTask, peopleLine, readTaskForm, shownPeople, subtasksLine, taskFormBlocks } from "../tasks.ts";
+import { INCIDENT, NOT_A_TASK, PRIORITIES, STATUSES, loadTask, peopleLine, readTaskForm, shownPeople, subtasksLine, taskFormBlocks } from "../tasks.ts";
 import { createTask } from "./track.ts";
 import { linkCommand } from "./subtask-link.ts";
 import type { AppEnv } from "../env.ts";
@@ -13,7 +13,8 @@ import { SUBTASKS_CLOSE, TASK_BUTTON, readPayload, type SubtasksClose, type Task
 // them, open and closed (Done). They go one level deep: a subtask has none of its own.
 //
 // Add subtask, on a task card's ⋯ menu (see menu.ts), opens the form below. The new subtask starts
-// with its parent's due date, priority and people (a subtask of an incident is an incident too:
+// with its parent's due date and people, and has its priority for good, which follows the parent's
+// (see followParent in tasks.ts); only the due date can be changed (a subtask of an incident is an incident too:
 // Urgent and due Immediate for good, so its form asks only for the title), as the same owner usually fixes and the same tester checks it, and the
 // parent's thread hears that it was added, with a link to the subtask's own thread.
 //
@@ -37,8 +38,8 @@ const MAX_LISTED = 40;
 
 export const ONE_LEVEL = "This is a subtask already, and subtasks don't have their own. Add it to the main task instead.";
 
-// `@Cade subtask <title>` in a task's thread does what Add subtask does, with the task's due date and
-// priority, and reacts ✅; the thread hears it was added as from the form.
+// `@Cade subtask <title>` in a task's thread does what Add subtask does, with the task's due date, and
+// reacts ✅; the thread hears it was added as from the form.
 export default {
   name: "subtask",
   description: "Add a subtask to the task, with its due date and priority (in its thread)",
@@ -154,12 +155,12 @@ export function subtaskForm(origin: TaskRef, parent: StoredTask) {
           mrkdwn(
             parent.incident
               ? `Subtask of the incident *${escapeSlack(parent.title)}*, and an incident too: :red_circle: Urgent and due Immediate. It starts with the incident's people; change them with Edit on its card.`
-              : `Subtask of *${escapeSlack(parent.title)}*. It starts with the task's due date, priority and people; change them here, or later with Edit on its card.`,
+              : `Subtask of *${escapeSlack(parent.title)}*, with its priority, ${PRIORITIES[parent.priority]} ${parent.priority}. It starts with the task's due date and people; change the date here, or later with Edit on its card.`,
           ),
         ],
       },
-      // The task's due date and priority to begin with, as a part of it is usually due with it.
-      ...taskFormBlocks("Subtask title", { priority: parent.priority, dueDate: parent.dueDate }, { details: !parent.incident }),
+      // The task's due date to begin with, as a part of it is usually due with it. No priority: it is the task's.
+      ...taskFormBlocks("Subtask title", { dueDate: parent.dueDate }, { details: !parent.incident }).filter((block) => block.block_id !== "priority"),
     ],
   };
 }
@@ -167,24 +168,24 @@ export function subtaskForm(origin: TaskRef, parent: StoredTask) {
 async function submit(payload: SlackPayload, context: Context) {
   const { env } = context;
   const origin = readPayload<TaskRef>(TASK_BUTTON, payload.view.private_metadata, "Add subtask form");
-  const { title, dueDate, priority, errors } = readTaskForm(payload.view.state.values, "Please give the subtask a title.");
+  const { title, dueDate, errors } = readTaskForm(payload.view.state.values, "Please give the subtask a title.");
   if (errors) return { response_action: "errors", errors };
   const parent = await loadTask(env, origin.channel, origin.ts);
   if (!parent) return { response_action: "errors", errors: { title: "I'm not tracking that task any more." } };
   if (parent.parent) return { response_action: "errors", errors: { title: ONE_LEVEL } };
 
-  context.waitUntil(createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { priority: priority!, dueDate }), { channel: origin.channel }));
+  context.waitUntil(createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { dueDate }), { channel: origin.channel }));
   return { response_action: "clear" };
 }
 
 // A new subtask of `parent`, whose root message is `ts`, made by `user`: with the parent's people, and
-// its due date and priority unless `details` gives others. A subtask of an incident is an incident too,
+// its priority, and its due date unless `details` gives another. A subtask of an incident is an incident too,
 // Urgent and due Immediate, whatever `details` says.
-export function newSubtask(parent: StoredTask, ts: string, title: string, user: string, details: Partial<Pick<Task, "priority" | "dueDate">> = {}): Task {
+export function newSubtask(parent: StoredTask, ts: string, title: string, user: string, details: Partial<Pick<Task, "dueDate">> = {}): Task {
   return {
     title,
     status: "TODO",
-    ...(parent.incident ? { ...INCIDENT, incident: true } : { priority: details.priority ?? parent.priority, dueDate: details.dueDate ?? parent.dueDate ?? "" }),
+    ...(parent.incident ? { ...INCIDENT, incident: true } : { priority: parent.priority, dueDate: details.dueDate ?? parent.dueDate ?? "" }),
     people: structuredClone(parent.people),
     createdBy: user,
     parent: { ts, title: parent.title, link: parent.link, owner: parent.people.owner },

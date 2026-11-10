@@ -757,6 +757,7 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   const incident = args.incident === true || Boolean(parent?.task.incident);
   if (incident && (args.priority !== undefined || args.due_date !== undefined)) throw new ToolError(`${parent ? "A subtask of an incident is an incident too: it" : "An incident"} is always Urgent and due immediately, so leave out priority and due_date.`);
   if (args.priority !== undefined && !PRIORITIES[args.priority as Priority]) throw new ToolError(`priority is one of ${Object.keys(PRIORITIES).join(", ")}.`);
+  if (parent && args.priority !== undefined) throw new ToolError("A subtask has its task's priority, so leave out priority. Its due date is its own.");
   const dueDate = args.due_date !== undefined ? dueDateOf(args.due_date) : "";
   let summary: string | undefined;
   if (args.summary !== undefined) {
@@ -794,7 +795,7 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
     if (same) throw new ToolError(`${project.name} already has an open ${same.task.incident ? "incident" : "task"} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
   }
   const task: Task = parent
-    ? { ...newSubtask(parent.task, parent.ts, title, user, { priority: args.priority as Priority | undefined, dueDate: args.due_date !== undefined ? dueDate : undefined }), viaAgent: true }
+    ? { ...newSubtask(parent.task, parent.ts, title, user, { dueDate: args.due_date !== undefined ? dueDate : undefined }), viaAgent: true }
     : { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user, viaAgent: true };
   const ts = await createTask(env, task, { channel: project.channel, move: source });
   if (!ts) throw new ToolError(`Slack wouldn't take the ${incident ? "incident" : "task"} just now. Cade tries again in a few minutes, but without the summary, so check ${project.name}'s channel before trying again.`);
@@ -1327,6 +1328,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   }
   if (args.priority !== undefined) {
     if (!PRIORITIES[args.priority as Priority]) throw new ToolError(`priority is one of ${Object.keys(PRIORITIES).join(", ")}.`);
+    if (task.parent) throw new ToolError("This is a subtask, which has its task's priority: change the task's priority instead, and its subtasks follow. Its due date is its own.");
     changes.priority = args.priority;
   }
   if (args.due_date !== undefined) changes.dueDate = dueDateOf(args.due_date);

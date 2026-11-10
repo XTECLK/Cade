@@ -448,6 +448,9 @@ test("create_task with parent_task_id makes a subtask, and update_task won't fin
   const subtask = (await getTask(env, "CDEV", "1700000000.000200"))!;
   assert.deepEqual([subtask.priority, subtask.dueDate, subtask.people.tester, subtask.parent?.ts, subtask.viaAgent], ["High", "30/11/2026", ["UBOB"], "1700000000.000100", true]);
   assert.ok(slack.some((call) => call.method === "chat.postMessage" && call.args.thread_ts === "1700000000.000100"));
+  // Its priority is the task's, given or changed.
+  assert.match((await tool(url, "create_task", { title: "Priced", parent_task_id: "CDEV:1700000000.000100", priority: "Low" })).text, /has its task's priority/);
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1700000000.000200", priority: "Low" })).text, /This is a subtask, which has its task's priority/);
   // Not a subtask of a subtask, nor in another project.
   assert.match((await tool(url, "create_task", { title: "Deeper", parent_task_id: "CDEV:1700000000.000200" })).text, /subtasks don't have their own/);
   assert.match((await tool(url, "create_task", { title: "Elsewhere", parent_task_id: "CDEV:1700000000.000100", project: "other" })).text, /goes in its task's project/);

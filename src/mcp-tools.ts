@@ -543,7 +543,7 @@ export const TOOL_DEFS: ToolDef[] = [
         description:
             "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. " +
             "Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
-            "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people, and its due date and priority unless you give others; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done.",
+            "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done.",
         inputSchema: {
             type: "object",
             properties: {
@@ -555,7 +555,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 summary: str(`The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most ${MAX_SUMMARY} characters`),
                 thread_id: str("The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used"),
                 link: str("Instead of thread_id: a link to a message in the thread"),
-                parent_task_id: str("Make it a subtask of this task, by the ID get_tasks gives. Leave out project; priority and due_date default to the task's"),
+                parent_task_id: str("Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's"),
             },
             required: ["title"],
         },
@@ -727,7 +727,7 @@ export const TOOL_DEFS: ToolDef[] = [
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
                 status: choice("The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first", STATUS_NAMES),
-                priority: choice("The task's new priority. An incident's never changes", PRIORITY_NAMES),
+                priority: choice("The task's new priority. An incident's never changes, and a subtask has its task's: change the task's, and its subtasks follow", PRIORITY_NAMES),
                 due_date: str('DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident\'s never changes'),
                 blocked: bool("true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens"),
                 blocked_reason: str("Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason"),

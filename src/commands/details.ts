@@ -1,5 +1,5 @@
 import { escapeSlack } from "../slack.ts";
-import { INCIDENT_IS_FIXED, NOT_A_TASK, PRIORITIES, loadTask } from "../tasks.ts";
+import { INCIDENT_IS_FIXED, NOT_A_TASK, PRIORITIES, loadTask, SUBTASK_PRIORITY } from "../tasks.ts";
 import { acknowledged, changeTask } from "./changes.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
@@ -22,6 +22,7 @@ export const priority = {
     const found = await findTask(env, command.channel, command.threadTs!);
     const problem = cannotChange(found);
     if (problem) return problem;
+    if (found!.item.parent) return SUBTASK_PRIORITY;
 
     const input = command.text.trim();
     const value = (Object.keys(PRIORITIES) as Priority[]).find((name) => name.toLowerCase() === input.toLowerCase());

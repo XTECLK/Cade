@@ -84,7 +84,8 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
   }
 
   if (!task.incident) {
-    if ("priority" in changes && task.priority !== changes.priority) {
+    // A subtask's priority is its task's (see followParent in tasks.ts).
+    if ("priority" in changes && !task.parent && task.priority !== changes.priority) {
       change.priority = { from: task.priority, to: changes.priority! };
       task.priority = changes.priority!;
     }

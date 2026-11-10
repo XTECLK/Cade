@@ -53,6 +53,9 @@ export const NOT_A_TASK = "Hmm, I'm not tracking a task in this thread.";
 // and fixed as soon as possible, so its priority and due date never change.
 export const INCIDENT = { priority: "Urgent" as Priority, dueDate: "Immediate" };
 
+// A subtask's priority is its task's, set there and followed (see followParent); its due date is its own.
+export const SUBTASK_PRIORITY = "A subtask has its task's priority, so change it on the task. Its due date is its own.";
+
 export const INCIDENT_IS_FIXED =
   "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.";
 
@@ -278,21 +281,28 @@ export async function saveTask(env: AppEnv, channel: string, ts: string, task: T
   console.log("Task saved", { ts, people: task.people });
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
   await redrawParent(env, channel, task);
-  await redrawOwnerless(env, channel, ts, task);
+  await followParent(env, channel, ts, task);
   await refreshSummary(env, channel);
 }
 
-// Redraws the cards of the task's subtasks with no owner of their own, which show its owners (see
-// shownPeople), as they may have just changed. A convenience, so a failure is only logged.
-async function redrawOwnerless(env: AppEnv, channel: string, ts: string, task: Task) {
+// Brings the task's subtasks in line with it, as it may have just changed: each takes its priority
+// (an incident's subtasks are incidents, whose priority never changes), saved, and the cards of those
+// that changed, or that show its owners for want of their own (see shownPeople), are redrawn. A
+// convenience, so a failure is only logged.
+async function followParent(env: AppEnv, channel: string, ts: string, task: Task) {
   const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
   if (task.parent || !(open + closed)) return;
   try {
     for (const sub of await subtasksOf(env, channel, ts)) {
-      if (!sub.task.people.owner.length) await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
+      const behind = !sub.task.incident && sub.task.priority !== task.priority;
+      if (behind) {
+        sub.task.priority = task.priority;
+        await putTask(env, channel, sub.ts, sub.task);
+      }
+      if (behind || !sub.task.people.owner.length) await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
     }
   } catch (error) {
-    console.warn("Could not redraw the subtasks", { ts, error: error.message });
+    console.warn("Could not bring the subtasks in line", { ts, error: error.message });
   }
 }
 

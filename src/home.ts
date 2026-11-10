@@ -78,6 +78,16 @@ const MAX_LISTED = 20;
 // The subtasks listed under a card.
 const MAX_SUBS = 8;
 
+// A view holds at most 100 blocks, and Slack refuses one with more. Cards are drawn while there is
+// room (see card), keeping `left` for what follows them; those that don't fit are counted instead.
+const MAX_BLOCKS = 100;
+type Budget = { left: number };
+// What the Your tasks view adds after its cards, at most: each section's divider, header, empty or
+// "…and more" line and Coming up, then the closing divider and Updated line.
+const MINE_AFTER = SECTIONS.length * 4 + 2;
+// The same for the Unassigned and All Tasks views: "…and more", the divider and Updated.
+const LIST_AFTER = 3;
+
 // Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Settings, which isn't.
 // With none, it opens on the tasks tab they were last on.
 export async function publishHome(env: AppEnv, user: string, tab?: string) {
@@ -162,10 +172,11 @@ async function draw(env: AppEnv, user: string, tab: string) {
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(summary)] },
   ];
+  const budget = { left: MAX_BLOCKS - blocks.length - MINE_AFTER };
   for (const section of sections) {
     blocks.push({ type: "divider" });
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
-    blocks.push(...list(section, today, user));
+    blocks.push(...list(section, today, user, budget));
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -294,9 +305,10 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
     { type: "divider" },
   ];
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
-  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((row) => card(row, today, user, { claim: unassigned })));
-  if (entries.length > MAX_LISTED) {
-    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
+  const shown = drawn(entries.slice(0, MAX_LISTED), { left: MAX_BLOCKS - blocks.length - LIST_AFTER }, (row, budget) => card(row, today, user, budget, { claim: unassigned }));
+  blocks.push(...shown.blocks);
+  if (entries.length > shown.count) {
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - shown.count} more._`)] });
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -305,12 +317,13 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string) {
+function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string, budget: Budget) {
   const blocks: SlackBlock[] = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  blocks.push(...ready.slice(0, MAX_READY).flatMap((row) => card(row, today, user, { label: "Your subtasks" })));
-  if (ready.length > MAX_READY) {
-    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
+  const shown = drawn(ready.slice(0, MAX_READY), budget, (row, room) => card(row, today, user, room, { label: "Your subtasks" }));
+  blocks.push(...shown.blocks);
+  if (ready.length > shown.count) {
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - shown.count} more._`)] });
   }
   if (later.length) {
     // Each task, with the subtasks its card shows under it.
@@ -324,47 +337,73 @@ function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: stri
   return blocks;
 }
 
-// A task as a card, in two blocks: its title, linking to its thread, then
-// in the smaller type of a context block its priority, status and due date, and below them its owner,
-// reviewers and testers (as on the task's message), then its subtasks, a line each. A card shown
-// only for its subtasks heads them with `label`; one with all its subtasks says how many are done. A
-// subtask with a card of its own names its parent.
-// The title has no button beside it, which would leave a gap under it. With `claim`, an Assign to me
-// button follows.
-function card({ entry, subs, context }: Row, today: string, viewer: string, { claim = false, label = "" }: { claim?: boolean; label?: string } = {}) {
-  const { task, link, incident, channel } = entry;
-  const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
-  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
-  const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
-  const closed = context ? 0 : task.subtaskCounts?.closed ?? 0;
-  const lines = [
-    task.parent && !subs.length && !context ? parentLine(task.parent) : "",
-    details,
-    people,
-    context && subs.length ? `_${label}:_` : "",
-    ...subs.slice(0, MAX_SUBS).map((sub) => subLine(sub, today, viewer)),
-    subs.length > MAX_SUBS ? `_…and ${subs.length - MAX_SUBS} more subtasks._` : "",
-    closed ? `_+${closed} done_` : "",
-  ].filter(Boolean);
-  if (claim && !context) {
-    return [
-      { type: "section", text: mrkdwn(title) },
-      { type: "context", elements: [mrkdwn(lines.join("\n"))] },
-      { type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${entry.ts}`, text: plainText("Assign to me") }] },
-    ];
+// The cards of `rows` that fit in `budget`, drawn with `draw`, in order, stopping at the first that
+// doesn't: their blocks, and how many were drawn.
+function drawn(rows: Row[], budget: Budget, draw: (row: Row, budget: Budget) => SlackBlock[] | null) {
+  const blocks: SlackBlock[] = [];
+  let count = 0;
+  for (const row of rows) {
+    const card = draw(row, budget);
+    if (!card) break;
+    blocks.push(...card);
+    count++;
   }
-  return [
-    { type: "section", text: mrkdwn(title) },
-    // The blank last line (a braille blank, as Slack trims plain ones) puts
-    // a gap before the next card.
-    { type: "context", elements: [mrkdwn(`${lines.join("\n")}\n\u2800`)] },
-  ];
+  return { blocks, count };
 }
 
-// A subtask's line on its parent's card.
-function subLine({ task, link }: TaskEntry, today: string, viewer: string) {
-  const parts = [`:arrow_right_hook: <${link}|${escapeSlack(task.title)}>`, STATUSES[task.status], blockedLine(task), due(task, today), peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_"];
-  return parts.filter(Boolean).join("  ·  ");
+// A task as a card: its title, linking to its thread, then in the smaller type of a context block its
+// priority, status and due date, and below them its owner, reviewers and testers (as on the task's
+// message). Its subtasks follow, each a card of the same shape with ↪ before its title. A card shown
+// only for its subtasks heads them with `label`; one with all its subtasks says how many are done. A
+// subtask with a card of its own names its parent. The title has no button beside it, which would
+// leave a gap under it. With `claim`, an Assign to me button follows the task.
+//
+// It takes its blocks from `budget`, as many subtasks as fit, the rest counted, or none at all, and
+// gives null, when even the task doesn't fit.
+function card({ entry, subs, context }: Row, today: string, viewer: string, budget: Budget, { claim = false, label = "" }: { claim?: boolean; label?: string } = {}) {
+  const { task, channel } = entry;
+  const closed = context ? 0 : task.subtaskCounts?.closed ?? 0;
+  const own = [
+    ...taskBlocks(entry, today, viewer, { lines: [task.parent && !subs.length && !context ? parentLine(task.parent) : "", context && subs.length ? `_${label}:_` : ""] }),
+    ...(claim && !context ? [{ type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${entry.ts}`, text: plainText("Assign to me") }] }] : []),
+  ];
+  // A line after the subtasks, saying how many more there are and how many are done, when any.
+  const after = (shown: number) => [subs.length > shown ? `_…and ${subs.length - shown} more subtasks._` : "", closed ? `_+${closed} done_` : ""].filter(Boolean);
+  if (own.length + (after(0).length ? 1 : 0) > budget.left) return null;
+  budget.left -= own.length;
+  const blocks: SlackBlock[] = [...own];
+  let shown = 0;
+  for (const sub of subs.slice(0, MAX_SUBS)) {
+    // Room for the line after, if one will follow.
+    const after = subs.length > shown + 1 || closed ? 1 : 0;
+    const subBlocks = taskBlocks(sub, today, viewer, { sub: true });
+    if (subBlocks.length + after > budget.left) break;
+    budget.left -= subBlocks.length;
+    blocks.push(...subBlocks);
+    shown++;
+  }
+  const footer = after(shown);
+  if (footer.length) {
+    budget.left -= 1;
+    blocks.push({ type: "context", elements: [mrkdwn(footer.join("\n"))] });
+  }
+  // The blank last line (a braille blank, as Slack trims plain ones) puts a gap before the next card.
+  const last = blocks.at(-1)!;
+  if (last.type === "context") last.elements = [mrkdwn(`${(last.elements as { text: string }[])[0]!.text}\n\u2800`)];
+  return blocks;
+}
+
+// A task's own two blocks on a card: its title, led by ↪ for a subtask, then its details and people,
+// with `lines` added under them, if any.
+function taskBlocks({ task, link, incident }: TaskEntry, today: string, viewer: string, { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {}): SlackBlock[] {
+  const title = `${sub ? ":arrow_right_hook: " : ""}${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
+  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
+  const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
+  const text = [lines[0], details, people, ...lines.slice(1)].filter(Boolean).join("\n");
+  return [
+    { type: "section", text: mrkdwn(title) },
+    { type: "context", elements: [mrkdwn(text)] },
+  ];
 }
 
 // The due date, marked when it has passed, or "" for none.

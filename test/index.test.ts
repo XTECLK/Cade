@@ -5828,21 +5828,22 @@ test("Add subtask makes a subtask with the task's people, in its own thread, and
   const form = calls.find((call) => call.method === "views.open").args.view;
   assert.equal(form.callback_id, "subtask:add");
   assert.match(blockText(form.blocks[0]), /Subtask of \*Fix login\*/);
-  // It starts with the task's due date and priority, which can be changed.
-  const field = (id) => form.blocks.find((block) => block.block_id === id).element;
+  // It starts with the task's due date, which can be changed, and has its priority, which can't.
+  assert.match(blockText(form.blocks[0]), /with its priority, :large_orange_circle: High/);
+  const field = (id) => form.blocks.find((block) => block.block_id === id)?.element;
   assert.equal(field("due_date").initial_date, "2026-10-31");
-  assert.equal(field("priority").initial_option.value, "High");
+  assert.equal(field("priority"), undefined);
 
   calls.length = 0;
-  const values = { title: { value: { value: "Fails on Safari" } }, due_date: { value: { selected_date: null } }, priority: { value: { selected_option: { value: "Urgent" } } } };
+  const values = { title: { value: { value: "Fails on Safari" } }, due_date: { value: { selected_date: "2026-11-20" } } };
   await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UTESS" }, view: { callback_id: "subtask:add", private_metadata: form.private_metadata, state: { values } } }));
 
   // Its own card, naming the task, with no Add subtask: they go one level deep.
   const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts).args;
-  assert.match(cardText(card), /^\[URGENT\] \*Fails on Safari\*\n:arrow_right_hook: Subtask of \*Fix login\*\n/);
+  assert.match(cardText(card), /^\[HIGH\] \*Fails on Safari\*\n:arrow_right_hook: Subtask of \*Fix login\*\n/);
   assert.deepEqual(menuChoices(card), ["Edit", "Archive"]);
   const subtask = (await getTask(env, "CDEV", "200.1"))!;
-  assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.people.owner, subtask.people.tester], ["100.1", "Urgent", ["UREX"], ["UTESS"]]);
+  assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner, subtask.people.tester], ["100.1", "High", "20/11/2026", ["UREX"], ["UTESS"]]);
   // The task's thread hears of it, and its card counts it, with View subtasks.
   const told = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
   assert.equal(told.text, "<@UTESS> added a subtask: <https://slack.example/p200|Fails on Safari>. It's tracked in its own thread.");
@@ -5919,7 +5920,8 @@ test("the Home tab lists subtasks under their task, which a subtask of yours bri
   };
   // My Tasks: the task, though not theirs, with only their subtask under it.
   const mine = await view("home:tab:mine");
-  assert.match(mine, /:hammer_and_wrench: To work on \(1\)\n\*<[^|]+\|Checkout redesign>\*\n[^\n]+\nOwner <@UOTHER>\n_Your subtasks:_\n:arrow_right_hook: <[^|]+\|Payment fails>  ·  :arrow_forward: In progress  ·  [^\n]*Owner you\n/);
+  // Each subtask as a card of its own under it: ↪ and its title, then its details, then its people.
+  assert.match(mine, /:hammer_and_wrench: To work on \(1\)\n\*<[^|]+\|Checkout redesign>\*\n[^\n]+\nOwner <@UOTHER>\n_Your subtasks:_\n:arrow_right_hook: \*<[^|]+\|Payment fails>\*\n:large_orange_circle: High  ·  :arrow_forward: In progress  ·  [^\n]*\nOwner you\n/);
   assert.doesNotMatch(mine, /Someone else's part|Fixed already/);
   // All Tasks: each subtask once, under its task, with how many are done.
   const all = await view("home:tab:all");
@@ -5929,7 +5931,7 @@ test("the Home tab lists subtasks under their task, which a subtask of yours bri
   // The task's owner sees all its open subtasks under it, whoever's they are.
   stored[0] = historyTask("100.1", { title: "Checkout redesign", owners: ["UME"], status: "IN_TESTING" });
   const owner = await view("home:tab:mine");
-  assert.match(owner, /\|Checkout redesign>\*\n[^\n]+\nOwner you\n:arrow_right_hook: <[^|]+\|Payment fails>[^\n]*\n:arrow_right_hook: <[^|]+\|Someone else's part>[^\n]*\n_\+1 done_/);
+  assert.match(owner, /\|Checkout redesign>\*\n[^\n]+\nOwner you\n:arrow_right_hook: \*<[^|]+\|Payment fails>\*\n[^\n]+\nOwner you\n:arrow_right_hook: \*<[^|]+\|Someone else's part>\*\n[^\n]+\nOwner <@UOTHER>\n_\+1 done_/);
   assert.doesNotMatch(owner, /Your subtasks/);
   assert.equal(owner.match(/\|Payment fails>/g)?.length, 1);
 });
@@ -5989,7 +5991,7 @@ test("Unassigned on the Home tab lists only tasks with no one on them, with thei
   const { blocks } = calls.find((call) => call.method === "views.publish").args.view;
   const text = blocks.map((block) => blockText(block) ?? "").join("\n");
   assert.doesNotMatch(text, /Taken task|Ownerless part/);
-  assert.match(text, /\|Nobody's task>\*\n[^]*:arrow_right_hook: <[^|]+\|Its part>/);
+  assert.match(text, /\|Nobody's task>\*\n[^]*:arrow_right_hook: \*<[^|]+\|Its part>\*\n[^\n]+\nOwner <@UOTHER>/);
   const buttons = blocks.flatMap((block) => block.elements ?? []).filter((element) => element.type === "button" && element.action_id.startsWith("home:claim"));
   assert.deepEqual(buttons.map((button) => [button.action_id, button.text.text]), [["home:claim:CDEV:100.3", "Assign to me"]]);
 });
@@ -6088,9 +6090,9 @@ test("/cade subtask link makes an older task a subtask, for admins only, and isn
   const calls = mockSlack(t, { stored: [historyTask(T1, { title: "Checkout redesign", owners: ["UMIA"] }), historyTask(T2, { title: "Payment fails", priority: "Low", dueDate: "01/12/2026", owners: ["UREX"], link: "https://slack.example/p2" })] });
   const { later } = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV", asAdmin);
   assert.equal(later.text, "Made <https://slack.example/p2|Payment fails> a subtask of *Checkout redesign*.");
-  // It keeps its own details, and both cards show the link.
+  // It keeps its own due date and people, and takes the main task's priority; both cards show the link.
   const subtask = (await getTask(env, "CDEV", T2))!;
-  assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner], [T1, "Low", "01/12/2026", ["UREX"]]);
+  assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner], [T1, "High", "01/12/2026", ["UREX"]]);
   const card = (ts) => cardText(calls.filter((call) => call.method === "chat.update" && call.args.ts === ts).at(-1).args);
   assert.match(card(T2), /:arrow_right_hook: Subtask of \*Checkout redesign\*/);
   assert.match(card(T1), /Subtasks: 1 open  ·  0 closed/);
@@ -6162,4 +6164,38 @@ test("the admin commands, and their buttons, are only for Cade's admins", async 
   mockSlack(t, { stored: [ownTask()] });
   await send("/slack/events", threadEvent("<@UBOT> subtask"), {}, notAdmin);
   assert.match(lastCalls.find((call) => call.method === "chat.postMessage").args.text, /Give the subtask a title/);
+});
+
+test("a subtask has its task's priority: not on its forms, nor changed by a command, and it follows the task's", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask(), subtaskOf("100.2", { priority: "High" })] });
+  await seeded;
+  // Its Edit form has the due date but not the priority.
+  const ids = editForm({ channel: "CDEV", ts: "100.2" }, (await getTask(env, "CDEV", "100.2"))!).blocks.map((block) => block.block_id);
+  assert.ok(ids.includes("due_date") && !ids.includes("priority"));
+  // @Cade priority in its thread says where to change it, and changes nothing.
+  await send("/slack/events", threadEvent("<@UBOT> priority low", { thread_ts: "100.2" }));
+  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /A subtask has its task's priority/);
+  assert.equal((await getTask(env, "CDEV", "100.2"))!.priority, "High");
+  // The task's priority changing brings it along, and redraws its card.
+  calls.length = 0;
+  await send("/slack/events", threadEvent("<@UBOT> priority urgent"));
+  assert.equal((await getTask(env, "CDEV", "100.2"))!.priority, "Urgent");
+  assert.match(cardText(calls.find((call) => call.method === "chat.update" && call.args.ts === "100.2").args), /^\[URGENT\] \*Fails on Safari\*/);
+});
+
+test("the Home tab never has more than Slack's 100 blocks, however many subtasks there are", async (t) => {
+  const stored: Stored[] = [];
+  for (let i = 1; i <= 12; i++) {
+    const ts = `${100 + i}.1`;
+    stored.push(historyTask(ts, { title: `Task ${i}`, owners: ["UME"] }));
+    for (let j = 1; j <= 8; j++) stored.push(subtaskOf(`${100 + i}.${j + 1}`, { title: `Part ${i}.${j}`, parent: { ts, title: `Task ${i}` } }));
+  }
+  for (const action_id of ["home:tab:mine", "home:tab:all"]) {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id }] }));
+    const { blocks } = calls.find((call) => call.method === "views.publish").args.view;
+    assert.ok(blocks.length <= 100, `${action_id}: ${blocks.length} blocks`);
+    // What doesn't fit is counted rather than left out without a word.
+    assert.match(blocks.map((block) => blockText(block) ?? "").join("\n"), /more/, action_id);
+  }
 });

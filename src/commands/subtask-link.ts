@@ -9,9 +9,9 @@ import type { Context, SlashCommand, StoredTask } from "../types.ts";
 // tasks once, so only for the admins in cade.config.json, and not listed in help. Each takes the
 // links from Copy link on the cards.
 //
-// A link keeps the task's own due date, priority and people, and follows the rules a new subtask
-// does: in the same channel, one level deep, and an incident's subtask is an incident too (it becomes
-// Urgent and due Immediate). A main task in Client review or Done takes only a done subtask, as it
+// A link keeps the task's own due date and people, and takes the main task's priority, following the
+// rules a new subtask does: in the same channel, one level deep, and an incident's subtask is an
+// incident too (it becomes Urgent and due Immediate). A main task in Client review or Done takes only a done subtask, as it
 // waits for its subtasks. Both cards are redrawn, the subtask is unpinned (pinned again once
 // unlinked, if open), and the main task's thread hears it, as it does a new subtask.
 
@@ -70,6 +70,7 @@ async function link(env: AppEnv, child: Ref, parent: Ref, user: string) {
   const linked = (await loadTask(env, child.channel, child.ts))!;
   const made = main.incident && !linked.incident;
   if (made) Object.assign(linked, INCIDENT, { incident: true });
+  else if (!linked.incident) linked.priority = main.priority;
   // Saving redraws its card, the main task's, which counts it, and the summary.
   await saveTask(env, child.channel, child.ts, linked);
   if (before) await redrawParent(env, child.channel, { parent: before });

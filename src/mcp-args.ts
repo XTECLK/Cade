@@ -101,7 +101,7 @@ export type CreateTaskArgs = {
   thread_id?: string;
   // Instead of thread_id: a link to a message in the thread
   link?: string;
-  // Make it a subtask of this task, by the ID get_tasks gives. Leave out project; priority and due_date default to the task's
+  // Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's
   parent_task_id?: string;
 };
 
@@ -166,7 +166,7 @@ export type UpdateTaskArgs = {
   task_id: string;
   // The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first
   status?: "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "IN_TESTING" | "CLIENT_REVIEW" | "DONE";
-  // The task's new priority. An incident's never changes
+  // The task's new priority. An incident's never changes, and a subtask has its task's: change the task's, and its subtasks follow
   priority?: "Urgent" | "High" | "Medium" | "Low";
   // DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes
   due_date?: string;

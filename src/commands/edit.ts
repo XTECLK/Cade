@@ -91,7 +91,8 @@ export function editForm(
       },
       ...(details
         ? [
-            {
+            // A subtask's priority is its task's (see followParent in tasks.ts), so its form leaves it out.
+            ...(task.parent ? [] : [{
               type: "input",
               block_id: "priority",
               label: plainText("Priority"),
@@ -101,7 +102,7 @@ export function editForm(
                 options: (Object.keys(PRIORITIES) as Priority[]).map(priorityOption),
                 ...(PRIORITIES[priority] && { initial_option: priorityOption(priority) }),
               },
-            },
+            }]),
             {
               type: "input",
               block_id: "due_date",
@@ -199,7 +200,7 @@ function saveEdit(payload: SlackPayload, context: Context) {
       const status = values.status!.value.selected_option!.value as Status;
       if (status !== task.status) changes.status = status;
       if (details) {
-        changes.priority = (values.priority!.value.selected_option?.value ?? task.priority) as Priority;
+        changes.priority = (values.priority?.value.selected_option?.value ?? task.priority) as Priority;
         changes.dueDate = formatDueDate(values.due_date!.value.selected_date);
       }
       changes.subtasks = (values.subtasks?.value.selected_options ?? []).length > 0;

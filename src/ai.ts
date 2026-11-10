@@ -288,7 +288,8 @@ export function checkChanges(raw: ModelAnswer | null | undefined, { task, messag
     if (raw?.blocked === "unblock" && task.blocked) changes.blocked = { on: false };
   }
   const priority = raw?.priority;
-  if (allowed.details && isPriority(priority) && priority !== task.priority) changes.priority = priority;
+  // A subtask's priority is its task's, so none is suggested for it.
+  if (allowed.details && !task.parent && isPriority(priority) && priority !== task.priority) changes.priority = priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);
     if (dueDate !== null && dueDate !== (task.dueDate ?? "")) changes.dueDate = dueDate;

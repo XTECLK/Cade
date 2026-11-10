@@ -1,5 +1,6 @@
 import { channelsWithRole, findProject } from "../channels.ts";
 import { commands } from "./registry.ts";
+import { ADMINS_ONLY, isAdmin } from "../settings.ts";
 import type { AppEnv } from "../env.ts";
 import type { ChannelScope, Command, Context, Handler, Reply, SlashCommand } from "../types.ts";
 
@@ -27,6 +28,7 @@ export async function dispatchSlash(command: SlashCommand, context: Context): Pr
   const handler = commands[command.name];
   if (!handler) return usage();
   if (!handler.slash) return `For that one, send \`${[handler.usage].flat()[0]}\`${handler.inThread ? " in a task thread" : ""}.`;
+  if ((handler.admin || handler.slashAdmin) && !isAdmin(context.env, command.user)) return ADMINS_ONLY;
   return runHandler(handler, handler.slash as NonNullable<Handler["run"]>, [handler.slashUsage].flat()[0], slashScope(handler), command, context);
 }
 
@@ -92,7 +94,7 @@ function channelHint(scope: Scope, env: AppEnv, from: string) {
 
 // Help lists the commands by how they're sent: the slash commands, at the
 // top of a channel; the `@Cade` messages, sent in a message's thread or a
-// task's; and the message shortcuts. Admin commands are not listed.
+// task's; and the message shortcuts. Admin commands are not listed, nor a command's admin-only `/cade` form.
 function usage() {
   const all: Handler[] = [...new Set(Object.values(commands))];
   const handlers = all.filter((handler) => !handler.admin);

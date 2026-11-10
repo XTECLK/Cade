@@ -44,6 +44,8 @@ const env = {
     { name: "acme", channel: "CDEV" },
     { name: "test", channel: "CTESTDEV" },
   ],
+  // Whoever sends the commands in these tests is an admin, for the admin commands.
+  ADMINS: JSON.stringify(["UACTOR"]),
 } as unknown as AppEnv;
 
 async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
@@ -6105,8 +6107,8 @@ test("/cade subtask link makes an older task a subtask, for admins only, and isn
   assert.ok(calls.some((call) => call.method === "pins.add" && call.args.timestamp === T2));
 
   // Not for anyone else, and not listed.
-  const refused = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV");
-  assert.equal(JSON.parse(refused.now).text, "Only Cade's admins can link and unlink subtasks.");
+  const refused = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV", { ...env, ADMINS: "[]" } as AppEnv);
+  assert.equal(JSON.parse(refused.now).text, "Only Cade's admins can do that.");
   const help = await runTasksCommand("help", "CDEV", asAdmin);
   assert.doesNotMatch(help.now, /subtask link/);
 });
@@ -6138,4 +6140,26 @@ test("closing or reopening a subtask tells its task's thread how its subtasks st
   calls.length = 0;
   await send("/slack/events", threadEvent("<@UBOT> status in testing", { thread_ts: "100.2" }));
   assert.deepEqual(told(), ["<@UACTOR> reopened the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 2 open  ·  0 closed."]);
+});
+
+test("the admin commands, and their buttons, are only for Cade's admins", async (t) => {
+  const notAdmin = { ...env, ADMINS: JSON.stringify(["USOMEONE"]) } as AppEnv;
+  for (const command of [`remove <${messageLink("CDEV", T1)}>`, `replace <${messageLink("CDEV", T1)}> New text`, `resync <${messageLink("CDEV", T1)}>`, "resync summary", `retry <${messageLink("CDEV", T1)}>`, `subtask link ${cardLink(T2)} ${cardLink(T1)}`]) {
+    const calls = mockSlack(t, { stored: [historyTask(T1, { title: "Main" })] });
+    const { now, later } = await runTasksCommand(command, "CDEV", notAdmin);
+    assert.equal(JSON.parse(now).text, "Only Cade's admins can do that.", command);
+    assert.equal(later, undefined, command);
+    assert.deepEqual(calls, [], command);
+  }
+  // A Delete button sent to an admin does nothing for anyone else.
+  mockSlack(t, { stored: [historyTask(T1, { title: "Main" })] });
+  const responses = recordResponses(t);
+  const value = JSON.stringify({ channel: "CDEV", ts: T1, kind: "task" });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UOTHER" }, response_url: RESPONSE_URL, actions: [{ action_id: "delete:confirm", value }] }), {}, notAdmin);
+  assert.deepEqual(responses, [{ response_type: "ephemeral", text: "Only Cade's admins can do that." }]);
+  assert.ok(await getTask(env, "CDEV", T1));
+  // The `@Cade subtask` form stays for everyone: only `/cade subtask` is for admins.
+  mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> subtask"), {}, notAdmin);
+  assert.match(lastCalls.find((call) => call.method === "chat.postMessage").args.text, /Give the subtask a title/);
 });

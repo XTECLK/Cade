@@ -235,7 +235,11 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 ### Adding a command
 
 Create a module in `src/commands/` and add it to the list in
-`src/commands/registry.ts`, whose comment describes the handler shape. A
+`src/commands/registry.ts`, whose comment describes the handler shape. A tidying-up command
+for Cade's admins (the `admins` in `cade.config.json`) is marked `admin`, or `slashAdmin` when only
+its `/cade` form is: it is left out of help, and `isAdmin` (`src/settings.ts`), the one check, is
+applied to it by the dispatcher, and to its buttons and forms by the registry, so a handler never
+checks for itself. A
 handler declares its name, how it's used, its help section, and where it may
 run (which channels, and whether only in a thread); the dispatcher enforces
 these and answers with a hint when a command is used in the wrong place.

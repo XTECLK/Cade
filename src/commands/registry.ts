@@ -20,6 +20,8 @@ import subtask from "./subtask.ts";
 import suggest from "./suggest.ts";
 import track, { incident } from "./track.ts";
 import unassign from "./unassign.ts";
+import { ADMINS_ONLY, isAdmin } from "../settings.ts";
+import { respondLater } from "../slack.ts";
 import type { Handler, Intent, PayloadHandler } from "../types.ts";
 
 // To add a command, create a handler module and list it here. A handler is:
@@ -32,7 +34,9 @@ import type { Handler, Intent, PayloadHandler } from "../types.ts";
 //               thread, "task" for a task's thread; or "work" for those
 //               with only a `/cade` form, listed with the slash commands,
 //     aliases?: other names that run the same handler,
-//     admin?: true for tidying-up commands, which help lists apart,
+//     admin?: true for tidying-up commands, only for Cade's admins, with their
+//               buttons and forms, and not in help,
+//     slashAdmin?: true when only the `/cade name` form is for admins,
 //     channel?: "channel", or [] for any channel: the channels in
 //               PROJECTS it works in,
 //     slashChannel?: like `channel`, for `/cade name` when it differs,
@@ -58,9 +62,27 @@ export const commands: Record<string, Handler> = Object.fromEntries(
   ),
 );
 
+// An admin command's buttons and forms check, as its command does (see dispatchSlash), that whoever
+// uses them is an admin: they are sent only to admins, but a click is checked anyway. Someone else is
+// told so, privately, and nothing happens.
+function adminsOnly(handlers: Record<string, PayloadHandler> = {}): Record<string, PayloadHandler> {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([id, handle]) => [
+      id,
+      async (payload, context) => {
+        if (isAdmin(context.env, payload.user.id)) return handle(payload, context);
+        console.warn("Not an admin", { id, user: payload.user.id });
+        if (payload.response_url) await respondLater(payload.response_url, { text: ADMINS_ONLY }).catch(() => {});
+        return payload.view ? { response_action: "clear" } : undefined;
+      },
+    ]),
+  );
+}
+const guarded = (handler: Handler): Handler => (handler.admin ? { ...handler, actions: adminsOnly(handler.actions), views: adminsOnly(handler.views) } : handler);
+
 // The Home tab's Refresh button, the task card's menu, its Edit form, and suggestions from people's own words only answer
 // clicks and messages, so they aren't commands.
-const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, suggest, aiSuggest];
+const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, suggest, aiSuggest].map(guarded);
 
 export const views: Record<string, PayloadHandler> = Object.assign(
   {},

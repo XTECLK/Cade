@@ -240,7 +240,10 @@ export interface Handler {
   slashUsage?: string | string[];
   section?: "message" | "task" | "work";
   aliases?: string[];
+  // For Cade's admins only (see isAdmin in settings.ts), and not in help: the whole command, with its
+  // buttons and forms (`admin`), or only its `/cade` form (`slashAdmin`), the `@Cade` one being for anyone.
   admin?: boolean;
+  slashAdmin?: boolean;
   // The channels in PROJECTS it works in: "channel", or [] for any channel.
   channel?: ChannelScope;
   slashChannel?: ChannelScope;

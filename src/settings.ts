@@ -42,8 +42,12 @@ export async function withSettings(env: AppEnv): Promise<AppEnv> {
   }
 }
 
+// What someone who isn't an admin is told when they try an admin's command.
+export const ADMINS_ONLY = "Only Cade's admins can do that.";
+
 // Whether `user` is one of the admins cade.config.json lists (`admins`, the Worker secret ADMINS),
-// who can add projects and open the settings form. Without a list, no one is.
+// who can add projects, open the settings form and use the admin commands. Without a list, no one is.
+// The one check for all of these.
 export function isAdmin(env: AppEnv, user: string) {
   try {
     const admins = typeof env.ADMINS === "string" ? JSON.parse(env.ADMINS) : env.ADMINS;

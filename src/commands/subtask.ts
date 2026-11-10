@@ -58,6 +58,7 @@ export default {
   // `/cade subtask link` and `unlink`, for admins tidying up tasks made before subtasks: not in help,
   // which lists only slash commands with a slashUsage (see subtask-link.ts).
   slashChannel: [],
+  slashAdmin: true,
   slash: linkCommand,
   views: { [ADD_VIEW]: submit },
   actions: {

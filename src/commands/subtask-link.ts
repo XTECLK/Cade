@@ -1,5 +1,4 @@
 import { setTaskParent } from "../db.ts";
-import { isAdmin } from "../settings.ts";
 import { callSlack, escapeSlack, linkedThread, respondLater } from "../slack.ts";
 import { AFTER_SUBTASKS, INCIDENT, loadTask, redrawParent, saveTask, setPinned, statusName, subtaskAdded } from "../tasks.ts";
 import type { AppEnv } from "../env.ts";
@@ -23,8 +22,8 @@ const USAGE = "Send `/cade subtask link <task link> <main task link>`, or `/cade
 // Slack sends links as <https://…> or <https://…|label>.
 const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 
+// Only admins get here (see dispatchSlash).
 export function linkCommand(command: SlashCommand, context: Context) {
-  if (!isAdmin(context.env, command.user)) return "Only Cade's admins can link and unlink subtasks.";
   const [verb = "", ...rest] = command.text.trim().split(/\s+/);
   const links = [...rest.join(" ").matchAll(LINK)].map((match) => linkedThread((match[1] ?? match[2])!)).filter(Boolean) as Ref[];
   const run =

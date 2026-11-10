@@ -35,6 +35,21 @@ export interface Task {
   export?: { url: string };
   // Its releases, which its card shows: given by getTask, not stored with it.
   releases?: Release[];
+  // The task it is a subtask of, in the same channel: its root message, title and link. Set when a
+  // subtask is made, and kept for good (see insertTask in db.ts).
+  parent?: Parent;
+  // How many of its subtasks are open and closed (Done), which its card shows: given when it is
+  // read, not stored with it.
+  subtaskCounts?: { open: number; closed: number };
+}
+
+// A subtask's parent task (see Task), and its owners: a subtask with none of its own is shown as theirs
+// (see shownPeople in tasks.ts).
+export interface Parent {
+  ts: string;
+  title: string;
+  link?: string;
+  owner?: string[];
 }
 
 // A task as loaded from the database: it always has its pull requests.

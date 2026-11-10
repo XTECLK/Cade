@@ -54,14 +54,14 @@
 <section class="tool" id="get_task">
   <div class="wrap">
     <h2><code>get_task</code></h2>
-    <p>Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads.</p>
+    <p>Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs | completed_at | original_thread | original_thread_state | releases</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at | original_thread | original_thread_state | releases | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -80,9 +80,13 @@
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
-<tr><td><code>owner</code></td><td>string[]</td><td></td><td>The task's owners, as Slack user IDs: show their names, not the IDs</td></tr>
+<tr><td><code>owner</code></td><td>string[]</td><td></td><td>The task's owners, as Slack user IDs: show their names, not the IDs. A subtask with no owner of its own has its task's</td></tr>
 <tr><td><code>reviewer</code></td><td>string[]</td><td></td><td>The task's reviewers, as Slack user IDs: show their names, not the IDs</td></tr>
 <tr><td><code>tester</code></td><td>string[]</td><td></td><td>The task's testers, as Slack user IDs: show their names, not the IDs</td></tr>
+<tr><td><code>parent</code></td><td>object or null</td><td></td><td>The task this one is a subtask of, or null</td></tr>
+<tr><td><code>parent.task_id</code></td><td>string</td><td></td><td>The task's ID, for get_task and get_task_history</td></tr>
+<tr><td><code>parent.title</code></td><td>string</td><td></td><td>The task's title</td></tr>
+<tr><td><code>parent.link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td></td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 <tr><td><code>created_by</code></td><td>string</td><td></td><td>Who raised it: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>completed_at</code></td><td>string</td><td></td><td>When it was marked Done, or empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
@@ -111,6 +115,11 @@
 <tr><td><code>releases[].sent_at</code></td><td>string</td><td>yes</td><td>When it was sent (YYYY-MM-DD HH:MM, UTC)</td></tr>
 <tr><td><code>releases[].decided_by</code></td><td>string</td><td>yes</td><td>Who decided it, or empty while waiting: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>releases[].decided_at</code></td><td>string</td><td>yes</td><td>When it was decided, or empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
+<tr><td><code>subtasks</code></td><td>object[]</td><td></td><td>The task's subtasks (parts of it, or issues found while testing it), oldest first, Done ones too, each with its own thread for get_task_history · A subtask: a part of the task, or an issue found while testing it, with its own thread</td></tr>
+<tr><td><code>subtasks[].task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for get_task and get_task_history</td></tr>
+<tr><td><code>subtasks[].title</code></td><td>string</td><td>yes</td><td>The task's title</td></tr>
+<tr><td><code>subtasks[].link</code></td><td>string</td><td>yes</td><td>A link to the task's message</td></tr>
+<tr><td><code>subtasks[].status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td>yes</td><td>The subtask's status</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -187,7 +196,7 @@
 <section class="tool" id="get_tasks">
   <div class="wrap">
     <h2><code>get_tasks</code></h2>
-    <p>Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (&quot;me&quot; for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary.</p>
+    <p>Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (&quot;me&quot; for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary. The list is flat: a subtask is listed as any task is, naming its parent. get_task gives a task's subtasks.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -201,7 +210,7 @@
 <tr><td><code>completed_from</code></td><td>string</td><td></td><td>Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)</td></tr>
 <tr><td><code>completed_to</code></td><td>string</td><td></td><td>Only tasks marked Done on or before this day (YYYY-MM-DD)</td></tr>
 <tr><td><code>include_open</code></td><td>boolean</td><td></td><td>With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | summary | summary_by | notes | notes_link | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | has_subtasks | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -223,9 +232,13 @@
 <tr><td><code>tasks[].blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>tasks[].blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>tasks[].link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
-<tr><td><code>tasks[].owner</code></td><td>string[]</td><td></td><td>The task's owners, as Slack user IDs: show their names, not the IDs</td></tr>
+<tr><td><code>tasks[].owner</code></td><td>string[]</td><td></td><td>The task's owners, as Slack user IDs: show their names, not the IDs. A subtask with no owner of its own has its task's</td></tr>
 <tr><td><code>tasks[].reviewer</code></td><td>string[]</td><td></td><td>The task's reviewers, as Slack user IDs: show their names, not the IDs</td></tr>
 <tr><td><code>tasks[].tester</code></td><td>string[]</td><td></td><td>The task's testers, as Slack user IDs: show their names, not the IDs</td></tr>
+<tr><td><code>tasks[].parent</code></td><td>object or null</td><td></td><td>The task this one is a subtask of, or null</td></tr>
+<tr><td><code>tasks[].parent.task_id</code></td><td>string</td><td></td><td>The task's ID, for get_task and get_task_history</td></tr>
+<tr><td><code>tasks[].parent.title</code></td><td>string</td><td></td><td>The task's title</td></tr>
+<tr><td><code>tasks[].parent.link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
 <tr><td><code>tasks[].summary</code></td><td>string</td><td></td><td>The summary of the issue, or empty</td></tr>
 <tr><td><code>tasks[].summary_by</code></td><td>string</td><td></td><td>Who wrote the summary, or empty: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>tasks[].notes</code></td><td>string</td><td></td><td>The notes people wrote, or empty</td></tr>
@@ -390,7 +403,7 @@
 <section class="tool" id="create_task">
   <div class="wrap">
     <h2><code>create_task</code></h2>
-    <p>Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task.</p>
+    <p>Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people, and its due date and priority unless you give others; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -404,6 +417,7 @@
 <tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most 8000 characters</td></tr>
 <tr><td><code>thread_id</code></td><td>string</td><td></td><td>The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>Instead of thread_id: a link to a message in the thread</td></tr>
+<tr><td><code>parent_task_id</code></td><td>string</td><td></td><td>Make it a subtask of this task, by the ID get_tasks gives. Leave out project; priority and due_date default to the task's</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -414,6 +428,7 @@
 <tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the task's message</td></tr>
 <tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td>yes</td><td>Whether it was made as an incident</td></tr>
+<tr><td><code>parent_task_id</code></td><td>string or null</td><td>yes</td><td>The task it is a subtask of, or null</td></tr>
 <tr><td><code>summary_saved</code></td><td>boolean</td><td>yes</td><td>Whether the summary was saved on the notes page</td></tr>
 <tr><td><code>notes_link</code></td><td>string</td><td>yes</td><td>A link to the notes page, or empty</td></tr>
 </tbody>
@@ -631,14 +646,14 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. Call this only with changes the person has seen and approved.</p>
+    <p>Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Call this only with changes the person has seen and approved.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>The task's new status. A task in Client review can't be changed here: its approver decides</td></tr>
+<tr><td><code>status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first</td></tr>
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's new priority. An incident's never changes</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens</td></tr>

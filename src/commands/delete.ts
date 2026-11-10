@@ -1,6 +1,6 @@
 import { getTaskIncludingDeleted, markTaskDeleted } from "../db.ts";
 import { callSlack, escapeSlack, linkedMessage, mrkdwn, plainText, respondLater } from "../slack.ts";
-import { refreshSummary } from "../tasks.ts";
+import { redrawParent, refreshSummary } from "../tasks.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import { DELETE_BUTTON, readPayload, type DeleteButton } from "../payloads.ts";
@@ -150,6 +150,7 @@ async function deleteTask(env: AppEnv, channel: string, ts: string, user: string
   // Deleting a message also removes its pin.
   await deleteMessage(env, channel, ts);
   if (!task.deleted) await markTaskDeleted(env, channel, ts);
+  await redrawParent(env, channel, task);
   await refreshSummary(env, channel);
   console.log("Task deleted", { ts, user });
 }

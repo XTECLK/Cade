@@ -7,7 +7,7 @@ import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.t
 import { mcpEnabled } from "./mcp.ts";
 import { SETTINGS, isAdmin, settingOn } from "./settings.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
-import { PRIORITIES, blockedLine, peopleLine, ROLES, STATUSES } from "./tasks.ts";
+import { PRIORITIES, blockedLine, parentLine, peopleLine, ROLES, shownPeople, STATUSES } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
@@ -17,6 +17,9 @@ type Tab = keyof typeof TABS;
 // What the Home tab shows: a view of the tasks, or Settings.
 export type HomeTab = Tab | typeof CONFIGURE;
 type Section = { role: Role; emoji: string; title: string; ready: Status[]; empty: string };
+// A card: a task, and the open subtasks shown under it. With `context`, the task isn't in the view
+// itself, and is shown only for its subtasks that are, which are the only ones listed under it.
+type Row = { entry: TaskEntry; subs: TaskEntry[]; context: boolean };
 
 // The Home tab of Cade's app: what the person has open, by what they do on
 // it, most urgent first. It is only another view of the tasks Cade already
@@ -71,6 +74,9 @@ const DEFAULT_TAB = "mine";
 // The cards in the Unassigned and All Tasks views, two blocks each (three
 // with the Assign to me button).
 const MAX_LISTED = 20;
+
+// The subtasks listed under a card.
+const MAX_SUBS = 8;
 
 // Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Settings, which isn't.
 // With none, it opens on the tasks tab they were last on.
@@ -131,15 +137,17 @@ async function draw(env: AppEnv, user: string, tab: string) {
   };
   if (tab !== "mine") return listView(env, tab, top, tabRow, open, today, user);
 
-  const entries = open.filter((entry) => (Object.keys(ROLES) as Role[]).some((role) => entry.task.people[role].includes(user)));
+  // A subtask with no owner of its own is its task's owners' (see shownPeople).
+  const has = (entry: TaskEntry, role: Role) => shownPeople(entry.task)[role].includes(user);
+  const entries = open.filter((entry) => (Object.keys(ROLES) as Role[]).some((role) => has(entry, role)));
 
+  // A subtask of theirs brings its parent along, as the card it is shown under, and a task of theirs
+  // brings all its subtasks. A card is ready to act on when anything on it is: a task in testing is,
+  // while issues found in it are being fixed.
   const sections = SECTIONS.map((section) => {
-    const theirs = entries.filter((entry) => entry.task.people[section.role].includes(user)).sort(byUrgency);
-    return {
-      ...section,
-      ready: theirs.filter((entry) => section.ready.includes(entry.task.status)),
-      later: theirs.filter((entry) => !section.ready.includes(entry.task.status)),
-    };
+    const theirs = sorted(cards(open, (entry) => has(entry, section.role)));
+    const ready = (row: Row) => (row.context ? row.subs : [row.entry, ...row.subs]).some((entry) => section.ready.includes(entry.task.status));
+    return { ...section, ready: theirs.filter(ready), later: theirs.filter((row) => !ready(row)) };
   });
   const overdue = new Set(entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel));
 
@@ -239,11 +247,45 @@ async function suggestionsRow(env: AppEnv, user: string, all: Project[]) {
 
 const stateOf = (on: boolean | "some") => (on === "some" ? "partly on" : on ? "on" : "off");
 
+// The open entries that `matches`, as cards: a task with all its open subtasks under it, and a
+// subtask that matches whose parent doesn't under its parent, shown for it (`context`). A subtask
+// whose parent isn't open has a card of its own.
+function cards(open: TaskEntry[], matches: (entry: TaskEntry) => boolean): Row[] {
+  const byTs = new Map(open.map((entry) => [entry.ts, entry]));
+  const parentOf = (entry: TaskEntry) => (entry.task.parent ? byTs.get(entry.task.parent.ts) : undefined);
+  const found = new Map<string, Row>();
+  for (const entry of open) {
+    if (parentOf(entry) || !matches(entry)) continue;
+    found.set(entry.ts, { entry, subs: open.filter((other) => parentOf(other) === entry), context: false });
+  }
+  for (const entry of open) {
+    const parent = parentOf(entry);
+    if (!parent || !matches(entry) || found.get(parent.ts)?.context === false) continue;
+    const row = found.get(parent.ts) ?? { entry: parent, subs: [], context: true };
+    row.subs.push(entry);
+    found.set(parent.ts, row);
+  }
+  return [...found.values()];
+}
+
+// What a card is sorted by: its task, or, shown for its subtasks, the most urgent of them.
+const lead = (row: Row) => (row.context ? [...row.subs].sort(byUrgency)[0]! : row.entry);
+
+// Cards most urgent first, each with its subtasks most urgent first.
+function sorted(rows: Row[]) {
+  for (const row of rows) row.subs.sort(byUrgency);
+  return rows.sort((a, b) => byUrgency(lead(a), lead(b)));
+}
+
+// A task with no one on it. Only tasks are listed as unassigned, not subtasks: they are parts of a
+// task, and whoever takes the task takes them, unless someone else is given one.
+const unassignedTask = ({ task }: TaskEntry) => !task.parent && !(Object.keys(ROLES) as Role[]).some((role) => task.people[role].length);
+
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
-// first. Unassigned ones have an Assign to me button there, and only there.
+// first, with their subtasks under them. Unassigned ones have an Assign to me button there, and only there.
 function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBlock, open: TaskEntry[], today: string, user: string) {
   const unassigned = tab === "unassigned";
-  const entries = (unassigned ? open.filter((entry) => !(Object.keys(ROLES) as Role[]).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
+  const entries = sorted(cards(open, unassigned ? unassignedTask : () => true));
   const blocks: SlackBlock[] = [
     ...top,
     tabRow,
@@ -252,7 +294,7 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
     { type: "divider" },
   ];
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
-  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today, user, unassigned)));
+  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((row) => card(row, today, user, { claim: unassigned })));
   if (entries.length > MAX_LISTED) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
   }
@@ -263,16 +305,20 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ ready, later, empty }: { ready: TaskEntry[]; later: TaskEntry[]; empty: string }, today: string, user: string) {
+function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string) {
   const blocks: SlackBlock[] = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, today, user)));
+  blocks.push(...ready.slice(0, MAX_READY).flatMap((row) => card(row, today, user, { label: "Your subtasks" })));
   if (ready.length > MAX_READY) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
   }
   if (later.length) {
-    const lines = later.slice(0, MAX_LATER).map(({ task, link }) => `<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}`);
-    if (later.length > MAX_LATER) lines.push(`_…and ${later.length - MAX_LATER} more._`);
+    // Each task, with the subtasks its card shows under it.
+    const coming = later.flatMap((row) => [row.entry, ...row.subs].map((entry, i) => ({ entry, under: i > 0 })));
+    const lines = coming
+      .slice(0, MAX_LATER)
+      .map(({ entry: { task, link }, under }) => `${under ? ":arrow_right_hook: " : ""}<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}`);
+    if (coming.length > MAX_LATER) lines.push(`_…and ${coming.length - MAX_LATER} more._`);
     blocks.push({ type: "context", elements: [mrkdwn(`*Coming up*\n${lines.join("\n")}`)] });
   }
   return blocks;
@@ -280,26 +326,50 @@ function list({ ready, later, empty }: { ready: TaskEntry[]; later: TaskEntry[];
 
 // A task as a card, in two blocks: its title, linking to its thread, then
 // in the smaller type of a context block its priority, status and due date, and below them its owner,
-// reviewers and testers (as on the task's message).
-// The title has no button beside it, which would leave a gap under it.
-function card({ task, link, incident, channel, ts }: TaskEntry, today: string, viewer: string, claim = false) {
+// reviewers and testers (as on the task's message), then its subtasks, a line each. A card shown
+// only for its subtasks heads them with `label`; one with all its subtasks says how many are done. A
+// subtask with a card of its own names its parent.
+// The title has no button beside it, which would leave a gap under it. With `claim`, an Assign to me
+// button follows.
+function card({ entry, subs, context }: Row, today: string, viewer: string, { claim = false, label = "" }: { claim?: boolean; label?: string } = {}) {
+  const { task, link, incident, channel } = entry;
   const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
-  const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
-  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due].filter(Boolean).join("  ·  ");
-  const people = peopleLine(task, viewer) || "_Unassigned_";
-  if (claim) {
+  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
+  const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
+  const closed = context ? 0 : task.subtaskCounts?.closed ?? 0;
+  const lines = [
+    task.parent && !subs.length && !context ? parentLine(task.parent) : "",
+    details,
+    people,
+    context && subs.length ? `_${label}:_` : "",
+    ...subs.slice(0, MAX_SUBS).map((sub) => subLine(sub, today, viewer)),
+    subs.length > MAX_SUBS ? `_…and ${subs.length - MAX_SUBS} more subtasks._` : "",
+    closed ? `_+${closed} done_` : "",
+  ].filter(Boolean);
+  if (claim && !context) {
     return [
       { type: "section", text: mrkdwn(title) },
-      { type: "context", elements: [mrkdwn(`${details}\n${people}`)] },
-      { type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${ts}`, text: plainText("Assign to me") }] },
+      { type: "context", elements: [mrkdwn(lines.join("\n"))] },
+      { type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${entry.ts}`, text: plainText("Assign to me") }] },
     ];
   }
   return [
     { type: "section", text: mrkdwn(title) },
     // The blank last line (a braille blank, as Slack trims plain ones) puts
     // a gap before the next card.
-    { type: "context", elements: [mrkdwn(`${details}\n${people}\n\u2800`)] },
+    { type: "context", elements: [mrkdwn(`${lines.join("\n")}\n\u2800`)] },
   ];
+}
+
+// A subtask's line on its parent's card.
+function subLine({ task, link }: TaskEntry, today: string, viewer: string) {
+  const parts = [`:arrow_right_hook: <${link}|${escapeSlack(task.title)}>`, STATUSES[task.status], blockedLine(task), due(task, today), peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_"];
+  return parts.filter(Boolean).join("  ·  ");
+}
+
+// The due date, marked when it has passed, or "" for none.
+function due(task: Task, today: string) {
+  return task.dueDate ? (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`) : "";
 }
 
 // Whether the task's due date has passed. An incident, due Immediate, never

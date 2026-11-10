@@ -148,7 +148,8 @@ export async function defaultPeriod(env: AppEnv, project: Project) {
 // completedAt, status, task }: `done` what was completed in the period, oldest
 // first; `active` what isn't done, most urgent first.
 export async function collect(env: AppEnv, project: Project, since: string, until: string, url: string) {
-  const all: SummaryEntry[] = (await groupTasks(env, project, Object.keys(STATUSES) as Status[], url)).map(({ channel, ts, task, link, incident }) => ({
+  // Subtasks are parts of a task, which the summary speaks of as a whole.
+  const all: SummaryEntry[] = (await groupTasks(env, project, Object.keys(STATUSES) as Status[], url)).filter(({ task }) => !task.parent).map(({ channel, ts, task, link, incident }) => ({
     channel,
     ts,
     title: task.title,

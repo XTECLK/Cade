@@ -6,7 +6,7 @@ import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
-import { getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
+import { subtasksOf, getSummary, lastSummary, markSummaryInformed, putSummaryAfter, summariesOf, summaryItems, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
@@ -17,14 +17,15 @@ import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { releaseRequest } from "./commands/release.ts";
-import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, unsentPrs } from "./tasks.ts";
+import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, shownPeople, unsentPrs, waitsForSubtasks } from "./tasks.ts";
+import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
 import type { CreateExecutiveSummaryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetExecutiveSummaryArgs, GetExecutiveSummaryDocArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateExecutiveSummaryAfterCallArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
 import type { Summary, SummaryItem } from "./db.ts";
-import type { Changes, Priority, Release, ReleaseStatus, Role, SlackMessage, Status, Task } from "./types.ts";
+import type { Changes, Priority, Release, ReleaseStatus, Role, SlackMessage, Status, StoredTask, Task } from "./types.ts";
 
 // What a tool gives: its text, or its text and its data (structuredContent).
 type ToolResult = string | { text: string; data: Record<string, unknown> };
@@ -470,9 +471,11 @@ async function getTaskHistory(env: AppEnv, user: string, args: GetTaskHistoryArg
 // The thread a task was made from, as data, or null.
 const threadOut = (thread: { channel: string; ts: string; link: string } | null) => (thread ? { thread_id: `${thread.channel}:${thread.ts}`, link: thread.link } : null);
 
-// A task as data, `link` being its link for the tools to give.
+// A task as data, `link` being its link for the tools to give, with its parent, if it is a subtask. A
+// subtask with no owner of its own has its parent's (see shownPeople).
 function taskData(env: AppEnv, channel: string, ts: string, task: Task, link: string) {
   const name = projects(env).find((pair) => pair.channel === channel)?.name ?? channel;
+  const people = shownPeople(task);
   return {
     task_id: `${channel}:${ts}`,
     title: task.title,
@@ -486,11 +489,15 @@ function taskData(env: AppEnv, channel: string, ts: string, task: Task, link: st
     blocked: Boolean(task.blocked),
     blocked_reason: task.blockedReason || "",
     link,
-    owner: task.people.owner,
-    reviewer: task.people.reviewer,
-    tester: task.people.tester,
+    owner: people.owner,
+    reviewer: people.reviewer,
+    tester: people.tester,
+    parent: task.parent ? { task_id: `${channel}:${task.parent.ts}`, title: task.parent.title, link: task.parent.link ?? "" } : null,
   };
 }
+
+// A subtask's line naming its parent, for a tool's text, or none for a task that isn't one.
+const parentLines = (parent: ReturnType<typeof taskData>["parent"], indent: string) => (parent ? [`${indent}Subtask of "${parent.title}" (task ID ${parent.task_id}).`] : []);
 
 // A release as data, with its time as YYYY-MM-DD HH:MM in UTC.
 const releaseData = (release: Release) => ({
@@ -536,14 +543,16 @@ async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
   if (where === null) throw new ToolError("You aren't in that task's project channel, so I can't read it for you.");
   // Only what is asked for is read.
   const want = (...names: NonNullable<GetTaskArgs["fields"]>) => !fields || names.some((name) => fields.includes(name));
-  const [notes, kept] = await Promise.all([
+  const [notes, kept, subtasks] = await Promise.all([
     want("summary", "summary_by", "notes") ? getNotes(env, channel, ts) : ({} as Partial<Awaited<ReturnType<typeof getNotes>>>),
     want("original_thread", "original_thread_state") ? threadMessages(env, channel, ts) : [],
+    want("subtasks") ? subtasksOf(env, channel, ts) : [],
   ]);
   const original = sourceThreadOf(kept);
   const state = original ? "found" : kept.length ? "none" : "unknown";
   const all: Record<string, unknown> = {
     ...taskData(env, channel, ts, task, task.link ?? ""),
+    subtasks: subtasks.map((sub) => ({ task_id: `${channel}:${sub.ts}`, title: sub.task.title, link: sub.task.link ?? "", status: sub.task.status })),
     created_by: task.createdBy ?? "",
     completed_at: task.completedAt ? task.completedAt.slice(0, 16).replace("T", " ") : "",
     notes_link: task.notes?.url ?? "",
@@ -581,6 +590,10 @@ async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
           ? "Original thread: none, the task wasn't made from another thread."
           : "Original thread: unknown, no messages are kept for the task yet. Someone can send /cade resync with the task's link.",
     );
+  }
+  if (want("parent") && task.parent) lines.push("", ...parentLines(all.parent as ReturnType<typeof taskData>["parent"], ""));
+  if (want("subtasks") && subtasks.length) {
+    lines.push("", "Subtasks (each has its own thread; read it with get_task_history):", ...subtasks.map((sub) => `- ${sub.task.title} — ${statusName(sub.task.status)} (task ID ${channel}:${sub.ts}) ${sub.task.link ?? ""}`.trimEnd()));
   }
   if (!fields) lines.push("Task thread (what was done about it): read it with get_task_history.");
   return { text: lines.join("\n"), data };
@@ -729,9 +742,20 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   const title = String(args.title ?? "").trim().replace(/\s+/g, " ");
   if (!title) throw new ToolError("The title is empty.");
   if (title.length > MAX_TITLE) throw new ToolError(`The title is ${title.length} characters; keep it to ${MAX_TITLE} or fewer.`);
-  const incident = args.incident === true;
   if (args.incident !== undefined && typeof args.incident !== "boolean") throw new ToolError("incident is true or false.");
-  if (incident && (args.priority !== undefined || args.due_date !== undefined)) throw new ToolError("An incident is always Urgent and due immediately, so leave out priority and due_date.");
+  // A subtask: in its parent's project, with its people, and its due date and priority unless given.
+  let parent: { channel: string; ts: string; task: StoredTask } | undefined;
+  if (args.parent_task_id !== undefined) {
+    const { channel, ts } = taskRef({ task_id: args.parent_task_id });
+    const found = await loadTask(env, channel, ts);
+    if (!found) throw new ToolError("parent_task_id isn't a task Cade tracks. Use the task's ID from get_tasks.");
+    if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't add a subtask to it for you.");
+    if (found.parent) throw new ToolError(`That task is a subtask already, and subtasks don't have their own. Add it to its task instead: ${channel}:${found.parent.ts}.`);
+    if (args.incident === true && !found.incident) throw new ToolError("A subtask of a task can't be an incident. Leave out incident; make an incident of its own instead, if it is one.");
+    parent = { channel, ts, task: found };
+  }
+  const incident = args.incident === true || Boolean(parent?.task.incident);
+  if (incident && (args.priority !== undefined || args.due_date !== undefined)) throw new ToolError(`${parent ? "A subtask of an incident is an incident too: it" : "An incident"} is always Urgent and due immediately, so leave out priority and due_date.`);
   if (args.priority !== undefined && !PRIORITIES[args.priority as Priority]) throw new ToolError(`priority is one of ${Object.keys(PRIORITIES).join(", ")}.`);
   const dueDate = args.due_date !== undefined ? dueDateOf(args.due_date) : "";
   let summary: string | undefined;
@@ -755,7 +779,10 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   // The project: named, or the one the thread is in, or the only one.
   const all = projects(env);
   let project: Project | undefined;
-  if (args.project !== undefined) project = all.find((candidate) => candidate.name.toLowerCase() === String(args.project).trim().toLowerCase());
+  if (parent) {
+    project = all.find((candidate) => candidate.channel === parent!.channel);
+    if (args.project !== undefined && project?.name.toLowerCase() !== String(args.project).trim().toLowerCase()) throw new ToolError(`A subtask goes in its task's project, ${project?.name ?? parent.channel}: leave out project.`);
+  } else if (args.project !== undefined) project = all.find((candidate) => candidate.name.toLowerCase() === String(args.project).trim().toLowerCase());
   else project = (source && all.find((candidate) => candidate.channel === source!.channel)) || (all.length === 1 ? all[0] : undefined);
   if (!project) {
     throw new ToolError(args.project !== undefined ? `There is no project called "${args.project}". They are: ${all.map((candidate) => candidate.name).join(", ")}.` : `Say which project to make it in with project: ${all.map((candidate) => candidate.name).join(", ")}. get_projects lists them.`);
@@ -766,17 +793,20 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
     const same = (await tasksWithStatuses(env, OPEN)).find((entry) => entry.channel === project!.channel && entry.task.title.trim().toLowerCase() === title.toLowerCase());
     if (same) throw new ToolError(`${project.name} already has an open ${same.task.incident ? "incident" : "task"} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
   }
-  const task: Task = { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user, viaAgent: true };
+  const task: Task = parent
+    ? { ...newSubtask(parent.task, parent.ts, title, user, { priority: args.priority as Priority | undefined, dueDate: args.due_date !== undefined ? dueDate : undefined }), viaAgent: true }
+    : { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user, viaAgent: true };
   const ts = await createTask(env, task, { channel: project.channel, move: source });
   if (!ts) throw new ToolError(`Slack wouldn't take the ${incident ? "incident" : "task"} just now. Cade tries again in a few minutes, but without the summary, so check ${project.name}'s channel before trying again.`);
 
-  const told = [`Created the ${incident ? "incident" : "task"} "${title}" in ${project.name}${source ? ", and asked for the thread to be moved into it" : ""}.`];
+  const what = parent ? `subtask "${title}" of "${parent.task.title}"` : `${incident ? "incident" : "task"} "${title}"`;
+  const told = [`Created the ${what} in ${project.name}${source ? ", and asked for the thread to be moved into it" : ""}.`];
   if (summary !== undefined) told.push(await saveSummary(env, user, project.channel, ts, summary!));
   const made = await loadTask(env, project.channel, ts);
   console.log("Task created by MCP", { channel: project.channel, ts, by: user, incident, fromThread: Boolean(source), summary: summary?.length });
   return {
     text: `${told.join(" ")}${made?.link ? ` ${made.link}` : ""}`.trim(),
-    data: { task_id: `${project.channel}:${ts}`, link: made?.link ?? "", project: project.name, incident, summary_saved: summary !== undefined, notes_link: made?.notes?.url ?? "" },
+    data: { task_id: `${project.channel}:${ts}`, link: made?.link ?? "", project: project.name, incident, parent_task_id: parent ? `${parent.channel}:${parent.ts}` : null, summary_saved: summary !== undefined, notes_link: made?.notes?.url ?? "" },
   };
 }
 
@@ -814,7 +844,7 @@ async function getTasks(env: AppEnv, user: string, args: ListArgs) {
     const ids = new Set(assignees.map((id) => (id === "me" ? user : id)));
     await requireActiveUsers(env, [...ids].filter((id) => id !== user));
     const wanted = (roles ?? Object.keys(ROLES)) as Role[];
-    args = { ...args, assigned: (task: Task) => wanted.some((role) => task.people[role].some((id) => ids.has(id))) };
+    args = { ...args, assigned: (task: Task) => wanted.some((role) => shownPeople(task)[role].some((id) => ids.has(id))) };
   }
   if (project !== undefined) args = { ...args, channel: projectChannel(env, project) };
   if (args.completed_from !== undefined || args.completed_to !== undefined) {
@@ -846,7 +876,8 @@ async function getAllTasks(env: AppEnv, user: string, { limit, status, assigned,
   const found = (await tasksWithStatuses(env, statuses))
     .filter((entry) => !channel || entry.channel === channel)
     .filter(({ task }) => !completed || completed(task))
-    .filter(({ task }) => (!assigned || assigned(task)) && (!unassigned || !everyone(task).length))
+    // Only a task is unassigned, not a subtask: whoever takes the task takes its parts.
+    .filter(({ task }) => (!assigned || assigned(task)) && (!unassigned || (!task.parent && !everyone(task).length)))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
     .sort(byUrgency)
     .sort(openFirst ? byOpenFirst : () => 0);
@@ -922,6 +953,8 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
     const item = fields ? Object.fromEntries(["task_id", ...fields].map((field) => [field, all[field]])) : Object.fromEntries(Object.entries(all).filter(([field]) => !(field in EXTRA_FIELDS)));
     items.push(item);
     for (const field of ["summary", "notes"]) if (fields?.includes(field)) lines.push(`   ${field === "summary" ? "Summary" : "Notes"}: ${String(all[field] || "(none)").replace(/\n/g, "\n   ")}`);
+    // The list is flat: a subtask is listed as any task is, naming its parent.
+    if (!fields || fields.includes("parent")) lines.push(...parentLines(all.parent as ReturnType<typeof taskData>["parent"], "   "));
   }
   return { lines, items };
 }
@@ -1285,6 +1318,11 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     const status = parseStatus(String(args.status));
     if (!status) throw new ToolError(`status is one of ${Object.keys(STATUSES).join(", ")}.`);
     if (task.status === "CLIENT_REVIEW" && status !== task.status) throw new ToolError("This task is in Client review: it waits for the client's approver, who approves it or sends it back in the task's thread in Slack. Tell the person, and don't change its status here.");
+    if (status !== task.status && waitsForSubtasks(task, status)) {
+      const open = (await subtasksOf(env, channel, ts)).filter((sub) => sub.task.status !== "DONE");
+      const names = open.map((sub) => `"${sub.task.title}" (${statusName(sub.task.status)}, task ID ${channel}:${sub.ts})`).join(", ");
+      throw new ToolError(`This task has ${open.length} open subtask${open.length === 1 ? "" : "s"}: ${names}. A task moves to Client review or Done only once all its subtasks are Done, so nothing was changed. Tell the person, and ask whether to close them: if they agree, after the usual preview, set each one to DONE with update_task, then move this task.`);
+    }
     changes.status = status;
   }
   if (args.priority !== undefined) {

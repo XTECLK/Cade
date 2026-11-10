@@ -1,4 +1,4 @@
-import { PRIORITIES, STATUSES, cleanReason } from "./tasks.ts";
+import { PRIORITIES, STATUSES, cleanReason, inParts } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
 import type { Changes, PlainMessage, Priority, Role, Status, Task } from "./types.ts";
 
@@ -172,8 +172,8 @@ export async function readChanges(env: AppEnv, { message, task, today, allowed, 
       title: task.title,
       status: task.status,
       // The only statuses it can move to: forward from the current one.
-      nextStatuses: task.subtasks ? laterStatuses(task.status).filter((status) => partsMayMoveTo(task, status)) : laterStatuses(task.status),
-      hasSubtasks: Boolean(task.subtasks),
+      nextStatuses: inParts(task) ? laterStatuses(task.status).filter((status) => partsMayMoveTo(task, status)) : laterStatuses(task.status),
+      hasSubtasks: inParts(task),
       priority: task.priority,
       dueDate: task.dueDate || "none",
       blocked: Boolean(task.blocked),
@@ -316,8 +316,8 @@ function partsMayMoveTo(task: Pick<Task, "status">, status: string) {
 // Whether a status the model proposed fits the message. A message about only a part never moves a
 // task, except to start one done in parts. That moves to DONE only when the message speaks of the
 // whole, and from TODO to IN_PROGRESS on any work begun.
-export function statusFits(status: string, task: Pick<Task, "status" | "subtasks">, text: string) {
-  if (!task.subtasks) return !PARTIAL.test(text);
+export function statusFits(status: string, task: Pick<Task, "status" | "subtasks" | "subtaskCounts">, text: string) {
+  if (!inParts(task)) return !PARTIAL.test(text);
   if (!partsMayMoveTo(task, status)) return false;
   if (status === "IN_PROGRESS") return true;
   return WHOLE.test(text) && !PARTIAL.test(text.replace(EVERY_PART, "all"));

@@ -100,7 +100,7 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. The ⋯ menu on a task's card has <b>Edit</b>, one form with everything: owners, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out); <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; and <b>Archive</b>, as <code>@Cade archive</code>. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. The ⋯ menu on a task's card has <b>Edit</b>, one form with everything: owners, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out); <b>Add subtask</b>, for a part of the task or an issue found while testing it: a task of its own, with its own card and thread, that starts with the task's due date, priority and people (subtasks go one level deep, so a subtask's card doesn't have it). A subtask with no owner of its own shows the task's owner. A subtask of an incident is an incident too, Urgent and due Immediate; <b>View subtasks</b>, once it has any, listing them open first, each linking to its thread; <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; and <b>Archive</b>, as <code>@Cade archive</code>. A task's card counts its subtasks, as <i>Subtasks: 2 open · 3 closed</i>, and the summary canvas and the Home tab list them under it: on My Tasks, a task of yours shows all its open subtasks, and a subtask of yours brings its task along, with only yours under it. Unassigned lists only tasks, not subtasks. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -197,6 +197,12 @@
           <li>Only the message is copied, not its replies or attachments, and a message in the dev channel is never moved twice.</li>
           <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
         </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade subtask &lt;title&gt;</code></h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <p>Adds a subtask to the task: a part of it, or an issue found while testing it, with its own card and thread. It takes the task's due date, priority and people (an incident's subtask is an incident too), and the thread hears it was added, with a link. The card's ⋯ → <b>Add subtask</b> does the same with a form, to change the due date and priority first. A task moves to Client review or Done only once all its subtasks are done: trying it earlier leaves the status as it is and shows you, privately, the open ones, with <b>Close all subtasks</b> (each moves to Done, then the task) and <b>Cancel</b>.</p>
       </article>
 
       <article class="entry">

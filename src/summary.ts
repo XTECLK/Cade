@@ -15,19 +15,23 @@ import { byUrgency, groupTasks, threadLink } from "./commands/tasks.ts";
 import { nameMap } from "./export.ts";
 import { formatTime } from "./format.ts";
 import { callSlack } from "./slack.ts";
-import { PRIORITIES, STATUSES } from "./tasks.ts";
+import { PRIORITIES, STATUSES, shownPeople } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
 import type { Priority, Status, Task } from "./types.ts";
 
 type Row = string[];
-type Listed = { task: Task; incident?: boolean; link: string; closedAt?: string };
+type Listed = { ts?: string; task: Task; incident?: boolean; link: string; closedAt?: string };
+// A task's rows: its own, then its subtasks', which stay together in one table.
+type Family = Row[];
 
 // A summary is a dev channel's canvas listing what is open there, most
 // urgent first, then what is closed (Done), most recently first, then what
 // was archived (see archive.ts), most recently first, each in tables: the group's tasks, incidents too.
 // Every group has one: when a task is made, Cade puts it in the channel's
 // canvas, making one if there is none, and saves which it is; from then on
-// the table is rewritten whenever a task changes.
+// the table is rewritten whenever a task changes. A subtask is listed under its
+// parent, wherever the parent is, its title led by ↳; one whose parent is no
+// longer tracked (archived) is listed on its own.
 // `/cade resync summary` rewrites it in full (see resync.ts).
 
 // A canvas table holds at most 300 cells, header included, so longer
@@ -61,31 +65,48 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
     incident: task.incident,
     link: threadLink(url, group.channel, ts),
   }));
-  const names = await nameMap(env, new Set([...tasks, ...archived].flatMap(({ task }) => Object.values(task.people).flat())));
+  const names = await nameMap(env, new Set([...tasks, ...archived].flatMap(({ task }) => Object.values(shownPeople(task)).flat())));
   // People are named, not mentioned: Slack notifies a canvas's mentions
   // again on every write. Names come from the ones kept in D1 (see nameMap).
   const people = (ids: string[]) => (ids.length ? ids.map((id) => `@${cell(names.get(id) ?? id)}`).join(", ") : "—");
-  const row = ({ task, incident, link }: Listed): Row => [
-    title(task.title, incident, link),
+  const row = ({ task, incident, link }: Listed, sub = false): Row => [
+    title(task.title, incident, link, sub),
     unbroken(STATUSES[task.status]),
     priority(task.priority),
     task.dueDate || "—",
-    people(task.people.owner),
+    // A subtask with no owner of its own is its task's owners' (see shownPeople).
+    people(shownPeople(task).owner),
     people(task.people.reviewer),
     people(task.people.tester),
   ];
-  return document(updated, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map(row) }, "tasks");
+  return document(updated, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map((entry) => [row(entry)]) }, "tasks");
 }
 
-// The rows of the open entries, most urgent first, and of the last
-// MAX_CLOSED closed ones, most recently closed first.
-function sections(entries: Listed[], row: (entry: Listed) => Row) {
-  const open = entries.filter((entry) => entry.task.status !== "DONE").sort(byUrgency);
-  const closed = entries
-    .filter((entry) => entry.task.status === "DONE")
-    .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
-    .slice(0, MAX_CLOSED);
-  return { open: open.map(row), closed: closed.map(row) };
+// The open entries, most urgent first, and the last MAX_CLOSED closed ones,
+// most recently closed first, each with its subtasks under it: open ones
+// first, most urgent first, then closed ones, most recently closed first.
+function sections(entries: Listed[], row: (entry: Listed, sub?: boolean) => Row) {
+  const listed = new Set(entries.map((entry) => entry.ts));
+  const tops = entries.filter((entry) => !entry.task.parent || !listed.has(entry.task.parent.ts));
+  const family = (top: Listed): Family => [
+    row(top),
+    ...ordered(entries.filter((entry) => entry !== top && entry.task.parent?.ts === top.ts)).map((entry) => row(entry, true)),
+  ];
+  const { open, closed } = split(tops);
+  return { open: open.map(family), closed: closed.slice(0, MAX_CLOSED).map(family) };
+}
+
+// Open entries, most urgent first, and closed ones, most recently closed first.
+function split(entries: Listed[]) {
+  return {
+    open: entries.filter((entry) => entry.task.status !== "DONE").sort(byUrgency),
+    closed: entries.filter((entry) => entry.task.status === "DONE").sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
+  };
+}
+
+function ordered(entries: Listed[]) {
+  const { open, closed } = split(entries);
+  return [...open, ...closed];
 }
 
 // How long a change waits for others before the summary is rewritten.
@@ -228,7 +249,7 @@ async function renameCanvas(env: AppEnv, canvasId: string, title: string) {
 // When it was updated, then an Open, a Closed and an Archived section, each
 // with its rows in as many tables as they need. `noun` names what they
 // list.
-function document(updated: string, columns: string[], { open, closed, archived }: Record<"open" | "closed" | "archived", Row[]>, noun: string) {
+function document(updated: string, columns: string[], { open, closed, archived }: Record<"open" | "closed" | "archived", Family[]>, noun: string) {
   return [
     updated,
     "## Open",
@@ -245,13 +266,24 @@ function document(updated: string, columns: string[], { open, closed, archived }
   ].join("\n\n");
 }
 
-// The rows in as many tables as they need.
-function tables(columns: string[], rows: Row[]) {
+// The rows in as many tables as they need. A task's family isn't split between
+// tables, unless it is too long for one by itself.
+function tables(columns: string[], families: Family[]) {
   const perTable = Math.floor(MAX_CELLS / columns.length) - 1;
   const found: string[] = [];
-  for (let start = 0; start < rows.length; start += perTable) {
-    found.push(table(columns, rows.slice(start, start + perTable)));
+  let rows: Row[] = [];
+  for (const family of families) {
+    if (rows.length && rows.length + family.length > perTable) {
+      found.push(table(columns, rows));
+      rows = [];
+    }
+    rows.push(...family);
+    while (rows.length > perTable) {
+      found.push(table(columns, rows.slice(0, perTable)));
+      rows = rows.slice(perTable);
+    }
   }
+  if (rows.length) found.push(table(columns, rows));
   return found;
 }
 
@@ -261,10 +293,10 @@ function table(columns: string[], rows: Row[]) {
 }
 
 // A title as a table cell linking to its thread: on one line, with what
-// would end the link or the cell escaped.
-function title(text: string, incident: boolean | undefined, link: string) {
+// would end the link or the cell escaped. A subtask's is led by ↳.
+function title(text: string, incident: boolean | undefined, link: string, sub = false) {
   const cell = `[${text.replace(/\s+/g, " ").replace(/([[\]|\\])/g, "\\$1")}](${link})`;
-  return incident ? `**Incident:** ${cell}` : cell;
+  return `${sub ? "↳ " : ""}${incident ? `**Incident:** ${cell}` : cell}`;
 }
 
 function priority(name: Priority) {

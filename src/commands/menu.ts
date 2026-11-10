@@ -3,6 +3,7 @@ import { NOT_A_TASK, TASK_MENU_ACTION, loadTask } from "../tasks.ts";
 import { editForm } from "./edit.ts";
 import { archiveTask } from "./archive.ts";
 import { releaseForm } from "./release.ts";
+import { subtaskForm, subtasksView } from "./subtask.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { StoredTask } from "../types.ts";
@@ -15,14 +16,18 @@ type Origin = { channel: string; ts: string };
 //            an incident, whose are fixed) and pull requests (see edit.ts);
 //            saving it posts who changed what in the thread, as the record,
 //            and the card updates.
+//   Add subtask    on a task that isn't a subtask: the form for one (see subtask.ts).
+//   View subtasks  once it has any: them, in a modal, each linking to its thread.
 //   Release  while the task has PRs not sent yet: the form `@Cade release`
 //            opens, to send some of them for approval, a partial release.
 //   Archive  archives the task, as `@Cade archive` does (see archive.ts),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
 // before had other choices; they open Edit, which has everything.
-const FORMS: Record<"edit" | "release", (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
+const FORMS: Record<"edit" | "subtask" | "subtasks" | "release", (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
   edit: (env, origin, task) => editForm(origin, task),
+  subtask: (env, origin, task) => subtaskForm(origin, task),
+  subtasks: (env, origin, task) => subtasksView(env, origin, task),
   release: async (env, origin) => {
     const { view, problem } = await releaseForm(env, origin);
     return view ?? problem;

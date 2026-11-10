@@ -16,6 +16,7 @@ import resync from "./resync.ts";
 import retry from "./retry.ts";
 import standup from "./standup.ts";
 import status from "./status.ts";
+import subtask from "./subtask.ts";
 import suggest from "./suggest.ts";
 import track, { incident } from "./track.ts";
 import unassign from "./unassign.ts";
@@ -49,7 +50,7 @@ import type { Handler, Intent, PayloadHandler } from "../types.ts";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.ts for the shape of `command`.
-const handlers: Handler[] = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, standup];
+const handlers: Handler[] = [track, incident, assign, unassign, status, priority, due, pr, release, subtask, archive, remove, replace, move, resync, retry, standup];
 
 export const commands: Record<string, Handler> = Object.fromEntries(
   handlers.flatMap((handler) =>

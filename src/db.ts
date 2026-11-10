@@ -58,7 +58,8 @@ interface TaskRow {
   created_by: string;
   via_agent: number;
   completed_at: string;
-  source_incident: number;
+  kind: "task" | "incident";
+  parent_id: number | null;
   has_subtasks: number;
   blocked: number;
   blocked_reason: string | null;
@@ -71,6 +72,26 @@ interface TaskRow {
   notes_url: string | null;
   export_url: string | null;
 }
+
+// A task's row as TASK_SELECT gives it: with its parent's, and its subtasks' counts.
+interface ListedTaskRow extends TaskRow {
+  parent_ts: string | null;
+  parent_title: string | null;
+  parent_link: string | null;
+  parent_owners: string | null;
+  open_subtasks: number;
+  closed_subtasks: number;
+}
+
+// A subtask counted on its parent's card: posted, and neither deleted nor archived.
+const COUNTED = "c.parent_id = t.id AND c.ts IS NOT NULL AND c.deleted_at IS NULL AND c.archived_at IS NULL";
+
+// Tasks as they are read: each with its parent's ts, title and link (for a subtask), and how many of
+// its own subtasks are open and closed (Done), which its card shows. Conditions name the task `t`.
+const TASK_SELECT = `SELECT t.*, p.ts AS parent_ts, p.title AS parent_title, p.link AS parent_link, p.developers AS parent_owners,
+  (SELECT COUNT(*) FROM tasks c WHERE ${COUNTED} AND c.status != 'DONE') AS open_subtasks,
+  (SELECT COUNT(*) FROM tasks c WHERE ${COUNTED} AND c.status = 'DONE') AS closed_subtasks
+  FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id`;
 
 interface ReleaseRow {
   id: number;
@@ -147,11 +168,23 @@ export const POST_ATTEMPTS = 5;
 // it was deleted. It comes with its releases, which its message shows.
 export async function getTask(env: DbEnv, channel: string, ts: string) {
   const row = await env.DB.prepare(
-    "SELECT * FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL AND archived_at IS NULL",
+    `${TASK_SELECT} WHERE t.channel = ? AND t.ts = ? AND t.deleted_at IS NULL AND t.archived_at IS NULL`,
   )
     .bind(channel, ts)
-    .first<TaskRow>();
+    .first<ListedTaskRow>();
   return row ? { ...taskFromRow(row), releases: await releasesOf(env, row.id) } : null;
+}
+
+// The subtasks of the task whose root message is `ts`, Done or not, as { ts, task }, oldest first.
+// Deleted and archived ones aren't included.
+export async function subtasksOf(env: DbEnv, channel: string, ts: string) {
+  const { results } = await env.DB.prepare(
+    `${TASK_SELECT} WHERE p.channel = ? AND p.ts = ? AND t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+     ORDER BY t.id`,
+  )
+    .bind(channel, ts)
+    .all<ListedTaskRow>();
+  return results.map((row) => ({ ts: row.ts!, task: taskFromRow(row) }));
 }
 
 // The title of the task whose root message is `ts`, archived or not, or null
@@ -217,8 +250,13 @@ export async function decideRelease(env: DbEnv, id: number, status: ReleaseStatu
 
 // Stores a new task that is about to be posted in `channel`, with `origin`,
 // what follows the post (see publishTask), and returns its id.
+// A subtask is stored with its parent's id, which it keeps.
 export async function insertTask(env: DbEnv, channel: string, task: Task, origin: unknown) {
-  return insert(env, "tasks", channel, { ...taskToRow(task), origin: JSON.stringify(origin) });
+  const parent = task.parent
+    ? await env.DB.prepare("SELECT id FROM tasks WHERE channel = ? AND ts = ?").bind(channel, task.parent.ts).first<{ id: number }>()
+    : null;
+  if (task.parent && !parent) throw new Error("A subtask's parent is not stored");
+  return insert(env, "tasks", channel, { ...taskToRow(task), parent_id: parent?.id ?? null, origin: JSON.stringify(origin) });
 }
 
 // Records that the task's root message was posted as `ts`.
@@ -259,12 +297,12 @@ export async function markTaskArchived(env: DbEnv, channel: string, ts: string, 
 // `limit`.
 export async function archivedTasks(env: DbEnv, channel: string, limit: number) {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM tasks
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NOT NULL
-     ORDER BY archived_at DESC, id DESC LIMIT ?`,
+    `${TASK_SELECT}
+     WHERE t.channel = ? AND t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NOT NULL
+     ORDER BY t.archived_at DESC, t.id DESC LIMIT ?`,
   )
     .bind(channel, limit)
-    .all<TaskRow>();
+    .all<ListedTaskRow>();
   return results.map((row) => ({ ts: row.ts!, task: taskFromRow(row), archivedAt: row.archived_at!, archivedBy: row.archived_by }));
 }
 
@@ -272,9 +310,9 @@ export async function archivedTasks(env: DbEnv, channel: string, limit: number) 
 // with `deleted` saying whether it was deleted, or null if there is none. A deleted task's
 // messages may still be in Slack, if deleting them failed.
 export async function getTaskIncludingDeleted(env: DbEnv, channel: string, ts: string) {
-  const row = await env.DB.prepare("SELECT * FROM tasks WHERE channel = ? AND ts = ?")
+  const row = await env.DB.prepare(`${TASK_SELECT} WHERE t.channel = ? AND t.ts = ?`)
     .bind(channel, ts)
-    .first<TaskRow>();
+    .first<ListedTaskRow>();
   return row ? { ...taskFromRow(row), deleted: Boolean(row.deleted_at) } : null;
 }
 
@@ -282,13 +320,13 @@ export async function getTaskIncludingDeleted(env: DbEnv, channel: string, ts: s
 // task }, oldest first. Deleted and archived tasks aren't included.
 export async function tasksWithStatuses(env: DbEnv, statuses: readonly Status[]) {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM tasks
-     WHERE ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL
-       AND status IN (${statuses.map(() => "?").join(", ")})
-     ORDER BY ts`,
+    `${TASK_SELECT}
+     WHERE t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+       AND t.status IN (${statuses.map(() => "?").join(", ")})
+     ORDER BY t.ts`,
   )
     .bind(...statuses)
-    .all<TaskRow>();
+    .all<ListedTaskRow>();
   return results.map((row) => ({ channel: row.channel, ts: row.ts!, task: taskFromRow(row) }));
 }
 
@@ -296,13 +334,13 @@ export async function tasksWithStatuses(env: DbEnv, statuses: readonly Status[])
 // oldest first.
 export async function tasksWithStatus(env: DbEnv, channel: string, statuses: readonly Status[]) {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM tasks
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL
-       AND status IN (${statuses.map(() => "?").join(", ")})
-     ORDER BY ts`,
+    `${TASK_SELECT}
+     WHERE t.channel = ? AND t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+       AND t.status IN (${statuses.map(() => "?").join(", ")})
+     ORDER BY t.ts`,
   )
     .bind(channel, ...statuses)
-    .all<TaskRow>();
+    .all<ListedTaskRow>();
   return results.map((row) => ({ ts: row.ts!, task: taskFromRow(row) }));
 }
 
@@ -311,10 +349,10 @@ export async function tasksWithStatus(env: DbEnv, channel: string, statuses: rea
 // ago, so a post still under way isn't made twice.
 export async function unpostedTasks(env: DbEnv) {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM tasks
-     WHERE ts IS NULL AND deleted_at IS NULL AND created_at <= datetime('now', '-1 minute')
-     ORDER BY id`,
-  ).all<TaskRow>();
+    `${TASK_SELECT}
+     WHERE t.ts IS NULL AND t.deleted_at IS NULL AND t.created_at <= datetime('now', '-1 minute')
+     ORDER BY t.id`,
+  ).all<ListedTaskRow>();
   return results.map((row) => ({
     id: row.id,
     channel: row.channel,
@@ -659,7 +697,7 @@ function taskToRow(task: Task) {
     created_by: task.createdBy,
     via_agent: task.viaAgent ? 1 : 0,
     completed_at: task.completedAt ?? "",
-    source_incident: task.incident ? 1 : 0,
+    kind: task.incident ? "incident" : "task",
     has_subtasks: task.subtasks ? 1 : 0,
     blocked: task.blocked ? 1 : 0,
     blocked_reason: task.blocked ? task.blockedReason ?? "" : "",
@@ -669,7 +707,7 @@ function taskToRow(task: Task) {
   };
 }
 
-function taskFromRow(row: TaskRow): StoredTask {
+function taskFromRow(row: ListedTaskRow): StoredTask {
   return {
     title: row.title,
     priority: row.priority,
@@ -685,7 +723,7 @@ function taskFromRow(row: TaskRow): StoredTask {
     viaAgent: Boolean(row.via_agent),
     completedAt: row.completed_at,
     // Whether it is an incident: always urgent and due immediately.
-    incident: Boolean(row.source_incident),
+    incident: row.kind === "incident",
     // Whether it is done in parts, so no status changes are suggested for it.
     subtasks: Boolean(row.has_subtasks),
     // Whether it is blocked, and why (see blockedLine in tasks.ts).
@@ -696,6 +734,11 @@ function taskFromRow(row: TaskRow): StoredTask {
     notes: row.notes_url ? { url: row.notes_url } : undefined,
     // Its thread's page, likewise (see export.ts).
     export: row.export_url ? { url: row.export_url } : undefined,
+    // The task it is a subtask of, if it is one, and how its own subtasks stand.
+    parent: row.parent_ts
+      ? { ts: row.parent_ts, title: row.parent_title ?? "", link: row.parent_link ?? undefined, owner: JSON.parse(row.parent_owners ?? "[]") }
+      : undefined,
+    subtaskCounts: { open: row.open_subtasks, closed: row.closed_subtasks },
   };
 }
 

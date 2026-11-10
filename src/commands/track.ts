@@ -10,6 +10,7 @@ import {
   noPeople,
   projectBlock,
   readTaskForm,
+  redrawParent,
   refreshSummary,
   setPinned,
   taskFormBlocks,
@@ -215,6 +216,7 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
   });
   await setPinned(env, message.channel, message.ts, true);
   await addPages(env, message.channel, message.ts, task);
+  if (task.parent) await announceSubtask(env, message.channel, task);
   // A group's summary canvas is made with its first new task.
   await refreshSummary(env, message.channel, { create: true });
   if (origin.move) {
@@ -226,6 +228,17 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
     if (problem) console.warn("Could not move the message", { ts: origin.move.ts, problem });
   }
   return message.ts;
+}
+
+// A new subtask is counted on its parent's card, and the parent's thread hears it was added, with a
+// link to the subtask's own thread. Both are conveniences, so a failure is only logged.
+async function announceSubtask(env: AppEnv, channel: string, task: Task) {
+  await redrawParent(env, channel, task);
+  const title = escapeSlack(task.title);
+  const text = `<@${task.createdBy}> added a subtask: ${task.link ? `<${task.link}|${title}>` : `*${title}*`}. It's tracked in its own thread.`;
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text }).catch((error) => {
+    console.warn("Could not tell the parent's thread about its subtask", { ts: task.parent!.ts, error: error.message });
+  });
 }
 
 // After a task is made from a message, its form gives way to a second one

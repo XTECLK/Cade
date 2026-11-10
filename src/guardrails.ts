@@ -47,7 +47,7 @@ export const GUARDRAILS = [
     rules: [
       `Show names, not IDs, in everything you show the person, previews included: use \`user_names\` from the results, and look up only an ID that isn't in it, with get_user or find_user_by_name.`,
       `This includes mentions in a message for send_thread_message: show each <@USERID> as @Name in the preview only.`,
-      `create_task: kind (task or incident), title, project, priority, due date (or none), the whole summary, and the thread it comes from.`,
+      `create_task: kind (task or incident), title, project, priority, due date (or none), the whole summary, the thread it comes from, and the task it is a subtask of, if any.`,
       `update_task: the task, then each field as old -> new (status, priority, due date, owner, reviewer, tester, pull requests, summary) with the reason, and nothing you leave unchanged.`,
       `send_thread_message: the task, or the channel and link of a thread that isn't a task, the whole message as it will be posted, and whether it goes as the person or via Cade.`,
       `update_release: the release and its pull requests and note, as they are now and as they will be.`,

@@ -102,6 +102,11 @@ export type PrSuggestion = TaskRef & { urls?: string[]; mentioned?: string[]; re
 // and then it isn't read.
 export const PR_LIST = texts;
 
+// Close all subtasks, on the warning that a task moving to Client review or Done has some still open
+// (subtask.ts): the task, and the status it was moving to.
+export const SUBTASKS_CLOSE = object({ ...TASK_REF, status: { type: "string", enum: ["CLIENT_REVIEW", "DONE"] } });
+export type SubtasksClose = TaskRef & { status: "CLIENT_REVIEW" | "DONE" };
+
 // The Edit form (edit.ts).
 export const EDIT_FORM = object({ ...TASK_REF, details: { type: "boolean" }, responseUrl: text, told: texts }, ["channel", "ts"]);
 export type EditForm = TaskRef & { details?: boolean; responseUrl?: string; told?: string[] };

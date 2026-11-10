@@ -13,7 +13,9 @@ import {
   saveTask,
   setPinned,
   unsentPrs,
+  waitsForSubtasks,
 } from "../tasks.ts";
+import { warnOpenSubtasks } from "./subtask.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, PlainMessage, SlackBlock, SlackPayload, Status, StoredTask, Task } from "../types.ts";
@@ -85,6 +87,12 @@ export default {
     if (!status) {
       const asked = input ? `I don't know "${escapeSlack(input)}" as a status.` : "Which status?";
       return `${asked} ${STATUS_USAGE}`;
+    }
+
+    // Client review and Done wait for the task's subtasks: whoever typed it is warned instead, with no ✅.
+    if (status !== task.status && waitsForSubtasks(task, status)) {
+      await warnOpenSubtasks(env, { channel: command.channel, ts: command.threadTs! }, status, command.user);
+      return null;
     }
 
     // A status typed in the command needs only a ✅, since the task card shows

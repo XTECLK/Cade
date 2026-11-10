@@ -123,6 +123,25 @@ const THREAD = {
     properties: {thread_id: str("The thread's ID, for get_thread_history"), link: str("A link to the thread")},
 };
 
+// A subtask's parent, or one of a task's subtasks: enough to read it with get_task, and its thread
+// with get_task_history.
+const TASK_LINK = {
+    task_id: str("The task's ID, for get_task and get_task_history"),
+    title: str("The task's title"),
+    link: str("A link to the task's message"),
+};
+const PARENT = {
+    type: ["object", "null"],
+    description: "The task this one is a subtask of, or null",
+    properties: TASK_LINK,
+};
+const SUBTASK_ITEM = {
+    type: "object",
+    description: "A subtask: a part of the task, or an issue found while testing it, with its own thread",
+    properties: {...TASK_LINK, status: choice("The subtask's status", STATUS_NAMES)},
+    required: ["task_id", "title", "link", "status"],
+};
+
 const MESSAGE_ITEM = {
     type: "object",
     description: "A message in a thread",
@@ -235,16 +254,17 @@ const TASK_ITEM = {
         blocked: bool("Whether it is blocked: it keeps its status and shows as blocked on its card"),
         blocked_reason: str("Why it is blocked, in a short phrase, or empty"),
         link: str("A link to the task's message"),
-        owner: strings("The task's owners, as Slack user IDs: show their names, not the IDs"),
+        owner: strings("The task's owners, as Slack user IDs: show their names, not the IDs. A subtask with no owner of its own has its task's"),
         reviewer: strings("The task's reviewers, as Slack user IDs: show their names, not the IDs"),
         tester: strings("The task's testers, as Slack user IDs: show their names, not the IDs"),
+        parent: PARENT,
     },
     required: ["task_id", "title", "status", "priority", "due_date", "incident", "link", "owner", "reviewer", "tester"],
 };
 
 export const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
 // get_task can also give where the task came from.
-export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "releases"];
+export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "releases", "subtasks"];
 
 // ── Annotations ──────────────────────────────────────────────────────────────────────────────
 
@@ -271,7 +291,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Get a task",
         annotations: READS,
         description:
-            "Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads.",
+            "Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.",
         inputSchema: {
             type: "object",
             properties: {
@@ -296,6 +316,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 original_thread: THREAD,
                 prs: list("The pull requests linked to the task, each with where it is and the release it was sent with", PR_ITEM),
                 releases: list("The partial releases sent to the client for approval, oldest first (those not approved are not kept): which PRs, what they complete, who sent them and who approved", RELEASE_ITEM),
+                subtasks: list("The task's subtasks (parts of it, or issues found while testing it), oldest first, Done ones too, each with its own thread for get_task_history", SUBTASK_ITEM),
             },
         },
     },
@@ -344,7 +365,8 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "List tasks",
         annotations: READS,
         description:
-            "Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (\"me\" for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary.",
+            "Lists Cade tasks in the channels you are in, most urgent first, open ones by default: everyone's, or those of the people in assignees (\"me\" for your own), in any role or those in roles. It can also give the tasks done in a period, with those not done, for an executive summary. " +
+            "The list is flat: a subtask is listed as any task is, naming its parent. get_task gives a task's subtasks.",
         inputSchema: {
             type: "object",
             properties: {
@@ -520,7 +542,8 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
             "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. " +
-            "Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task.",
+            "Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
+            "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people, and its due date and priority unless you give others; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done.",
         inputSchema: {
             type: "object",
             properties: {
@@ -532,6 +555,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 summary: str(`The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most ${MAX_SUMMARY} characters`),
                 thread_id: str("The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used"),
                 link: str("Instead of thread_id: a link to a message in the thread"),
+                parent_task_id: str("Make it a subtask of this task, by the ID get_tasks gives. Leave out project; priority and due_date default to the task's"),
             },
             required: ["title"],
         },
@@ -540,6 +564,7 @@ export const TOOL_DEFS: ToolDef[] = [
             link: str("A link to the task's message"),
             project: str("The project's name"),
             incident: bool("Whether it was made as an incident"),
+            parent_task_id: {type: ["string", "null"], description: "The task it is a subtask of, or null"},
             summary_saved: bool("Whether the summary was saved on the notes page"),
             notes_link: str("A link to the notes page, or empty"),
         }),
@@ -695,12 +720,13 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
             "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. " +
+            "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
-                status: choice("The task's new status. A task in Client review can't be changed here: its approver decides", STATUS_NAMES),
+                status: choice("The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first", STATUS_NAMES),
                 priority: choice("The task's new priority. An incident's never changes", PRIORITY_NAMES),
                 due_date: str('DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident\'s never changes'),
                 blocked: bool("true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens"),

@@ -5,7 +5,7 @@ export type GetTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
   // Only these fields, to keep the result small; task_id is always there. Default: all
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "releases")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "releases" | "subtasks")[];
 };
 
 export type GetThreadHistoryArgs = {
@@ -38,7 +38,7 @@ export type GetTasksArgs = {
   // With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status
   include_open?: boolean;
   // The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "has_subtasks" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
   // How many tasks to return, most urgent first. Default 20
   limit?: number;
 };
@@ -101,6 +101,8 @@ export type CreateTaskArgs = {
   thread_id?: string;
   // Instead of thread_id: a link to a message in the thread
   link?: string;
+  // Make it a subtask of this task, by the ID get_tasks gives. Leave out project; priority and due_date default to the task's
+  parent_task_id?: string;
 };
 
 export type GetProjectsArgs = {
@@ -162,7 +164,7 @@ export type SendThreadMessageArgs = {
 export type UpdateTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
-  // The task's new status. A task in Client review can't be changed here: its approver decides
+  // The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first
   status?: "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "IN_TESTING" | "CLIENT_REVIEW" | "DONE";
   // The task's new priority. An incident's never changes
   priority?: "Urgent" | "High" | "Medium" | "Low";

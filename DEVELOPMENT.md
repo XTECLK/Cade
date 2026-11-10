@@ -183,8 +183,12 @@ five minutes (`retry.ts`, through `publishTask`), up to five tries in all.
 Once posted, a row is found by its channel and `ts`. `loadTask` and
 `saveTask` in `tasks.ts` read and write a task; `saveTask` stores the row
 first, then renders it to the root message in the dev channel
-(`taskMessage`). Slack is only written to, never read back: the task lists are a query of
-open tasks. An incident is a task with `source_incident` set: always urgent
+(`taskMessage`). A row's `kind` is `task` or `incident`, and `parent_id` makes
+it a subtask of another task in the same channel (one level deep, see
+`commands/subtask.ts`): a task is read with its parent's title and link and
+its subtasks' open and closed counts (`TASK_SELECT` in `db.ts`), which its
+card shows, and saving a subtask redraws its parent's card. Slack is only written to, never read back: the task lists are a query of
+open tasks. An incident is a task of `kind` `incident`: always urgent
 and due immediately. A task's PRs sent to the client with `@Cade release`
 are rows of `releases`, one per release, with its PRs and what it
 completes; a task is loaded with them (`getTask`), and its message shows
@@ -208,7 +212,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.ts` | Turns a message or slash command into a command |
 | `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
-| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry` |
+| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, and `subtask` (Add subtask, View subtasks) |
 | `src/db.ts` | Reading and writing tasks in D1 |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
 | `src/tasks.ts` | The task message: layout, saving, pins |

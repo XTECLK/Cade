@@ -1,9 +1,9 @@
 import { projects, groupEnabled } from "./channels.ts";
-import { getTask, putTask } from "./db.ts";
+import { getTask, putTask, subtasksOf } from "./db.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
-import type { MessageBody, People, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
+import type { MessageBody, Parent, People, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
 
 // Tasks are stored in D1 (see db.ts). The root message in the tasks channel
 // is rendered from the stored task.
@@ -115,6 +115,14 @@ export function noPeople(): People {
 // Who has each role on the task, as "Owner @a  ·  Review @b", leaving out
 // roles with no one; empty if no one has any. `viewer`, if given, is
 // written as "you".
+// Who works on the task as it is shown: a subtask with no owner of its own is its parent's owners', as
+// whoever owns the task owns its parts unless someone else is given one. Only shown so, not stored, so
+// it follows the parent's owners as they change.
+export function shownPeople(task: Pick<Task, "people" | "parent">): People {
+  const inherited = task.parent?.owner ?? [];
+  return task.people.owner.length || !inherited.length ? task.people : { ...task.people, owner: inherited };
+}
+
 export function peopleLine(task: Pick<Task, "people">, viewer?: string) {
   return (Object.entries(SHORT_ROLES) as [Role, string][])
     .filter(([role]) => task.people[role].length)
@@ -130,16 +138,21 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
   // in place of its status, and has no menu, as Cade no longer tracks it.
-  const people = peopleLine(task);
+  const people = peopleLine({ people: shownPeople(task) });
   // The links under the title, on one line: to its notes page and to its thread's
   // export (see export.ts).
   const links = [
     task.notes && `Extra notes <${task.notes.url}|here>`,
     task.export && `Full history <${task.export.url}|here>`,
   ].filter(Boolean);
+  // A subtask's card says whose it is first; a task's says how its subtasks stand, under its status. Real
+  // subtasks say more than the "Has subtasks" marker, so it gives way to them.
+  const subtasks = subtasksLine(task);
   const card: SlackBlock[] = [
+    ...(task.parent ? [smallText([parentLine(task.parent)])] : []),
     ...(links.length ? [smallText([links.join("  ·  ")])] : []),
-    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && task.subtasks, !archivedBy && blockedLine(task))] },
+    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && !subtasks && task.subtasks, !archivedBy && blockedLine(task))] },
+    ...(subtasks ? [smallText([subtasks])] : []),
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`]),
   ];
@@ -153,14 +166,45 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   };
 }
 
+// A subtask's line naming the task it belongs to, linking to it once it has a link.
+export function parentLine(parent: Parent) {
+  const title = escapeSlack(parent.title);
+  return `:arrow_right_hook: Subtask of ${parent.link ? `<${parent.link}|${title}>` : `*${title}*`}`;
+}
+
+// How many subtasks are open (not Done) and closed, or "" for a task with none.
+export function subtasksLine(task: Pick<Task, "subtaskCounts">) {
+  const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
+  return open + closed ? `Subtasks: ${open} open  ·  ${closed} closed` : "";
+}
+
+// Whether the task is done in parts, so a message about one part mustn't move it: marked so by hand,
+// or with subtasks of its own.
+export function inParts(task: Pick<Task, "subtasks" | "subtaskCounts">) {
+  const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
+  return Boolean(task.subtasks) || open + closed > 0;
+}
+
+// The statuses that speak of the whole task, which it reaches only once all its subtasks are done: the
+// client checks it, or it is finished.
+export const AFTER_SUBTASKS: Status[] = ["CLIENT_REVIEW", "DONE"];
+
+// Whether moving the task to `status` waits for its subtasks: it has some still open.
+export function waitsForSubtasks(task: Pick<Task, "subtaskCounts">, status: Status) {
+  return AFTER_SUBTASKS.includes(status) && (task.subtaskCounts?.open ?? 0) > 0;
+}
+
 // The ⋯ menu on a task's card, so people change it without typing a command
-// in its thread (see menu.ts): Edit, one form for everything; Release, while
+// in its thread (see menu.ts): Edit, one form for everything; Add subtask, on a task that isn't a
+// subtask itself (they go one level deep); View subtasks, once it has any; Release, while
 // it has PRs not sent for approval; and Archive, when it's no longer needed (see archive.ts).
 export const TASK_MENU_ACTION = "task:menu";
 
 function taskMenu(task: Task) {
   const choices = [
     ["edit", "Edit"],
+    !task.parent && ["subtask", "Add subtask"],
+    subtasksLine(task) && ["subtasks", "View subtasks"],
     task.prs?.length && unsentPrs(task).length && ["release", "Release"],
     ["archive", "Archive"],
   ].filter(Boolean) as [string, string][];
@@ -221,12 +265,42 @@ export async function loadTask(env: AppEnv, channel: string, ts: string) {
   return getTask(env, channel, ts);
 }
 
-// Stores the task, then renders it to its root message and the summaries.
+// Stores the task, then renders it to its root message and the summaries. A subtask's parent's card
+// counts it, so is redrawn too.
 export async function saveTask(env: AppEnv, channel: string, ts: string, task: Task) {
   await putTask(env, channel, ts, task);
   console.log("Task saved", { ts, people: task.people });
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
+  await redrawParent(env, channel, task);
+  await redrawOwnerless(env, channel, ts, task);
   await refreshSummary(env, channel);
+}
+
+// Redraws the cards of the task's subtasks with no owner of their own, which show its owners (see
+// shownPeople), as they may have just changed. A convenience, so a failure is only logged.
+async function redrawOwnerless(env: AppEnv, channel: string, ts: string, task: Task) {
+  const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
+  if (task.parent || !(open + closed)) return;
+  try {
+    for (const sub of await subtasksOf(env, channel, ts)) {
+      if (!sub.task.people.owner.length) await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
+    }
+  } catch (error) {
+    console.warn("Could not redraw the subtasks", { ts, error: error.message });
+  }
+}
+
+// Redraws the card of the subtask `task`'s parent, whose count of open and closed subtasks it is in,
+// after it was made, changed, archived or deleted. Not for a task that isn't a subtask, nor for a
+// parent no longer tracked. The count is a convenience, so a failure is only logged.
+export async function redrawParent(env: AppEnv, channel: string, task: Pick<Task, "parent">) {
+  if (!task.parent) return;
+  try {
+    const parent = await getTask(env, channel, task.parent.ts);
+    if (parent) await callSlack(env, "chat.update", { channel, ts: task.parent.ts, ...taskMessage(parent) });
+  } catch (error) {
+    console.warn("Could not redraw the parent task", { ts: task.parent.ts, error: error.message });
+  }
 }
 
 // Rewrites the summary a change in `channel` touches (see summary.ts); with
@@ -246,9 +320,11 @@ export function statusName(status: Status) {
 
 // Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning
 // is a convenience, so failures are logged rather than failing the command.
-// Only a group with `activeTasksPinning` on (ACTIVE_TASKS_PINNING for every project) is pinned.
+// Only a group with `activeTasksPinning` on (ACTIVE_TASKS_PINNING for every project) is pinned. Subtasks
+// aren't pinned: their parent is, and lists them.
 export async function setPinned(env: AppEnv, channel: string, ts: string, pinned: boolean) {
   if (!groupEnabled(env, channel, "activeTasksPinning", "ACTIVE_TASKS_PINNING")) return;
+  if (pinned && (await getTask(env, channel, ts))?.parent) return;
   const method = pinned ? "pins.add" : "pins.remove";
   try {
     await callSlack(env, method, { channel, timestamp: ts });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.ts";
-import { decideRelease, getNotes, getTask, insertRelease, keepName, putSummary, putTask, setReleaseMessage } from "../src/db.ts";
+import { decideRelease, getNotes, getTask, insertRelease, insertTask, keepName, markTaskPosted, putSummary, putTask, setReleaseMessage } from "../src/db.ts";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "../src/rate-limit.ts";
 import { fakeD1 } from "./d1.ts";
@@ -400,6 +400,65 @@ test("get_tasks with assignees me lists your open tasks in channels you can read
   // Someone with no tasks is told so, and only sees their own.
   const nobody = addressIn(await slash("mcp init", "UNOBODY"));
   assert.match((await tool(nobody, "get_tasks", { assignees: ["me"] })).text, /^There are no open tasks you can see\./);
+});
+
+test("get_task names a task's subtasks and a subtask's parent, for the agent to read their threads", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Checkout redesign", link: "https://slack.example/p1" }));
+  const parent = { ts: "1700000000.000100", title: "Checkout redesign" };
+  for (const [ts, title, status] of [["1700000000.000200", "Payment fails", "DONE"], ["1700000000.000300", "Wrong total", "IN_PROGRESS"]] as const) {
+    await markTaskPosted(env, await insertTask(env, "CDEV", stored({ title, status, parent }), {}), ts, `https://slack.example/${ts}`);
+  }
+  mock(t, { "conversations.info": { channel: { name: "dev" } } });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const task = await tool(url, "get_task", { task_id: "CDEV:1700000000.000100" });
+  assert.deepEqual(task.data.subtasks, [
+    { task_id: "CDEV:1700000000.000200", title: "Payment fails", link: "https://slack.example/1700000000.000200", status: "DONE" },
+    { task_id: "CDEV:1700000000.000300", title: "Wrong total", link: "https://slack.example/1700000000.000300", status: "IN_PROGRESS" },
+  ]);
+  assert.equal(task.data.parent, null);
+  assert.match(task.text, /Subtasks \(each has its own thread; read it with get_task_history\):\n- Payment fails — Done \(task ID CDEV:1700000000\.000200\)/);
+
+  // get_tasks lists them flat, each subtask naming its parent; only get_task gives a task's subtasks.
+  const listed = await tool(url, "get_tasks", { status: "all" });
+  const byTitle = Object.fromEntries(listed.data.tasks.map((item) => [item.title, item]));
+  assert.deepEqual(Object.keys(byTitle).sort(), ["Checkout redesign", "Payment fails", "Wrong total"]);
+  assert.equal(byTitle["Checkout redesign"].parent, null);
+  assert.ok(!("subtasks" in byTitle["Checkout redesign"]));
+  assert.equal(byTitle["Wrong total"].parent.task_id, "CDEV:1700000000.000100");
+  assert.match(listed.text, /Subtask of "Checkout redesign" \(task ID CDEV:1700000000\.000100\)/);
+
+  const subtask = await tool(url, "get_task", { task_id: "CDEV:1700000000.000300", fields: ["parent", "subtasks"] });
+  assert.deepEqual(subtask.data, { task_id: "CDEV:1700000000.000300", parent: { task_id: "CDEV:1700000000.000100", title: "Checkout redesign", link: "https://slack.example/p1" }, subtasks: [], user_names: {} });
+});
+
+test("create_task with parent_task_id makes a subtask, and update_task won't finish a task with open subtasks", async (t) => {
+  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Checkout redesign", priority: "High", dueDate: "30/11/2026", people: { owner: ["UME"], reviewer: [], tester: ["UBOB"] }, status: "IN_TESTING" }));
+  const slack = mock(t, {
+    "conversations.info": { channel: { name: "dev" } },
+    "chat.postMessage": (args) => (args.thread_ts ? { ts: "1700000000.000900" } : { channel: args.channel, ts: "1700000000.000200" }),
+    "chat.getPermalink": { permalink: "https://slack.example/p200" },
+    "conversations.replies": { messages: [] },
+  });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const made = await tool(url, "create_task", { title: "Payment fails", parent_task_id: "CDEV:1700000000.000100" });
+  assert.equal(made.data.parent_task_id, "CDEV:1700000000.000100");
+  assert.match(made.text, /^Created the subtask "Payment fails" of "Checkout redesign" in /);
+  const subtask = (await getTask(env, "CDEV", "1700000000.000200"))!;
+  assert.deepEqual([subtask.priority, subtask.dueDate, subtask.people.tester, subtask.parent?.ts, subtask.viaAgent], ["High", "30/11/2026", ["UBOB"], "1700000000.000100", true]);
+  assert.ok(slack.some((call) => call.method === "chat.postMessage" && call.args.thread_ts === "1700000000.000100"));
+  // Not a subtask of a subtask, nor in another project.
+  assert.match((await tool(url, "create_task", { title: "Deeper", parent_task_id: "CDEV:1700000000.000200" })).text, /subtasks don't have their own/);
+  assert.match((await tool(url, "create_task", { title: "Elsewhere", parent_task_id: "CDEV:1700000000.000100", project: "other" })).text, /goes in its task's project/);
+
+  // The task can't be finished while it is open.
+  const refused = await tool(url, "update_task", { task_id: "CDEV:1700000000.000100", status: "DONE" });
+  assert.match(refused.text, /1 open subtask: "Payment fails" \(To do, task ID CDEV:1700000000\.000200\)\. A task moves to Client review or Done only once all its subtasks are Done/);
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100"))!.status, "IN_TESTING");
+  await tool(url, "update_task", { task_id: "CDEV:1700000000.000200", status: "DONE" });
+  await tool(url, "update_task", { task_id: "CDEV:1700000000.000100", status: "DONE" });
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100"))!.status, "DONE");
 });
 
 test("get_task gives one task without its threads, only for a channel you can read", async (t) => {

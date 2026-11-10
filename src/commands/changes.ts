@@ -1,7 +1,8 @@
 import { changeMessage, changeRequests } from "../notify.ts";
 import { acknowledge, callSlack, viaAgent } from "../slack.ts";
-import { ROLES, cleanReason, loadTask, saveTask } from "../tasks.ts";
+import { ROLES, cleanReason, loadTask, saveTask, waitsForSubtasks } from "../tasks.ts";
 import { afterStatusChange, setStatusFields } from "./status.ts";
+import { warnOpenSubtasks } from "./subtask.ts";
 import type { AppEnv } from "../env.ts";
 import type { Change, Changes, Role, Status, Task } from "../types.ts";
 
@@ -53,7 +54,10 @@ export async function applyChanges(env: AppEnv, where: Where, changes: Changes, 
 // change: someone already an owner isn't added again, nor a status set
 // that it has. The priority and due date of an incident never change, and
 // the status is left alone when the task has moved on from `from` since a
-// suggestion was made. Telling the thread is left to the caller.
+// suggestion was made. Nor does it move to Client review or Done while
+// subtasks are open: the rest is saved, and whoever made the change is warned
+// (see warnOpenSubtasks), unless it came from an AI agent, which is refused
+// before. Telling the thread is left to the caller.
 export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: Changes, user: string, { from, told: mentioned = [], source }: ChangeOptions = {}): Promise<Change | null> {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
@@ -106,15 +110,18 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
   }
 
   const stale = from && task.status !== from;
-  if (changes.status && changes.status !== task.status && !stale) {
-    change.status = { from: task.status, to: changes.status };
-    setStatusFields(task, changes.status);
+  const moving = changes.status && changes.status !== task.status && !stale ? changes.status : null;
+  const held = moving && waitsForSubtasks(task, moving) ? moving : null;
+  if (moving && !held) {
+    change.status = { from: task.status, to: moving };
+    setStatusFields(task, moving);
   }
 
-  if (!change.people.length && !change.prs && !change.priority && !change.dueDate && !change.status && !change.subtasks && !change.blocked) return null;
-  await saveTask(env, channel, ts, task);
+  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.subtasks || change.blocked);
+  if (changed) await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source);
-  return change;
+  if (held && source !== "mcp") await warnOpenSubtasks(env, { channel, ts }, held, user, { saved: changed });
+  return changed ? change : null;
 }
 
 // The reply to a typed command that made `change` (see changeTask): a ✅ on

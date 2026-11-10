@@ -6038,9 +6038,10 @@ test("Close all subtasks moves each to Done, then the task where it was going; C
   const responses = await answerPrivately(t, warning, "subtasks:close");
   for (const ts of ["100.2", "100.3"]) assert.equal((await getTask(env, "CDEV", ts))!.status, "DONE", ts);
   assert.equal((await savedTask())!.status, "DONE");
-  // Each thread hears it, the subtasks' first.
-  const told = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.thread_ts);
-  assert.deepEqual(told, ["100.2", "100.3", "100.1"]);
+  // Each subtask's thread hears it, then the task's, once for all of them, then that it moved.
+  const told = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.thread_ts, call.args.text]);
+  assert.deepEqual(told.map(([ts]) => ts), ["100.2", "100.3", "100.1", "100.1"]);
+  assert.equal(told[2]![1], "<@UACTOR> closed all its subtasks: *Fails on Safari*, *Wrong total*.");
   assert.deepEqual(responses.at(-1), { response_type: "ephemeral", replace_original: true, text: "Closed 2 subtasks and moved the task to :white_check_mark: Done." });
 
   mockSlack(t, { stored: [ownTask({ status: "IN_TESTING" }), subtaskOf("100.2")] });
@@ -6070,4 +6071,71 @@ test("@Cade subtask <title> adds a subtask with the task's due date and priority
   const nested = mockSlack(t, { stored: [ownTask(), subtaskOf("100.2")] });
   await send("/slack/events", threadEvent("<@UBOT> subtask Another", { thread_ts: "100.2" }));
   assert.match(nested.find((call) => call.method === "chat.postMessage").args.text, /subtasks don't have their own/);
+});
+
+// Cards with timestamps a Slack link can name, for the commands that take links.
+const [T1, T2, T3] = ["1700000000.000100", "1700000000.000200", "1700000000.000300"];
+// A message link to the card at `ts` in CDEV, as Copy link gives it.
+const cardLink = (ts: string) => `<${messageLink("CDEV", ts)}>`;
+// A subtask of the task at T1 ("Main"), at `ts`.
+const subtaskOfT1 = (ts: string, fields: Record<string, unknown> = {}) => subtaskOf(ts, { parent: { ts: T1, title: "Main" }, ...fields });
+// As an admin may send them.
+const asAdmin = { ...env, ADMINS: JSON.stringify(["UACTOR"]) } as AppEnv;
+
+test("/cade subtask link makes an older task a subtask, for admins only, and isn't in help", async (t) => {
+  const calls = mockSlack(t, { stored: [historyTask(T1, { title: "Checkout redesign", owners: ["UMIA"] }), historyTask(T2, { title: "Payment fails", priority: "Low", dueDate: "01/12/2026", owners: ["UREX"], link: "https://slack.example/p2" })] });
+  const { later } = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV", asAdmin);
+  assert.equal(later.text, "Made <https://slack.example/p2|Payment fails> a subtask of *Checkout redesign*.");
+  // It keeps its own details, and both cards show the link.
+  const subtask = (await getTask(env, "CDEV", T2))!;
+  assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner], [T1, "Low", "01/12/2026", ["UREX"]]);
+  const card = (ts) => cardText(calls.filter((call) => call.method === "chat.update" && call.args.ts === ts).at(-1).args);
+  assert.match(card(T2), /:arrow_right_hook: Subtask of \*Checkout redesign\*/);
+  assert.match(card(T1), /Subtasks: 1 open  ·  0 closed/);
+  assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === T2));
+  // The main task's thread hears it as it does a new subtask.
+  assert.equal(calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === T1).args.text, "<@UACTOR> added a subtask: <https://slack.example/p2|Payment fails>. It's tracked in its own thread.");
+
+  // Unlinked, it is a task of its own again, pinned while open.
+  calls.length = 0;
+  const undone = await runTasksCommand(`subtask unlink ${cardLink(T2)}`, "CDEV", asAdmin);
+  assert.equal(undone.later.text, "Made <https://slack.example/p2|Payment fails> a task of its own again.");
+  assert.equal((await getTask(env, "CDEV", T2))!.parent, undefined);
+  assert.doesNotMatch(card(T1), /Subtasks:/);
+  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.timestamp === T2));
+
+  // Not for anyone else, and not listed.
+  const refused = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV");
+  assert.equal(JSON.parse(refused.now).text, "Only Cade's admins can link and unlink subtasks.");
+  const help = await runTasksCommand("help", "CDEV", asAdmin);
+  assert.doesNotMatch(help.now, /subtask link/);
+});
+
+test("/cade subtask link keeps the rules a new subtask follows", async (t) => {
+  const tryLink = async (stored: Stored[], child: string, parent: string) => {
+    mockSlack(t, { stored });
+    return (await runTasksCommand(`subtask link ${cardLink(child)} ${cardLink(parent)}`, "CDEV", asAdmin)).later.text;
+  };
+  const main = historyTask(T1, { title: "Main" });
+  const other = historyTask(T3, { title: "Other" });
+  assert.match(await tryLink([main, subtaskOfT1(T2), other], T3, T2), /is a subtask itself/);
+  assert.match(await tryLink([main, subtaskOfT1(T2), other], T1, T3), /has subtasks of its own/);
+  assert.match(await tryLink([historyTask(T1, { title: "Main", status: "DONE" }), other], T3, T1), /waits for all its subtasks to be done/);
+  assert.match(await tryLink([main, incidentHistoryTask(T3, { title: "Down" })], T3, T1), /an incident's main task must be one too/);
+  // Under an incident, a task becomes one.
+  assert.match(await tryLink([incidentHistoryTask(T1, { title: "Down" }), other], T3, T1), /It's an incident now/);
+  const made = (await getTask(env, "CDEV", T3))!;
+  assert.deepEqual([made.incident, made.priority, made.dueDate], [true, "Urgent", "Immediate"]);
+});
+
+test("closing or reopening a subtask tells its task's thread how its subtasks stand; other moves don't", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask({ status: "IN_TESTING" }), subtaskOf("100.2", { link: "https://slack.example/p2" }), subtaskOf("100.3", { title: "Wrong total" })] });
+  const told = () => calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").map((call) => call.args.text);
+  await send("/slack/events", threadEvent("<@UBOT> status in progress", { thread_ts: "100.2" }));
+  assert.deepEqual(told(), []);
+  await send("/slack/events", threadEvent("<@UBOT> status done", { thread_ts: "100.2" }));
+  assert.deepEqual(told(), ["<@UACTOR> closed the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 1 open  ·  1 closed."]);
+  calls.length = 0;
+  await send("/slack/events", threadEvent("<@UBOT> status in testing", { thread_ts: "100.2" }));
+  assert.deepEqual(told(), ["<@UACTOR> reopened the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 2 open  ·  0 closed."]);
 });

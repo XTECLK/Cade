@@ -176,12 +176,20 @@
       </article>
 
       <article class="entry">
+        <h3>A subtask closed or reopened</h3>
+        <dl class="flow">
+          <dt>Task thread</dt><dd>@mia closed the subtask <i>Fails on Safari</i>. Subtasks: 1 open · 2 closed.</dd>
+        </dl>
+        <p>Its own thread hears the status change as any task's does. Other moves of a subtask stay in its own thread. <b>Close all subtasks</b> tells the task's thread once: @mia closed all its subtasks: <i>…</i></p>
+      </article>
+
+      <article class="entry">
         <h3>Task card ⋯ → Add subtask</h3>
         <dl class="flow">
           <dt>Channel</dt><dd>The subtask's own card, starting with ↪ Subtask of <i>the task</i>, with its own thread</dd>
           <dt>Thread</dt><dd>@rex added a subtask: <i>Fails on Safari</i>. It's tracked in its own thread.</dd>
         </dl>
-        <p>The same for <code>@Cade subtask &lt;title&gt;</code> in the task's thread, which reacts ✅. The subtask starts with the task's due date, priority and people (an incident's subtask is an incident too, Urgent and due Immediate), and isn't pinned. The task's card says <i>Subtasks: 1 open · 0 closed</i>, and keeps the count as subtasks reach Done, are archived or deleted.</p>
+        <p>The same for <code>@Cade subtask &lt;title&gt;</code> in the task's thread, which reacts ✅, and for an older task an admin links as a subtask. The subtask starts with the task's due date, priority and people (an incident's subtask is an incident too, Urgent and due Immediate), and isn't pinned. The task's card says <i>Subtasks: 1 open · 0 closed</i>, and keeps the count as subtasks reach Done, are archived or deleted.</p>
       </article>
 
     </div>

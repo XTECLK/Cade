@@ -172,6 +172,12 @@ export function parentLine(parent: Parent) {
   return `:arrow_right_hook: Subtask of ${parent.link ? `<${parent.link}|${title}>` : `*${title}*`}`;
 }
 
+// What a main task's thread hears when `user` adds the subtask `task`, made or linked, naming it.
+export function subtaskAdded(user: string, task: Pick<Task, "title" | "link">) {
+  const title = escapeSlack(task.title);
+  return `<@${user}> added a subtask: ${task.link ? `<${task.link}|${title}>` : `*${title}*`}. It's tracked in its own thread.`;
+}
+
 // How many subtasks are open (not Done) and closed, or "" for a task with none.
 export function subtasksLine(task: Pick<Task, "subtaskCounts">) {
   const { open = 0, closed = 0 } = task.subtaskCounts ?? {};

@@ -248,6 +248,17 @@ export async function decideRelease(env: DbEnv, id: number, status: ReleaseStatu
   return Boolean(row);
 }
 
+// Makes the posted task at `ts` a subtask of the one at `parentTs`, in the same channel, or, with
+// null, a task of its own again (see subtask-link.ts).
+export async function setTaskParent(env: DbEnv, channel: string, ts: string, parentTs: string | null) {
+  await env.DB.prepare(
+    `UPDATE tasks SET parent_id = ${parentTs ? "(SELECT id FROM tasks WHERE channel = ? AND ts = ?)" : "NULL"}, updated_at = CURRENT_TIMESTAMP
+     WHERE channel = ? AND ts = ?`,
+  )
+    .bind(...(parentTs ? [channel, parentTs] : []), channel, ts)
+    .run();
+}
+
 // Stores a new task that is about to be posted in `channel`, with `origin`,
 // what follows the post (see publishTask), and returns its id.
 // A subtask is stored with its parent's id, which it keeps.

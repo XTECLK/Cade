@@ -15,7 +15,7 @@ import {
   unsentPrs,
   waitsForSubtasks,
 } from "../tasks.ts";
-import { warnOpenSubtasks } from "./subtask.ts";
+import { tellMainTask, warnOpenSubtasks } from "./subtask.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, PlainMessage, SlackBlock, SlackPayload, Status, StoredTask, Task } from "../types.ts";
@@ -178,13 +178,14 @@ export async function afterStatusChange(env: AppEnv, channel: string, ts: string
   if (to === "CLIENT_REVIEW" && source !== "mcp") await askApprover(env, channel, ts, user);
 }
 
-// Saves the new status, pinning or unpinning the task as it leaves or
-// reaches Done.
-async function applyStatus(env: AppEnv, channel: string, ts: string, task: StoredTask, status: Status) {
+// Saves the new status, made by `user`, pinning or unpinning the task as it leaves or
+// reaches Done; a subtask's main task hears it closed or reopened.
+async function applyStatus(env: AppEnv, channel: string, ts: string, task: StoredTask, status: Status, user: string) {
   const from = task.status;
   setStatusFields(task, status);
   await saveTask(env, channel, ts, task);
   if ((from === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
+  await tellMainTask(env, channel, ts, { from, to: status }, user);
 }
 
 // A task reaching Client review asks whoever moved it, privately, who
@@ -334,7 +335,7 @@ async function review(payload: SlackPayload, env: AppEnv, approved: boolean) {
     outcome = `I didn't change anything: the task has since moved to ${STATUSES[task.status]}.`;
   } else {
     const status = approved ? "DONE" : "IN_PROGRESS";
-    await applyStatus(env, request.channel, request.ts, task, status);
+    await applyStatus(env, request.channel, request.ts, task, status, user);
     const text = approved
       ? `<@${user}> approved this, so it's now ${STATUSES.DONE}.`
       : `<@${user}> didn't approve this, so it's back to ${STATUSES.IN_PROGRESS}. Have a look at the thread for what needs to change.`;

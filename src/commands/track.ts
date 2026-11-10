@@ -13,6 +13,7 @@ import {
   redrawParent,
   refreshSummary,
   setPinned,
+  subtaskAdded,
   taskFormBlocks,
   taskMessage,
 } from "../tasks.ts";
@@ -234,9 +235,7 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
 // link to the subtask's own thread. Both are conveniences, so a failure is only logged.
 async function announceSubtask(env: AppEnv, channel: string, task: Task) {
   await redrawParent(env, channel, task);
-  const title = escapeSlack(task.title);
-  const text = `<@${task.createdBy}> added a subtask: ${task.link ? `<${task.link}|${title}>` : `*${title}*`}. It's tracked in its own thread.`;
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text }).catch((error) => {
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text: subtaskAdded(task.createdBy, task) }).catch((error) => {
     console.warn("Could not tell the parent's thread about its subtask", { ts: task.parent!.ts, error: error.message });
   });
 }

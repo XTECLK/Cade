@@ -3,6 +3,7 @@ import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respon
 import { applyChanges } from "./changes.ts";
 import { INCIDENT, NOT_A_TASK, STATUSES, loadTask, peopleLine, readTaskForm, shownPeople, subtasksLine, taskFormBlocks } from "../tasks.ts";
 import { createTask } from "./track.ts";
+import { linkCommand } from "./subtask-link.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, Handler, SlackBlock, SlackPayload, Status, StoredTask, Task } from "../types.ts";
 import { SUBTASKS_CLOSE, TASK_BUTTON, readPayload, type SubtasksClose, type TaskRef } from "../payloads.ts";
@@ -54,6 +55,10 @@ export default {
     await createTask(env, newSubtask(parent, command.threadTs!, title, command.user), { channel: command.channel });
     return acknowledge();
   },
+  // `/cade subtask link` and `unlink`, for admins tidying up tasks made before subtasks: not in help,
+  // which lists only slash commands with a slashUsage (see subtask-link.ts).
+  slashChannel: [],
+  slash: linkCommand,
   views: { [ADD_VIEW]: submit },
   actions: {
     [CLOSE_ALL_ACTION]: (payload, context) => {
@@ -93,8 +98,26 @@ export async function warnOpenSubtasks(env: AppEnv, origin: TaskRef, status: Sta
   });
 }
 
+// What follows a subtask's status change `{ from, to }` made by `user`: closing it (Done) or reopening it
+// is told in its main task's thread, with how its subtasks now stand. Other moves aren't, as only its
+// own thread needs them. Not for a task that isn't a subtask, nor while Close all subtasks closes
+// them one after another (`quiet`), which tells the thread once.
+export async function tellMainTask(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string) {
+  if ((from === "DONE") === (to === "DONE")) return;
+  const task = await loadTask(env, channel, ts);
+  if (!task?.parent) return;
+  const main = await loadTask(env, channel, task.parent.ts);
+  if (!main) return;
+  const title = task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`;
+  const text = `<@${user}> ${to === "DONE" ? "closed" : "reopened"} the subtask ${title}. ${subtasksLine(main)}.`;
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent.ts, text }).catch((error) => {
+    console.warn("Could not tell the main task's thread", { ts: task.parent!.ts, error: error.message });
+  });
+}
+
 // Close all subtasks: moves each open subtask to Done, each thread hearing it, then the task to the
-// status it was going to, and says so in place of the warning.
+// status it was going to, and says so in place of the warning. The task's thread hears which were
+// closed once, rather than once each.
 async function closeAll(payload: SlackPayload, { env }: Context) {
   const request = readPayload<SubtasksClose>(SUBTASKS_CLOSE, payload.actions[0].value, "Close all subtasks button");
   const user = payload.user.id;
@@ -103,7 +126,11 @@ async function closeAll(payload: SlackPayload, { env }: Context) {
     return;
   }
   const open = (await subtasksOf(env, request.channel, request.ts)).filter(({ task }) => task.status !== "DONE");
-  for (const { ts } of open) await applyChanges(env, { channel: request.channel, ts }, { status: "DONE" }, user);
+  for (const { ts } of open) await applyChanges(env, { channel: request.channel, ts }, { status: "DONE" }, user, { quiet: true });
+  if (open.length) {
+    const names = open.map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`)).join(", ");
+    await callSlack(env, "chat.postMessage", { channel: request.channel, thread_ts: request.ts, text: `<@${user}> closed all its subtasks: ${names}.` });
+  }
   await applyChanges(env, { channel: request.channel, ts: request.ts }, { status: request.status }, user);
   const closed = `Closed ${open.length} subtask${open.length === 1 ? "" : "s"}`;
   await respondLater(payload.response_url, { replace_original: true, text: `${closed} and moved the task to ${STATUSES[request.status]}.` });

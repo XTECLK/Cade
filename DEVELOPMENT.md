@@ -212,7 +212,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.ts` | Turns a message or slash command into a command |
 | `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
-| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, and `subtask` (Add subtask, View subtasks) |
+| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
 | `src/db.ts` | Reading and writing tasks in D1 |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
 | `src/tasks.ts` | The task message: layout, saving, pins |

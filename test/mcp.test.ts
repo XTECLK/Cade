@@ -1215,7 +1215,6 @@ test("create_task makes a task or incident from a thread or from scratch, moves 
     "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" },
     "reactions.add": {},
     "chat.update": {},
-    "pins.add": {},
   });
   const url = addressIn(await slash("mcp init", "UME"));
 

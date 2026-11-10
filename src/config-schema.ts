@@ -20,7 +20,6 @@ export const PROJECT_SCHEMA: Schema = {
     taskChangeDetection: SWITCH,
     newTaskDetection: SWITCH,
     aiAgentSummary: SWITCH,
-    activeTasksPinning: SWITCH,
     summaryCanvas: SWITCH,
   },
 };

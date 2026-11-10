@@ -338,22 +338,6 @@ export function statusName(status: Status) {
   return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
-// Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning
-// is a convenience, so failures are logged rather than failing the command.
-// Only a group with `activeTasksPinning` on (ACTIVE_TASKS_PINNING for every project) is pinned. Subtasks
-// aren't pinned: their parent is, and lists them.
-export async function setPinned(env: AppEnv, channel: string, ts: string, pinned: boolean) {
-  if (!groupEnabled(env, channel, "activeTasksPinning", "ACTIVE_TASKS_PINNING")) return;
-  if (pinned && (await getTask(env, channel, ts))?.parent) return;
-  const method = pinned ? "pins.add" : "pins.remove";
-  try {
-    await callSlack(env, method, { channel, timestamp: ts });
-  } catch (error) {
-    if (/already_pinned|no_pin/.test(error.message)) return;
-    console.warn("Could not update pin", { ts, pinned, error: error.message });
-  }
-}
-
 // The title, due date and priority fields of the task form. `initial` fills
 // them in: { title, dueDate (DD/MM/YYYY), priority }. Without `details` the
 // form asks only for the title, for an incident, whose are fixed.

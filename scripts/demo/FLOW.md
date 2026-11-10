@@ -57,7 +57,7 @@ Those need a real Create, so they're left for the recording run.
 1. Guest (Sarah) posts the deposit question in the client channel.
 2. Lead: hover message, ⋯ (More actions), Connect to apps, New task.
 3. Form: Project, title "Deposit payments at booking", priority High, due ~3 weeks, Create.
-4. Show the pinned card in the dev channel, with Sarah's message in its thread.
+4. Show the card in the dev channel, with Sarah's message in its thread.
 5. Guest DMs the follow-up (configurable per property).
 6. Lead: hover, ⋯, Connect to apps, Move to existing, Project, pick the task, Move.
 7. Show the DM copied into the task thread.
@@ -97,7 +97,7 @@ approver at once, so multi-person hand-offs are noted but not shown.
 
 | Demo step | What I did | What Cade showed |
 |---|---|---|
-| 1 Create task | New task form, title + Medium, Create | Card in dev channel: `[MEDIUM] <title>`, 📝 To do, Unassigned, `Tracked by @user`, pinned. Thread gets "Moved from @user's message: <text>". Original message gets no tray in a channel Cade is not in. |
+| 1 Create task | New task form, title + Medium, Create | Card in dev channel: `[MEDIUM] <title>`, 📝 To do, Unassigned, `Tracked by @user`. Thread gets "Moved from @user's message: <text>". Original message gets no tray in a channel Cade is not in. |
 | 5 priority/due | `@Cade priority urgent`, `@Cade due 14/11/2026` | ✅ reaction on my message; card updates (`[URGENT]`, red strip, `Due 14/11/2026`) within ~3 s |
 | 3 assign | `@Cade assign owner @Name` | ✅; card shows `Owner @Name` |
 | 4 started | "Okay, started working on this" (as owner) | Private: "Should I update the task? Status: To do -> In progress" with `Accept` `Edit…` `Reject`; after Accept, thread shows "@X set the status to In progress." |
@@ -122,4 +122,4 @@ approver at once, so multi-person hand-offs are noted but not shown.
 - Not-yet-seen: `@Cade pr add/remove`, `unassign`, `@Cade task` / `@Cade move` on an old message
   and the "already moved" guard, 🎫 / 🔀 emoji, `/cade tasks -all` and its filters,
   `/cade standup -unassigned`, admin `/cade remove <link>` (double confirm).
-- The "Not approve" path, and Done -> unpinned.
+- The "Not approve" path, and Done.

@@ -61,7 +61,7 @@
       <article class="entry">
         <h3><code>/cade task</code></h3>
         <div class="tags"><span class="where">Any channel</span><span class="where">Top level</span></div>
-        <p>A form for the project, title, priority and an optional due date. The <b>Project</b> comes first and is required: in a project's dev channel, or when there's only one project, it's chosen already; anywhere else, pick it. The task is posted in that project's dev channel. With <code>activeTasksPinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
+        <p>A form for the project, title, priority and an optional due date. The <b>Project</b> comes first and is required: in a project's dev channel, or when there's only one project, it's chosen already; anywhere else, pick it. The task is posted in that project's dev channel.</p>
         <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
@@ -124,7 +124,6 @@
         <div class="tags"><span class="where">Dev channel</span></div>
         <p>Cade sets the status and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
-          <li>With <code>activeTasksPinning</code> on, Done unpins the task; moving it out of Done pins it again.</li>
           <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves, the client or whoever handles them. Cade asks them in the task's thread to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
         </ul>
       </article>
@@ -195,7 +194,6 @@
           <li><b>With a link:</b> paste the link to a task's or incident's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
           <li>Only the message is copied, not its replies or attachments, and a message in the dev channel is never moved twice.</li>
-          <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
         </ul>
       </article>
 
@@ -208,7 +206,7 @@
       <article class="entry">
         <h3><code>@Cade archive</code></h3>
         <div class="tags"><span class="where">Task thread</span></div>
-        <p>Puts away a task that's no longer needed: Cade stops tracking it, so it leaves your standups and briefs, and moves to the summary's Archived section, but nothing is deleted. Its card stays, unpinned, saying who archived it, its thread hears who did. The card's ⋯ → <b>Archive</b> does the same. Deleting a task is for Cade's admins, with <code>/cade remove &lt;link&gt;</code>.</p>
+        <p>Puts away a task that's no longer needed: Cade stops tracking it, so it leaves your standups and briefs, and moves to the summary's Archived section, but nothing is deleted. Its card stays, saying who archived it, its thread hears who did. The card's ⋯ → <b>Archive</b> does the same. Deleting a task is for Cade's admins, with <code>/cade remove &lt;link&gt;</code>.</p>
       </article>
 
     </div>

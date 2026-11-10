@@ -34,8 +34,8 @@ with the client; Cade doesn't need to be in it.
   > Flaky test: `booking.spec.ts` times out on CI about 1 run in 5.
 - A second group (say `test`) in ``cade.config.json``, so the **Project** picker
   shows; with one group, the shortcuts skip it.
-- In `cade.config.json`: `"pinning": true` and `"canvas": true` (both off by
-  default; the pinned card and the summary canvas only show with them), and
+- In `cade.config.json`: `"summaryCanvas": true` (off by default; the summary
+  canvas only shows with it), and
   nothing for step 9: Cade reads messages with AI whenever the `AI` binding
   is there. Run `npm run config`.
 - The app updated (`npm run slack:update`) so the **Home** tab shows (Act 6).
@@ -69,7 +69,7 @@ at those moments.
 - The form asks for the **Project** (pick *acme*), with the title prefilled
   from the first line. Shorten it to **"Deposit payments at booking"**,
   priority **High**, due ~3 weeks out → **Create**.
-- **Show:** the task posted (and pinned, with `pinning` on) in `#acme-dev`, Sarah's message copied
+- **Show:** the task posted in `#acme-dev`, Sarah's message copied
   into its thread with a link back, and, if Cade is in `#acme-client`, the
   original marked :outbox_tray: with "moved this message to the task
   thread… Please carry on the conversation there."
@@ -198,7 +198,7 @@ gets the same. Questions ("done?") and "not done yet" ask nothing.
 
 ### 14. The client decides
 **Not approve** once → back to ▶️ In progress, and the thread is told. Tom
-sets Client review again → **Approve** → ✅ Done, and the task is unpinned.
+sets Client review again → **Approve** → ✅ Done.
 
 ---
 
@@ -252,7 +252,7 @@ moved: see it there."*
 
 ### 20. Archiving, and deleting safely
 - On the **Log rotation** card: ⋯ → **Archive** (or `@Cade archive` in its
-  thread). The card stays, unpinned, saying who archived it; the thread
+  thread). The card stays, saying who archived it; the thread
   hears who did; it leaves the lists and the summary.
 - *(Admin)* `/cade remove <link>` with the card's link → **Cancel** stands
   out; **Delete task** asks again → confirm. Cade's messages go.
@@ -312,7 +312,6 @@ open. Switch the **Project** picker and press **Refresh**.
 | Client review approve / not approve | 12, 14 |
 | Priority / due date, and the card's ⋯ → Edit | 5 |
 | Incident priority is fixed | 15 |
-| Pins follow open / done (with `pinning` on) | 1, 14 |
 | Archive from the card or `@Cade archive`; admin `/cade remove` with double confirm | 20 |
 | `/cade tasks` + filters | 21 |
 | App Home tab: My Tasks, Unassigned (Assign to me), All Tasks | 22 |

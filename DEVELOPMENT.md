@@ -193,7 +193,7 @@ and due immediately. A task's PRs sent to the client with `@Cade release`
 are rows of `releases`, one per release, with its PRs and what it
 completes; a task is loaded with them (`getTask`), and its message shows
 which PRs shipped with which release. Deleted tasks keep their rows, with
-`deleted_at` set. Open tasks are pinned, for people to find in Slack.
+`deleted_at` set.
 
 The `requirements` table, and tasks' `source_channel`, `source_thread_ts`
 and `source_link`, are left from when a group could have a client channel,

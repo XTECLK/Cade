@@ -2,7 +2,7 @@ import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.
 import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.ts";
 import type { AppEnv } from "./env.ts";
 
-export type SettingKey = "taskChangeDetection" | "newTaskDetection" | "activeTasksPinning" | "summaryCanvas" | "aiAgentSummary";
+export type SettingKey = "taskChangeDetection" | "newTaskDetection" | "summaryCanvas" | "aiAgentSummary";
 export type SettingChoice = "config" | "on" | "off";
 
 // The project settings that can be changed in the form Edit opens, under Projects in Settings on the Home tab (see commands/project.ts), each on or off.
@@ -11,7 +11,6 @@ export type SettingChoice = "config" | "on" | "off";
 export const SETTINGS: { key: SettingKey; label: string; about: string }[] = [
   { key: "taskChangeDetection", label: "Task change detection", about: "Cade reads messages in task threads with AI and offers, privately, to link a PR, assign someone, move the status or mark it blocked." },
   { key: "newTaskDetection", label: "New task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
-  { key: "activeTasksPinning", label: "Active tasks pinning", about: "A message listing the open tasks is pinned in the channel until they're done." },
   { key: "summaryCanvas", label: "Summary canvas", about: "Each task's summary is kept in a Slack canvas as well." },
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
@@ -76,8 +75,6 @@ export function settingOn(env: AppEnv, channel: string | undefined, key: Setting
       return !groupDisabled(env, channel, key, "NEW_TASK_DETECTION");
     case "aiAgentSummary":
       return !groupDisabled(env, channel, key, "AI_AGENT_SUMMARY");
-    case "activeTasksPinning":
-      return groupEnabled(env, channel, key, "ACTIVE_TASKS_PINNING");
     case "summaryCanvas":
       return groupEnabled(env, channel, key, "SUMMARY_CANVAS");
     default:

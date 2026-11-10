@@ -118,7 +118,6 @@ export interface SlackMessage {
   text?: string;
   blocks?: SlackBlock[];
   files?: { name?: string; title?: string; permalink?: string }[];
-  pinned_to?: string[];
   reactions?: { name: string }[];
   // A thread's root: how many replies it has, and when the last came.
   reply_count?: number;

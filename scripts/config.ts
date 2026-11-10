@@ -37,8 +37,6 @@
 //                 a prompt for the person's AI agent to summarize the
 //                 message's thread into it, through Cade's MCP endpoint
 //                 (optional, on); false to skip it (see mcp.js)
-//   activeTasksPinning
-//                 whether open tasks are pinned in the channel (optional, off)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
 //                 (optional, off)
 // A project can also be added from the Home tab, which keeps it in the database.
@@ -88,6 +86,8 @@ export function readConfig(json) {
   for (const project of list) {
     try {
       if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
+      // Removed: people pin and unpin by hand, so Cade's pins didn't stay right; the summary canvas lists open tasks.
+      if (project.activeTasksPinning !== undefined) throw new Error("activeTasksPinning is no longer a setting: Cade doesn't pin tasks (the summary canvas lists the open ones). Delete it.");
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
       throw new Error(`${project.name}'s ${error.message}`);
@@ -128,10 +128,10 @@ export function readConfig(json) {
   return secrets;
 }
 
-// Features with `true` or `false`, set on each project: activeTasksPinning and summaryCanvas
-// are off unless turned on; taskChangeDetection and
+// Features with `true` or `false`, set on each project: summaryCanvas is off unless turned
+// on; taskChangeDetection and
 // newTaskDetection and aiAgentSummary are on unless turned off.
-const SWITCHES = ["taskChangeDetection", "activeTasksPinning", "summaryCanvas", "newTaskDetection", "aiAgentSummary"];
+const SWITCHES = ["taskChangeDetection", "summaryCanvas", "newTaskDetection", "aiAgentSummary"];
 
 // What a project can set, which used to be allowed at the top of the file.
 const PROJECT_SETTINGS = SWITCHES;
@@ -168,7 +168,7 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskChangeDetection", "newTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskChangeDetection", "newTaskDetection", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
     const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
     console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
   }

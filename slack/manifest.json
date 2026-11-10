@@ -58,7 +58,6 @@
         "groups:history",
         "groups:read",
         "groups:write",
-        "pins:write",
         "reactions:read",
         "reactions:write",
         "users:read",

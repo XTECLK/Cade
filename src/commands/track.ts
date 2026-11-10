@@ -12,7 +12,6 @@ import {
   readTaskForm,
   redrawParent,
   refreshSummary,
-  setPinned,
   subtaskAdded,
   taskFormBlocks,
   taskMessage,
@@ -177,8 +176,8 @@ export async function createTask(env: AppEnv, task: Task, origin: Origin, { onPo
   return publishTask(env, { id, channel: origin.channel, task, origin: after, attempts: 0 }, { onPosted });
 }
 
-// Posts a stored task that has no root message yet, then pins it
-// and moves the message it was made from into its thread, and
+// Posts a stored task that has no root message yet, then moves the
+// message it was made from into its thread, and
 // returns its ts. If Slack refuses the post, the task waits for the next
 // retry, and whoever made it is told, the first time and when Cade gives up.
 export async function publishTask(env: AppEnv, { id, channel, task, origin, attempts }: Unposted, { onPosted }: { onPosted?: OnPosted } = {}): Promise<string | undefined> {
@@ -215,7 +214,6 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
     incident: Boolean(task.incident),
     createdBy: task.createdBy,
   });
-  await setPinned(env, message.channel, message.ts, true);
   await addPages(env, message.channel, message.ts, task);
   if (task.parent) await announceSubtask(env, message.channel, task);
   // A group's summary canvas is made with its first new task.

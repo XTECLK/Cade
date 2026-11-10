@@ -11,7 +11,6 @@ import {
   prLink,
   readApprover,
   saveTask,
-  setPinned,
   unsentPrs,
   waitsForSubtasks,
 } from "../tasks.ts";
@@ -31,8 +30,7 @@ const REVIEW_VIEW = "status:review";
 
 // `@Cade status in progress` (or `IN_PROGRESS`, `in-progress`, `wip`) in a
 // task thread sets the task's status, and Cade reacts ✅ to the message.
-// Without a status it says which there are. Moving a task to DONE unpins it
-// from the channel; moving it out of DONE pins it again.
+// Without a status it says which there are.
 //
 // Done can be set directly. Client review is an optional step for work the
 // client should check first: whoever moves a task there picks who approves
@@ -167,24 +165,20 @@ export function setStatusFields(task: StoredTask, status: Status) {
   else if (previous !== "DONE") task.completedAt = new Date().toISOString();
 }
 
-// What follows saving a status change `{ from, to }` made by `user`: the
-// task is pinned or unpinned as it leaves or reaches Done, and Client review
-// asks whoever moved it, privately, who approves it (see askApprover). Not when
+// What follows saving a status change `{ from, to }` made by `user`: Client
+// review asks whoever moved it, privately, who approves it (see askApprover). Not when
 // `source` is "mcp": the change was made by an AI agent, and the person isn't looking at
 // Slack, so the private prompt would only be missed; the agent asks them, and then asks the approver
 // with requestApproval.
 export async function afterStatusChange(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string, source?: string) {
-  if ((from === "DONE") !== (to === "DONE")) await setPinned(env, channel, ts, to !== "DONE");
   if (to === "CLIENT_REVIEW" && source !== "mcp") await askApprover(env, channel, ts, user);
 }
 
-// Saves the new status, made by `user`, pinning or unpinning the task as it leaves or
-// reaches Done; a subtask's main task hears it closed or reopened.
+// Saves the new status, made by `user`; a subtask's main task hears it closed or reopened.
 async function applyStatus(env: AppEnv, channel: string, ts: string, task: StoredTask, status: Status, user: string) {
   const from = task.status;
   setStatusFields(task, status);
   await saveTask(env, channel, ts, task);
-  if ((from === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
   await tellMainTask(env, channel, ts, { from, to: status }, user);
 }
 

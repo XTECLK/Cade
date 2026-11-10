@@ -2,7 +2,7 @@ import { groupDisabled, knownProject, roleOf } from "../channels.ts";
 import { tasksWithStatus } from "../db.ts";
 import { findIntent, intent, intentsOn, plainMessage } from "../intents.ts";
 import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.ts";
-import { STATUSES, chosenProject, loadTask, projectBlock, setPinned, statusName } from "../tasks.ts";
+import { STATUSES, chosenProject, loadTask, projectBlock, statusName } from "../tasks.ts";
 import { awayWarning, incidentView, trackView } from "./track.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
@@ -14,7 +14,7 @@ import type { FormOrigin } from "./track.ts";
 import { MESSAGE_BUTTON, MOVE_FORM, TASK_BUTTON, readPayload, type MessageButton, type TaskRef } from "../payloads.ts";
 // The message to move (see moveMessage): where it is, and, from a message shortcut, the message too,
 // with `away` when Cade isn't in its channel.
-type From = { channel: string; ts: string; threadTs?: string; author?: string; text?: string; files?: boolean; pinned?: boolean; link?: string; away?: boolean };
+type From = { channel: string; ts: string; threadTs?: string; author?: string; text?: string; files?: boolean; link?: string; away?: boolean };
 // An open task, with the ts of its root message.
 type OpenTask = StoredTask & { ts: string };
 // What Move's form carries: the message, the shortcut's response_url, and the project, if known.
@@ -78,8 +78,7 @@ function taskOption(task: OpenTask) {
 // original with a link to the copy, asking people to carry on there, and
 // reacts to the original with :outbox_tray:. Only the message moves, not its
 // replies, which the copy's link back still reaches. A bot token can't
-// delete people's messages, so the original stays, unpinned if it was
-// pinned.
+// delete people's messages, so the original stays.
 //
 // The link makes it straight away, with a ✅ on the command, so it can be
 // pasted into old threads one after another.
@@ -187,7 +186,7 @@ export default {
 // the click, so these are quick checks.
 async function shortcutMessage(payload: SlackPayload, env: AppEnv) {
   const channel = payload.channel.id;
-  const { ts, thread_ts: threadTs, text = "", user, files, pinned_to: pinnedTo } = payload.message;
+  const { ts, thread_ts: threadTs, text = "", user, files } = payload.message;
   if (roleOf(env, channel) === "channel") {
     let problem = threadTs && threadTs !== ts && "I can only do that with messages posted in the channel itself, not replies in a thread.";
     if (!problem) {
@@ -208,7 +207,6 @@ async function shortcutMessage(payload: SlackPayload, env: AppEnv) {
     author: user,
     text: quoted,
     files: Boolean(files?.length) || quoted !== text,
-    pinned: Boolean(pinnedTo?.includes(channel)),
     link: messageLink(payload),
     ...(away && { away }),
   };
@@ -512,7 +510,7 @@ async function movePicked(env: AppEnv, payload: SlackPayload, targetTs: string) 
 // Copies the message `from` into the thread of the task `target`, on behalf
 // of `user`, then replies under the original and reacts to it. `from` is {
 // channel, ts }, read from Slack; or, from a message shortcut, it carries
-// the message too, as { threadTs, author, text, files, pinned, link }, since
+// the message too, as { threadTs, author, text, files, link }, since
 // Cade may not be able to read it. The reply and reaction are only signals,
 // so the move stands without them, where Cade can't post. Returns why it
 // didn't move, or null if it did: the task may have been done or deleted,
@@ -532,7 +530,6 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
       author: root.user,
       text: root.text ?? "",
       files: Boolean(root.files?.length),
-      pinned: Boolean(root.pinned_to?.includes(from.channel)),
     };
   }
 
@@ -563,9 +560,6 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
   } catch (error) {
     console.warn("Could not mark the message moved", { ts: from.ts, error: error.message });
   }
-  // A pinned original is now followed in the thread it moved to, so it no
-  // longer needs its pin. setPinned only logs a failure.
-  if (message.pinned) await setPinned(env, from.channel, from.ts, false);
   console.log("Message moved", { ts: from.ts, targetTs: target.ts, user });
   await suggestForCopy(env, { message, target, ts: copy.ts });
   return null;

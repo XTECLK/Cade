@@ -33,8 +33,7 @@ beforeEach(() => DB.reset());
 // The Worker's environment for the tests: the settings they need, and no AI binding unless a test adds one.
 const env = {
   DB,
-  // Off unless turned on; most tests are of both.
-  ACTIVE_TASKS_PINNING: "on",
+  // Off unless turned on; most tests are of it.
   SUMMARY_CANVAS: "on",
   // No wait for further changes before the summary is written.
   SUMMARY_SETTLE_MS: "0",
@@ -505,31 +504,33 @@ test("@Cade status updates the task's status", async (t) => {
   assert.deepEqual(calls[1].args, { channel: "CDEV", timestamp: "100.5", name: "white_check_mark" });
 });
 
-test("@Cade status DONE unpins the task and reopening pins it again", async (t) => {
-  let calls = mockSlack(t, {
-    stored: [storedTask()],
-  });
+test("Cade never pins or unpins a task: not when it's made, done, reopened or archived", async (t) => {
+  const pins = (calls) => calls.filter((call) => call.method.startsWith("pins."));
+  let calls = mockSlack(t, createdTask);
+  await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "Low" })));
+  assert.deepEqual(pins(calls), []);
+
+  calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status done"));
-  assert.deepEqual(calls.map((call) => call.method), ["chat.update", "pins.remove", "reactions.add"]);
-  assert.deepEqual(calls[1].args, { channel: "CDEV", timestamp: "100.1" });
+  assert.deepEqual(calls.map((call) => call.method), ["chat.update", "reactions.add"]);
 
   const done = storedTask();
   done.task.status = "DONE";
   calls = mockSlack(t, { stored: [done] });
   await send("/slack/events", threadEvent("<@UBOT> status IN_TESTING"));
-  assert.deepEqual(
-    calls.filter((call) => call.method === "pins.add").map((call) => call.args.channel),
-    ["CDEV"],
-  );
+  assert.deepEqual(pins(calls), []);
+
+  calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> archive"));
+  assert.deepEqual(pins(calls), []);
 });
 
-test("a failed pin does not stop the task from being announced", async (t) => {
+test("a task is announced, then linked, before its summary canvas is made", async (t) => {
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const method = new URL(url).pathname.replace("/api/", "");
     calls.push(method);
-    if (method === "pins.add") return Response.json({ ok: false, error: "missing_scope" });
     if (method === "chat.getPermalink") return Response.json({ ok: true, permalink: "https://slack.example/p100" });
     if (method === "conversations.canvases.create") return Response.json({ ok: true, canvas_id: "F0CANVAS" });
     return Response.json({ ok: true, channel: "CDEV", ts: "100.1" });
@@ -543,7 +544,7 @@ test("a failed pin does not stop the task from being announced", async (t) => {
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
   // Then the group's summary canvas is made (see summary.js).
-  assert.deepEqual(calls.slice(0, 3), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
+  assert.deepEqual(calls.slice(0, 2), ["chat.postMessage", "chat.getPermalink"]);
 });
 
 const withStatus = (status) => {
@@ -745,7 +746,6 @@ test("tasks tracked in the test channel go to the test channel", async (t) => {
   const calls = mockSlack(t, createdTask);
   await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "High" }, { channel: "CTESTDEV" })));
   assert.equal(calls[0].args.channel, "CTESTDEV");
-  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.channel === "CTESTDEV"));
 });
 
 test("thread commands work in the test tasks channel", async (t) => {
@@ -881,7 +881,7 @@ test("/cade task in the dev channel posts the task without an announcement", asy
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" }, { channel: "CDEV" })),
   );
-  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add", "conversations.replies", "chat.update"]);
+  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "conversations.replies", "chat.update"]);
 });
 
 test("/cade help and unknown slash commands list the commands privately", async (t) => {
@@ -933,7 +933,6 @@ test("Cade's messages never preview the messages they link to", async (t) => {
   for (const call of posts) {
     assert.deepEqual(call.previews, { links: "false", media: "false" }, call.method);
   }
-  assert.ok(calls.filter((call) => call.method === "pins.add").every((call) => !call.previews.links));
 });
 
 test("@Cade priority and due change the task's priority and due date", async (t) => {
@@ -1026,7 +1025,6 @@ test("@Cade archive and the card's Archive stop tracking the task, keeping its c
     assert.equal(card.ts, "100.1");
     assert.equal(card.blocks[0].accessory, undefined);
     assert.match(statusLine(card), /^:file_cabinet: Archived by <@UACTOR>  ·  Due 31\/10\/2026$/);
-    assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === "100.1"));
     // The thread hears who did.
     const post = calls.find((call) => call.method === "chat.postMessage").args;
     assert.deepEqual([post.thread_ts, post.text], ["100.1", "<@UACTOR> archived this task."]);
@@ -1332,14 +1330,13 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
 
   assert.deepEqual(calls.map((call) => [call.method, call.args.ts ?? call.args.thread_ts ?? call.args.timestamp]), [
     ["chat.update", "100.1"],
-    ["pins.remove", "100.1"],
     ["chat.postMessage", "100.1"],
     ["chat.update", "100.9"],
   ]);
   assert.deepEqual((await savedTask()).status, "DONE");
   assert.ok((await savedTask()).completedAt);
-  assert.equal(calls[2].args.text, "<@UCLIENT> approved this, so it's now :white_check_mark: Done.");
-  assert.deepEqual(calls[3].args, {
+  assert.equal(calls[1].args.text, "<@UCLIENT> approved this, so it's now :white_check_mark: Done.");
+  assert.deepEqual(calls[2].args, {
     channel: "CDEV",
     ts: "100.9",
     text: "<@UACTOR> says this is ready for you to review.\n<@UCLIENT> approved it.",
@@ -1363,8 +1360,6 @@ test("Not approve moves the task back to In progress and tells the task's thread
   await send("/slack/interactions", reviewClick("status:reject"));
 
   assert.deepEqual((await savedTask()).status, "IN_PROGRESS");
-  // The task was not Done, so its pin stays.
-  assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
   const note = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(note.thread_ts, "100.1");
   assert.equal(
@@ -2011,8 +2006,6 @@ test("linking a PR leaves the status to the suggestions", async (t) => {
     await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
     assert.deepEqual((await savedTask()).status, status, status);
     assert.ok(!calls.some((call) => call.args.text?.includes("moved the task")), status);
-    // Pins only change with Done, so none here.
-    assert.ok(!calls.some((call) => call.method.startsWith("pins.")), status);
   }
 });
 
@@ -2308,7 +2301,6 @@ test("the manifest asks for the scopes Cade uses", async () => {
     "groups:history",
     "groups:read",
     "groups:write",
-    "pins:write",
     // 🎫 and 🔀 on a message convert or move it.
     "reactions:read",
     "reactions:write",
@@ -2612,30 +2604,31 @@ test("npm run config sets ADMINS from admins, always, and checks them", async ()
   assert.throws(() => readConfig(JSON.stringify({ projects, admins: "UANN" })), /admins is a list of Slack user IDs/);
 });
 
-test("npm run config checks the activeTasksPinning, summaryCanvas and newTaskDetection switches", async () => {
+test("npm run config checks the summaryCanvas and newTaskDetection switches, and says activeTasksPinning is gone", async () => {
   const { readConfig } = await import("../scripts/config.ts");
   const projects = [{ name: "acme", channel: "C0000000002" }];
-  const set = JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: false, summaryCanvas: true, newTaskDetection: false }] })).PROJECTS)[0];
-  assert.deepEqual([set.activeTasksPinning, set.summaryCanvas, set.newTaskDetection], [false, true, false]);
+  const set = JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], summaryCanvas: true, newTaskDetection: false }] })).PROJECTS)[0];
+  assert.deepEqual([set.summaryCanvas, set.newTaskDetection], [true, false]);
   assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], summaryCanvas: "no" }] })), /acme's summaryCanvas is true or false/);
-  assert.throws(() => readConfig(JSON.stringify({ projects, activeTasksPinning: true })), /"activeTasksPinning" at the top; set it on each project/);
-  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: 1 }] })), /acme's activeTasksPinning is true or false/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, summaryCanvas: true })), /"summaryCanvas" at the top; set it on each project/);
+  // Pinning was removed: a config that still sets it is told to delete it, whatever it says.
+  for (const value of [true, false]) {
+    assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: value }] })), /acme's activeTasksPinning is no longer a setting: Cade doesn't pin tasks .* Delete it\./);
+  }
 });
 
-test("pinning and the summary canvas can be turned off, for every group or one", async (t) => {
-  const { setPinned, refreshSummary } = await import("../src/tasks.ts");
-  const pairs = [{ name: "acme", channel: "CDEV", activeTasksPinning: true }, { name: "test", channel: "CTESTDEV", summaryCanvas: false }];
-  for (const [environment, channel, pins, canvases] of [
-    [{ ...env }, "CDEV", 1, true],
-    [{ ...env, ACTIVE_TASKS_PINNING: "off", SUMMARY_CANVAS: "off" }, "CDEV", 0, false],
-    [{ ...env, ACTIVE_TASKS_PINNING: undefined, SUMMARY_CANVAS: undefined }, "CDEV", 0, false],
-    [{ ...env, PROJECTS: pairs, ACTIVE_TASKS_PINNING: "off" }, "CDEV", 1, true],
-    [{ ...env, PROJECTS: pairs }, "CTESTDEV", 1, false],
+test("the summary canvas can be turned off, for every group or one", async (t) => {
+  const { refreshSummary } = await import("../src/tasks.ts");
+  const pairs = [{ name: "acme", channel: "CDEV" }, { name: "test", channel: "CTESTDEV", summaryCanvas: false }];
+  for (const [environment, channel, canvases] of [
+    [{ ...env }, "CDEV", true],
+    [{ ...env, SUMMARY_CANVAS: "off" }, "CDEV", false],
+    [{ ...env, SUMMARY_CANVAS: undefined }, "CDEV", false],
+    [{ ...env, PROJECTS: pairs }, "CDEV", true],
+    [{ ...env, PROJECTS: pairs }, "CTESTDEV", false],
   ] as const) {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
-    await setPinned(environment, channel, "1.1", true);
     await refreshSummary(environment, channel, { create: true });
-    assert.equal(calls.filter((call) => call.method === "pins.add").length, pins, JSON.stringify([channel, environment.ACTIVE_TASKS_PINNING]));
     assert.equal(calls.some((call) => /canvas/.test(call.method)), canvases, JSON.stringify([channel, environment.SUMMARY_CANVAS]));
   }
 });
@@ -2960,7 +2953,7 @@ test("the cron posts a task Slack refused, and finishes tracking it", async (t) 
   await runCron();
 
   // Its thread is read to be kept; with no request, the cron has no address to link its pages by.
-  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add", "conversations.replies"]);
+  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "conversations.replies"]);
   assert.equal(calls[0].args.channel, "CDEV");
   const task = await savedTask();
   assert.equal(task.title, "Fix login");
@@ -3438,7 +3431,7 @@ test("Move copies the message into the task's thread and points the original the
   assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
-test("Move says an incident thread, notes attachments, and unpins a pinned message", async (t) => {
+test("Move says an incident thread, notes attachments, and leaves a pinned message's pin alone", async (t) => {
   const calls = mockSlack(t, {
     ...moveSlack({ ...devStray, files: [{ id: "F1" }], pinned_to: ["CDEV"] }),
     stored: [devTask("100.1", "Checkout is down", "TODO", { incident: true })],
@@ -3448,7 +3441,7 @@ test("Move says an incident thread, notes attachments, and unpins a pinned messa
   const [copy, note] = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text);
   assert.match(copy, /\n_There's more in the original\._$/);
   assert.match(note, /moved this message to the incident thread/);
-  assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === "100.7"));
+  assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
 });
 
 test("Move moves nothing if the task was closed or the message deleted since", async (t) => {
@@ -3545,7 +3538,6 @@ test("Make new task and Make new incident open their forms, with the project out
       author: "UBOB",
       text: "Customers can't pay\nsince the deploy",
       files: false,
-      pinned: false,
       link: "https://acme.slack.com/archives/D0BOB/p5001?thread_ts=500.1&cid=D0BOB",
     });
 
@@ -5856,8 +5848,6 @@ test("Add subtask makes a subtask with the task's people, in its own thread, and
   const parent = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  0 closed\n/);
   assert.deepEqual(menuChoices(parent), ["Edit", "Add subtask", "View subtasks", "Archive"]);
-  // Only the task is pinned, not its subtasks.
-  assert.ok(!calls.some((call) => call.method === "pins.add" && call.args.timestamp === "200.1"));
 });
 
 test("Add subtask on a subtask says they go one level deep", async (t) => {
@@ -6102,17 +6092,15 @@ test("/cade subtask link makes an older task a subtask, for admins only, and isn
   const card = (ts) => cardText(calls.filter((call) => call.method === "chat.update" && call.args.ts === ts).at(-1).args);
   assert.match(card(T2), /:arrow_right_hook: Subtask of \*Checkout redesign\*/);
   assert.match(card(T1), /Subtasks: 1 open  ·  0 closed/);
-  assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === T2));
   // The main task's thread hears it as it does a new subtask.
   assert.equal(calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === T1).args.text, "<@UACTOR> added a subtask: <https://slack.example/p2|Payment fails>. It's tracked in its own thread.");
 
-  // Unlinked, it is a task of its own again, pinned while open.
+  // Unlinked, it is a task of its own again.
   calls.length = 0;
   const undone = await runTasksCommand(`subtask unlink ${cardLink(T2)}`, "CDEV", asAdmin);
   assert.equal(undone.later.text, "Made <https://slack.example/p2|Payment fails> a task of its own again.");
   assert.equal((await getTask(env, "CDEV", T2))!.parent, undefined);
   assert.doesNotMatch(card(T1), /Subtasks:/);
-  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.timestamp === T2));
 
   // Not for anyone else, and not listed.
   const refused = await runTasksCommand(`subtask link ${cardLink(T2)} ${cardLink(T1)}`, "CDEV", { ...env, ADMINS: "[]" } as AppEnv);

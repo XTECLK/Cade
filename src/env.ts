@@ -19,8 +19,7 @@ export interface AppEnv extends Env {
   // Features for every project, "on" or "off" (see groupEnabled in channels.ts).
   NEW_TASK_DETECTION?: string;
   AI_AGENT_SUMMARY?: string;
-  ACTIVE_TASKS_PINNING?: string;
   SUMMARY_CANVAS?: string;
 }
 
-export type FeatureSecret = "NEW_TASK_DETECTION" | "AI_AGENT_SUMMARY" | "ACTIVE_TASKS_PINNING" | "SUMMARY_CANVAS";
+export type FeatureSecret = "NEW_TASK_DETECTION" | "AI_AGENT_SUMMARY" | "SUMMARY_CANVAS";

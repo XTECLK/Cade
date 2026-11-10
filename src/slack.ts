@@ -94,8 +94,6 @@ export interface SlackAnswers {
   "conversations.join": {};
   "conversations.members": Paged & { members?: string[] };
   "conversations.replies": Paged & { messages?: SlackMessage[] };
-  "pins.add": {};
-  "pins.remove": {};
   "reactions.add": {};
   "users.conversations": Paged & { channels?: SlackChannel[] };
   "users.getPresence": { presence?: string };

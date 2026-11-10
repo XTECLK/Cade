@@ -117,14 +117,14 @@ test("Add project makes the channel a project, named after it, tells the admin, 
 
 test("Add project keeps the switches picked in the form, and no list of people", async (t) => {
   const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING });
-  await answer(addForm({ choices: { summaryCanvas: "on", newTaskDetection: "off", activeTasksPinning: "config" } }));
+  await answer(addForm({ choices: { summaryCanvas: "on", newTaskDetection: "off", aiAgentSummary: "config" } }));
   assert.match(lastNotice(calls), /is now the project/);
   const { withSettings } = await import("../src/settings.ts");
   const added = projects(await withSettings(env)).find((project) => project.channel === "CNEW");
   assert.equal("members" in added, false);
   assert.equal(added.summaryCanvas, true);
   assert.equal(added.newTaskDetection, false);
-  assert.equal("activeTasksPinning" in added, false);
+  assert.equal("aiAgentSummary" in added, false);
 });
 
 test("Add project refuses a non-admin, a taken or bad name and a private channel Cade isn't in, each on its field; a public one is joined", async (t) => {
@@ -203,7 +203,7 @@ test("the Project settings button opens a form with the channel's project, its n
   // The project it was opened for, by name, with no list to pick another, and a choice for each switch.
   assert.equal(view.blocks[0].text.text, "*acme*");
   assert.equal(view.blocks.some((block) => block.accessory?.type === "static_select"), false);
-  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskChangeDetection", "s_newTaskDetection", "s_activeTasksPinning", "s_summaryCanvas", "s_aiAgentSummary"]);
+  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskChangeDetection", "s_newTaskDetection", "s_summaryCanvas", "s_aiAgentSummary"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
@@ -217,9 +217,9 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
   const setting = async (key) => groupSetting(await withSettings(env), "CDEV", key);
   assert.equal(await setting("summaryCanvas"), true);
 
-  assert.equal(await interact(submitted("CDEV", { summaryCanvas: "off", activeTasksPinning: "on", taskChangeDetection: "config" })), JSON.stringify({ response_action: "clear" }));
+  assert.equal(await interact(submitted("CDEV", { summaryCanvas: "off", newTaskDetection: "off", taskChangeDetection: "config" })), JSON.stringify({ response_action: "clear" }));
   assert.equal(await setting("summaryCanvas"), false);
-  assert.equal(await setting("activeTasksPinning"), true);
+  assert.equal(await setting("newTaskDetection"), false);
   assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /Saved 2 settings for the project \*acme\*/);
 
   // Opening the form again shows what is chosen, and what the config says.
@@ -227,16 +227,16 @@ test("saving the form keeps a setting over the config, and 'Use the config' puts
   await openSettings("CDEV");
   const view = JSON.parse(reopened.find((call) => call.method === "views.open").args.view);
   assert.equal(chosen(view, "summaryCanvas"), "off");
-  assert.equal(chosen(view, "activeTasksPinning"), "on");
+  assert.equal(chosen(view, "newTaskDetection"), "off");
   assert.deepEqual(select(view, "summaryCanvas").element.options.map((option) => option.text.text), ["Use the config (on)", "On", "Off"]);
 
   // The same again changes nothing; "config" goes back to the config.
   mock(t, { "chat.postEphemeral": (args) => (void (globalThis.lastText = args.text), {}) });
   await interact(submitted("CDEV", { summaryCanvas: "off" }));
   assert.match(globalThis.lastText, /Nothing changed/);
-  await interact(submitted("CDEV", { summaryCanvas: "config", activeTasksPinning: "config" }));
+  await interact(submitted("CDEV", { summaryCanvas: "config", newTaskDetection: "config" }));
   assert.equal(await setting("summaryCanvas"), true);
-  assert.equal(await setting("activeTasksPinning"), undefined);
+  assert.equal(await setting("newTaskDetection"), undefined);
 
   // A non-admin's submission changes nothing, and an unknown value or project is ignored.
   await interact({ ...submitted("CDEV", { summaryCanvas: "off" }), user: { id: "UMEMBER" } });
@@ -271,7 +271,7 @@ test("a project added from the Home tab opens its own settings, as one kept in C
   const view = JSON.parse(calls.filter((call) => call.method === "views.open").at(-1).args.view);
   assert.equal(view.private_metadata, "CNEW");
   assert.equal(view.blocks[0].text.text, "*payments*");
-  assert.match(select(view, "activeTasksPinning").element.options[0].text.text, /^Use the default \(/);
+  assert.match(select(view, "newTaskDetection").element.options[0].text.text, /^Use the default \(/);
   assert.match(view.blocks[1].elements[0].text, /kept in Cade's database/);
 });
 

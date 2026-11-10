@@ -11,7 +11,6 @@ export interface Project {
   // true, false, or the kinds of suggestion to make (see intents.ts).
   taskChangeDetection?: boolean | string[];
   newTaskDetection?: boolean;
-  activeTasksPinning?: boolean;
   summaryCanvas?: boolean;
   aiAgentSummary?: boolean;
   [key: string]: unknown;
@@ -94,7 +93,7 @@ export function roleOf(env: Pick<AppEnv, "PROJECTS">, channel: string) {
 
 // Whether a feature that is off unless turned on is on for `channel`: the
 // project's own `key` (true or false), or else the Worker secret `secret`
-// ("on" turns it on) for every project. See `activeTasksPinning` and `summaryCanvas` in
+// ("on" turns it on) for every project. See `summaryCanvas` in
 // scripts/config.ts.
 export function groupEnabled(env: Pick<AppEnv, "PROJECTS" | FeatureSecret>, channel: string | undefined | null, key: string, secret: FeatureSecret) {
   return (groupSetting(env, channel, key) ?? env[secret] === "on") as boolean;

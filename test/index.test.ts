@@ -94,9 +94,13 @@ const allBlocks = (args) => [...(args.blocks ?? []), ...(args.attachments?.[0]?.
 // A section's text, or a context block's first element's.
 const blockText = (block) => block.text?.text ?? block.elements?.[0]?.text;
 
-// A task card's small-text footer, a line each: who works on it, then who
-// tracked it.
-const footerLines = (args) => blockText(allBlocks(args).at(-1)).split("\n");
+// A task card's small text is in up to three blocks, a few lines each: whose subtask it is and its
+// pages; the work (its status, subtasks, pull requests and people, in that order); and who tracked it.
+const workLines = (args) => blockText(allBlocks(args).at(-2)).split("\n");
+// The work block's first line: the status, blocked mark, due date and the like.
+const statusLine = (args) => workLines(args)[0];
+// Who works on it, then who tracked it: the last line of the work block, and the last block.
+const footerLines = (args) => [workLines(args).at(-1), blockText(allBlocks(args).at(-1))];
 
 // The action_ids used more than once in a message's blocks.
 function duplicateActionIds(blocks) {
@@ -331,7 +335,7 @@ test("modal submission without a due date leaves it out", async (t) => {
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
   const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
-  assert.equal(blockText(allBlocks(post.args)[1]), ":memo: To do");
+  assert.equal(statusLine(post.args), ":memo: To do");
 });
 
 test("modal submission tells the creator when the task cannot be posted", async (t) => {
@@ -1021,7 +1025,7 @@ test("@Cade archive and the card's Archive stop tracking the task, keeping its c
     const card = calls.find((call) => call.method === "chat.update").args;
     assert.equal(card.ts, "100.1");
     assert.equal(card.blocks[0].accessory, undefined);
-    assert.match(blockText(allBlocks(card)[1]), /^:file_cabinet: Archived by <@UACTOR>  ·  Due 31\/10\/2026$/);
+    assert.match(statusLine(card), /^:file_cabinet: Archived by <@UACTOR>  ·  Due 31\/10\/2026$/);
     assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === "100.1"));
     // The thread hears who did.
     const post = calls.find((call) => call.method === "chat.postMessage").args;
@@ -1465,9 +1469,9 @@ test("@Cade pr add links pull requests on one line above who tracked it, and rea
   const blocks = allBlocks(calls[0].args);
   // Stored without the /files tab, and only once.
   assert.deepEqual((await savedTask()).prs, [PR, MR]);
-  // Not sent to the client yet, so pending.
-  assert.equal(blocks[2].type, "context");
-  assert.equal(blockText(blocks[2]), `*Pending:* <${PR}|cade/42>, <${MR}|web-app/118>`);
+  // Not sent to the client yet, so pending: in the work block, after the status, before the people.
+  assert.equal(blocks.at(-2).type, "context");
+  assert.deepEqual(workLines(calls[0].args), [":memo: To do  ·  Due 31/10/2026", `*Pending:* <${PR}|cade/42>, <${MR}|web-app/118>`, "_Unassigned_"]);
   assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
   assert.equal(calls[1].args.name, "white_check_mark");
   assert.ok(!calls[2].args.text.includes("linked"));
@@ -1476,7 +1480,9 @@ test("@Cade pr add links pull requests on one line above who tracked it, and rea
 test("tasks without pull requests show no PRs line", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
+  // The title, the work block (status and people) and who tracked it.
   assert.equal(allBlocks(calls[0].args).length, 3);
+  assert.deepEqual(workLines(calls[0].args), [":arrow_forward: In progress  ·  Due 31/10/2026", "_Unassigned_"]);
   // Made in Slack, not through an AI agent.
   assert.match(footerLines(calls[0].args)[1], /^Tracked by <@\w+>$/);
 });
@@ -1501,7 +1507,7 @@ test("@Cade pr remove unlinks pull requests", async (t) => {
   let calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.deepEqual((await savedTask()).prs, [MR]);
-  assert.equal(blockText(allBlocks(calls[0].args)[2]), `*Pending:* <${MR}|web-app/118>`);
+  assert.equal(workLines(calls[0].args)[1], `*Pending:* <${MR}|web-app/118>`);
   assert.deepEqual(calls.map((call) => call.method), ["chat.update", "reactions.add"]);
   assert.equal(calls[1].args.name, "white_check_mark");
 
@@ -3602,7 +3608,7 @@ test("Make new incident reports an urgent incident in the dev channel, labelled 
   const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts).args;
   assert.equal(card.text, "Urgent incident: Checkout is down");
   assert.equal(allBlocks(card)[0].text.text, "[URGENT] [Incident] *Checkout is down*");
-  assert.equal(blockText(allBlocks(card)[1]), ":memo: To do  ·  Due Immediate");
+  assert.equal(statusLine(card), ":memo: To do  ·  Due Immediate");
   assert.match(footerLines(card)[1], /^Reported by <@UACTOR>$/);
   const task = await savedTask();
   assert.deepEqual([task.incident, task.priority, task.dueDate], [true, "Urgent", "Immediate"]);
@@ -6146,7 +6152,7 @@ test("closing or reopening a subtask tells its task's thread how its subtasks st
 
 test("the admin commands, and their buttons, are only for Cade's admins", async (t) => {
   const notAdmin = { ...env, ADMINS: JSON.stringify(["USOMEONE"]) } as AppEnv;
-  for (const command of [`remove <${messageLink("CDEV", T1)}>`, `replace <${messageLink("CDEV", T1)}> New text`, `resync <${messageLink("CDEV", T1)}>`, "resync summary", `retry <${messageLink("CDEV", T1)}>`, `subtask link ${cardLink(T2)} ${cardLink(T1)}`]) {
+  for (const command of [`remove <${messageLink("CDEV", T1)}>`, `replace <${messageLink("CDEV", T1)}> New text`, `resync <${messageLink("CDEV", T1)}>`, "resync summary", "resync all", `retry <${messageLink("CDEV", T1)}>`, `subtask link ${cardLink(T2)} ${cardLink(T1)}`]) {
     const calls = mockSlack(t, { stored: [historyTask(T1, { title: "Main" })] });
     const { now, later } = await runTasksCommand(command, "CDEV", notAdmin);
     assert.equal(JSON.parse(now).text, "Only Cade's admins can do that.", command);
@@ -6198,4 +6204,48 @@ test("the Home tab never has more than Slack's 100 blocks, however many subtasks
     // What doesn't fit is counted rather than left out without a word.
     assert.match(blocks.map((block) => blockText(block) ?? "").join("\n"), /more/, action_id);
   }
+});
+
+test("a subtask's card has its Subtask of line and its page links in one block, as close as its people and who tracked it", async () => {
+  const { taskMessage } = await import("../src/tasks.ts");
+  const task = { ...subtaskOf("100.2").task, notes: { url: "https://cade.example/n/1" }, export: { url: "https://cade.example/t/1" } };
+  const [first] = taskMessage(task).attachments![0]!.blocks as { elements: { text: string }[] }[];
+  assert.equal(first!.elements[0]!.text, ":arrow_right_hook: Subtask of *Fix login*\nExtra notes <https://cade.example/n/1|here>  ·  Full history <https://cade.example/t/1|here>");
+});
+
+test("a task's card is in three parts: its pages, its work (status, subtasks, PRs, people), and who tracked it", async () => {
+  const { taskMessage } = await import("../src/tasks.ts");
+  const task = { ...storedTask({ owners: ["UREX"] }).task, prs: [PR], notes: { url: "https://cade.example/n/1" }, subtaskCounts: { open: 1, closed: 2 } };
+  const blocks = taskMessage(task).attachments![0]!.blocks as { elements: { text: string }[] }[];
+  assert.deepEqual(blocks.map((block) => block.elements[0]!.text.split("\n")), [
+    ["Extra notes <https://cade.example/n/1|here>"],
+    [":memo: To do  ·  Due 31/10/2026", "Subtasks: 1 open  ·  2 closed", `*Pending:* <${PR}|cade/42>`, "Owner <@UREX>"],
+    ["Tracked by <@UCREATOR>"],
+  ]);
+});
+
+test("/cade resync all redraws every card in the channel, Done ones and subtasks too, quietly", async (t) => {
+  const calls = mockSlack(t, { stored: [historyTask("100.1", { title: "Main" }), subtaskOf("100.2"), historyTask("100.3", { title: "Finished", status: "DONE" })] });
+  const { later } = await runTasksCommand("resync all", "CDEV");
+  assert.equal(later.text, "Redrew cards 1–3 of 3: every card in this channel is up to date.");
+  assert.deepEqual(calls.filter((call) => call.method === "chat.update").map((call) => call.args.ts), ["100.1", "100.2", "100.3"]);
+  // Only the cards: nothing in any thread.
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+
+  // Outside a project's channel, it says where to send it.
+  const elsewhere = await runTasksCommand("resync all", "CELSEWHERE");
+  assert.match(JSON.parse(elsewhere.now).text, /in a project's dev channel/);
+});
+
+test("/cade resync all goes 40 cards a run, and says what to send for the next, or where to start again when Slack slows it", async (t) => {
+  const stored = Array.from({ length: 42 }, (_, i) => historyTask(`${101 + i}.1`, { title: `Task ${i + 1}` }));
+  let calls = mockSlack(t, { stored });
+  assert.equal((await runTasksCommand("resync all", "CDEV")).later.text, "Redrew cards 1–40 of 42. In a minute, send `/cade resync all 40` for the next ones.");
+  assert.equal(calls.filter((call) => call.method === "chat.update").length, 40);
+  calls = mockSlack(t, { stored });
+  assert.equal((await runTasksCommand("resync all 40", "CDEV")).later.text, "Redrew cards 41–42 of 42: every card in this channel is up to date.");
+  assert.deepEqual(calls.filter((call) => call.method === "chat.update").map((call) => call.args.ts), ["141.1", "142.1"]);
+
+  mockSlack(t, { stored: stored.slice(0, 3), "chat.update": (args) => (args.ts === "102.1" ? { ok: false, error: "ratelimited" } : {}) });
+  assert.equal((await runTasksCommand("resync all", "CDEV")).later.text, "Redrew card 1 of 3 before Slack asked me to slow down. In a minute, send `/cade resync all 1` for the next ones.");
 });

@@ -151,14 +151,18 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   // A subtask's card says whose it is first; a task's says how its subtasks stand, under its status. Real
   // subtasks say more than the "Has subtasks" marker, so it gives way to them.
   const subtasks = subtasksLine(task);
+  // Three blocks, each a few lines: whose subtask it is and its pages; the work (its status, subtasks,
+  // pull requests and people); and who tracked it. Lines in a block sit closer than the blocks do, so
+  // the card reads in those three parts. A block with nothing in it is left out.
+  const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && !subtasks && task.subtasks, !archivedBy && blockedLine(task)).text;
   const card: SlackBlock[] = [
-    ...(task.parent ? [smallText([parentLine(task.parent)])] : []),
-    ...(links.length ? [smallText([links.join("  ·  ")])] : []),
-    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && !subtasks && task.subtasks, !archivedBy && blockedLine(task))] },
-    ...(subtasks ? [smallText([subtasks])] : []),
-    ...(task.prs?.length ? [smallText(prLines(task))] : []),
-    smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`]),
-  ];
+    [task.parent && parentLine(task.parent), links.length && links.join("  ·  ")],
+    [status, subtasks, ...(task.prs?.length ? prLines(task) : []), people || "_Unassigned_"],
+    [`${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
+  ]
+    .map((lines) => lines.filter(Boolean))
+    .filter((lines) => lines.length)
+    .map(smallText);
   // Incidents share the dev channel with the rest of the work, so their
   // cards say which they are.
   const label = `[${task.priority.toUpperCase()}] ${task.incident ? "[Incident] " : ""}`;

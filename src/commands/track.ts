@@ -279,30 +279,34 @@ async function createAndGuide({ env, waitUntil }: Context, task: Task, origin: O
         await callSlack(env, "chat.postEphemeral", {
           channel: origin.channel,
           user,
-          text: `Your task is up. To have your AI agent write its summary, paste this:\n\`\`\`${prompt(posted.taskId)}\`\`\`\n${NOT_CONNECTED}`,
+          text: `Your task is up. To have your AI agent write its summary:\n${howTo(posted.taskId)}\n${NOT_CONNECTED}`,
         });
       }),
     );
     return CLOSE_ALL;
   }
   if (!first?.taskId) return CLOSE_ALL;
-  return { response_action: "update", view: agentView(prompt(first.taskId)) };
+  return { response_action: "update", view: agentView(first.taskId) };
 }
 
 const NOT_CONNECTED = "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.";
 
-// What to paste into the agent, for the task with this ID.
-const prompt = (taskId: string) => `Summarize the Cade task ${taskId} and save the summary once I approve it.`;
+// How to have the agent summarize the task with this ID. Cade's MCP server offers the steps as the
+// task-summary prompt (see prompts/), which only the person can start: in Claude Code a slash command,
+// named after the server as connect-your-agent adds it (cade). Any other agent is asked in words, and
+// works it out from the tools.
+const howTo = (taskId: string) =>
+  `In Claude Code, run:\n\`\`\`/mcp__cade__task-summary ${taskId}\`\`\`\nIn any other agent, paste this:\n\`\`\`Summarize the Cade task ${taskId} and save the summary once I approve it.\`\`\``;
 
-// The second form: the prompt, and where to go if the agent isn't connected.
-function agentView(text: string) {
+// The second form: how to have the agent summarize it, and where to go if the agent isn't connected.
+function agentView(taskId: string) {
   const section = (mrkdwn: string) => ({ type: "section", text: { type: "mrkdwn", text: mrkdwn } });
   return {
     type: "modal",
     title: plainText("Summarize with AI"),
     close: plainText("Done"),
     blocks: [
-      section(`:white_check_mark: *The task is made.* Paste this into your AI agent to write its summary:\n\`\`\`${text}\`\`\``),
+      section(`:white_check_mark: *The task is made.* To have your AI agent write its summary:\n${howTo(taskId)}`),
       { type: "context", elements: [{ type: "mrkdwn", text: NOT_CONNECTED }] },
     ],
   };

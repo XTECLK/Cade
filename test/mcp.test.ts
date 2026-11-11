@@ -1013,8 +1013,9 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.equal(view.type, "modal");
     assert.equal(view.submit, undefined);
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
-    // The prompt names the task by its ID and the tools to use with it.
-    assert.match(text, /Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\./);
+    // Cade's task-summary prompt for Claude Code, and words for any other agent, both naming the task by its ID.
+    assert.match(text, /In Claude Code, run:\n```\/mcp__cade__task-summary CDEV:100\.1```/);
+    assert.match(text, /In any other agent, paste this:\n```Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\.```/);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
     assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.");
@@ -1040,6 +1041,7 @@ test("the prompt follows privately when the task takes too long to post for the 
   assert.deepEqual(await submitted, { response_action: "clear" });
   const ephemeral = calls.find((call) => call.method === "chat.postEphemeral");
   assert.equal(ephemeral.args.user, "UCREATOR");
+  assert.match(ephemeral.args.text, /```\/mcp__cade__task-summary CDEV:100\.1```/);
   assert.match(ephemeral.args.text, /Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\./);
   assert.match(ephemeral.args.text, /Home tab and press AI agent/);
 });

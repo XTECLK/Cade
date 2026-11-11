@@ -394,9 +394,11 @@ function card({ entry, subs, context }: Row, today: string, viewer: string, budg
 }
 
 // A task's own two blocks on a card: its title, led by ↪ for a subtask, then its details and people,
-// with `lines` added under them, if any.
-function taskBlocks({ task, link, incident }: TaskEntry, today: string, viewer: string, { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {}): SlackBlock[] {
-  const title = `${sub ? ":arrow_right_hook: " : ""}${incident ? "[Incident] " : ""}*<${link}|${escapeSlack(task.title)}>*`;
+// with `lines` added under them, if any. The same three lines list the subtasks in their modal (see
+// subtask.ts), where a task posted before it had a link has none.
+export function taskBlocks({ task, link, incident }: Pick<TaskEntry, "task" | "incident"> & { link?: string }, today: string, viewer?: string, { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {}): SlackBlock[] {
+  const name = escapeSlack(task.title);
+  const title = `${sub ? ":arrow_right_hook: " : ""}${incident ? "[Incident] " : ""}*${link ? `<${link}|${name}>` : name}*`;
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
   const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
   const text = [lines[0], details, people, ...lines.slice(1)].filter(Boolean).join("\n");

@@ -1,7 +1,9 @@
 import { subtasksOf } from "../db.ts";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { applyChanges } from "./changes.ts";
-import { INCIDENT, NOT_A_TASK, PRIORITIES, STATUSES, loadTask, peopleLine, readTaskForm, shownPeople, subtasksLine, taskFormBlocks } from "../tasks.ts";
+import { INCIDENT, NOT_A_TASK, PRIORITIES, STATUSES, loadTask, readTaskForm, subtasksLine, taskFormBlocks } from "../tasks.ts";
+import { taskBlocks } from "../home.ts";
+import { todayIn } from "./tasks.ts";
 import { createTask } from "./track.ts";
 import { linkCommand } from "./subtask-link.ts";
 import type { AppEnv } from "../env.ts";
@@ -32,8 +34,8 @@ const ADD_ACTION = "subtasks:add";
 const CLOSE_ALL_ACTION = "subtasks:close";
 const CANCEL_ACTION = "subtasks:cancel";
 
-// The most subtasks the modal lists in each of Open and Closed: a modal holds 100 blocks.
-const MAX_LISTED = 40;
+// The most subtasks the modal lists in each of Open and Closed, two blocks each: a modal holds 100 blocks.
+const MAX_LISTED = 20;
 
 export const ONE_LEVEL = "This is a subtask already, and subtasks don't have their own. Add it to the main task instead.";
 
@@ -200,31 +202,29 @@ export function newSubtask(parent: StoredTask, ts: string, title: string, user: 
 }
 
 // The modal listing the subtasks of `parent`, at `origin`: open ones first, oldest first, then the
-// closed ones, each with its status and people, linking to its thread ("No subtasks yet." when it has
-// none), then Add subtask.
+// closed ones, each in the three lines a Home tab card has (its title, linking to its thread; its
+// priority, status and due date; its people), ("No subtasks yet." when it has none), then Add subtask.
 export async function subtasksView(env: AppEnv, origin: TaskRef, parent: StoredTask) {
   const all = await subtasksOf(env, origin.channel, origin.ts);
   const open = all.filter(({ task }) => task.status !== "DONE");
   const closed = all.filter(({ task }) => task.status === "DONE");
+  const today = todayIn(env);
   const heading = parent.link ? `<${parent.link}|${escapeSlack(parent.title)}>` : escapeSlack(parent.title);
   const blocks: SlackBlock[] = [
     { type: "section", text: mrkdwn(`*${heading}*`) },
     { type: "context", elements: [mrkdwn(subtasksLine({ subtaskCounts: { open: open.length, closed: closed.length } }) || "No subtasks yet.")] },
-    ...group("Open", open),
-    ...group("Closed", closed),
+    ...group("Open", open, today),
+    ...group("Closed", closed, today),
     // Under the list, Add subtask; a subtask has none of its own, so it can't add one.
     ...(parent.parent ? [] : [{ type: "divider" }, { type: "actions", elements: [{ type: "button", action_id: ADD_ACTION, text: plainText("Add subtask"), style: "primary", value: JSON.stringify({ channel: origin.channel, ts: origin.ts }) }] }]),
   ];
   return { type: "modal", title: plainText("Subtasks"), close: plainText("Close"), blocks };
 }
 
-function group(name: string, entries: { ts: string; task: StoredTask }[]): SlackBlock[] {
+function group(name: string, entries: { ts: string; task: StoredTask }[], today: string): SlackBlock[] {
   if (!entries.length) return [];
   const blocks: SlackBlock[] = [{ type: "divider" }, { type: "section", text: mrkdwn(`*${name} (${entries.length})*`) }];
-  for (const { task } of entries.slice(0, MAX_LISTED)) {
-    const title = task.link ? `<${task.link}|${escapeSlack(task.title)}>` : escapeSlack(task.title);
-    blocks.push({ type: "section", text: mrkdwn(`${title}\n${STATUSES[task.status]}  ·  ${peopleLine({ people: shownPeople(task) }) || "_Unassigned_"}`) });
-  }
+  for (const { task } of entries.slice(0, MAX_LISTED)) blocks.push(...taskBlocks({ task, link: task.link, incident: task.incident }, today));
   if (entries.length > MAX_LISTED) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
   return blocks;
 }

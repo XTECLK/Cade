@@ -5913,7 +5913,8 @@ test("Subtasks lists a task's subtasks, open first, each linking to its thread, 
   assert.deepEqual(JSON.parse(view.blocks.at(-1).elements[0].value), { channel: "CDEV", ts: "100.1" });
   const text = view.blocks.map((block) => blockText(block) ?? "").join("\n");
   assert.match(text, /Subtasks: 1 open  ·  1 closed/);
-  assert.match(text, /\*Open \(1\)\*\n<https:\/\/slack\.example\/p1003\|Open one>\n:arrow_forward: In progress  ·  Owner <@UREX>\n\n\*Closed \(1\)\*\n<https:\/\/slack\.example\/p1002\|Closed one>/);
+  // Each in three lines, as on the Home tab: its title; its priority, status and due date; its people.
+  assert.match(text, /\*Open \(1\)\*\n\*<https:\/\/slack\.example\/p1003\|Open one>\*\n:[a-z_]+: \w+  ·  :arrow_forward: In progress[^\n]*\nOwner <@UREX>\n\n\*Closed \(1\)\*\n\*<https:\/\/slack\.example\/p1002\|Closed one>\*\n[^\n]+  ·  :white_check_mark: Done/);
 });
 
 test("the summary lists subtasks under their task, wherever its urgency puts it", async (t) => {

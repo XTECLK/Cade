@@ -33,8 +33,9 @@ people's own AI agents (`src/mcp.ts`). How it works, and where each part lives: 
 
 - An MCP tool's arguments are checked against its `inputSchema` in `src/mcp-tools.ts` before it runs: change the
   schema with the tool, and run `npm run docs` after changing a tool (a test fails while `docs/mcp.html` is stale).
-  The prompts in `prompts/` name tools and fields too: a test fails until they match. After changing a prompt, run
-  `npm run docs` to bring `src/mcp-prompts.ts` up to date (generated, never edited by hand).
+  A deployment's prompts (in its deploy repo's `prompts/`) name tools and fields too: `npm run prompts` refuses
+  them until they match, so renaming or removing a tool or field breaks teams' prompts at their next deploy. Say so
+  in the release notes.
 - What a button, menu or form carries is read with `readPayload` and a schema in `src/payloads.ts`. When you change
   what one carries, change its schema, and keep older messages working: a schema asks only for what the reader uses.
 - An MCP tool that changes something is shown to the person and approved first; the rules agents are given are in

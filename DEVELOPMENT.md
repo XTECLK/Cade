@@ -111,6 +111,7 @@ Other scripts:
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `ADMINS`, `AI_MODEL_NAME`, `MCP`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run schema` | Writes `schema.sql`, the database as `migrations/` leaves it, after adding a migration |
+| `npm run prompts` | Checks the deploy repo's `prompts/` against the tools and saves them to D1 (`-- --check` only checks, `-- --local` saves to `npm run dev`'s database); `npm run deploy` checks before deploying and saves after |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 
@@ -224,7 +225,6 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
 | `scripts/` | `config`, `dev`, `group`, and `slack-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
-| `prompts/` | The MCP server's prompts, a Markdown file each: workflows built on the tools (a task's summary, an executive summary, following up the client call). `npm run docs` reads the folder into `src/mcp-prompts.ts`; a test fails while that is stale, or if a prompt names a tool or field the tools don't have |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
@@ -266,11 +266,14 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   tasks, task messages, releases, approval requests and task summaries. Work that is a team's own, such as an
   executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
   [docs/workflows.html](docs/workflows.html).
-- **Prompts.** Workflows Cade offers come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in
-  their agent (in Claude Code, `/mcp__cade__task-summary …`). Each is a file in `prompts/`, with a description and
-  its arguments in the frontmatter (see `scripts/prompts.ts`); its text is sent only when it's picked, so a prompt
-  costs nothing in a session that doesn't use it. A Worker can't read files, so `npm run docs` (which `npm run dev`
-  and `npm run deploy` run first) puts the folder into `src/mcp-prompts.ts`: adding a prompt is adding a file.
+- **Prompts.** Workflows come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in their agent
+  (in Claude Code, `/mcp__cade__task-summary …`). They are each deployment's own, not Cade's: Markdown files in the
+  deploy repo's `prompts/` (the cade-deploy template starts it with a task's summary and an executive summary), with
+  a description and arguments in the frontmatter. `npm run prompts` (`scripts/prompts.ts`) checks them against the
+  tools of the checked-out Cade and saves them to the `prompts` table, replacing what was there; `npm run deploy`
+  checks them first and saves them last. The Worker only reads the table (a test fails if its code writes it),
+  and its prompts are part of the version agents are given, so saving them tells connected agents to reconnect. A
+  prompt's text is sent only when it's picked, so it costs nothing in a session that doesn't use it.
 - **The tool list.** The full list, with every argument, is
   [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
   fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`: it takes its arguments as

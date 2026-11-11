@@ -1,37 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { TOOL_DEFS } from "../src/mcp-tools.ts";
-import { PROMPTS } from "../src/mcp-prompts.ts";
-import { parsePrompt, promptsModule, readPrompts } from "../scripts/prompts.ts";
+import { parsePrompt, promptProblems, promptsSql, readPrompts } from "../scripts/prompts.ts";
+import { fakeD1 } from "./d1.ts";
+import { EXAMPLE } from "./helpers.ts";
 
-// The prompts in prompts/ are workflows for a person's own agent, built on Cade's MCP tools and served by
-// its MCP server (see scripts/prompts.ts). They name tools, arguments and result fields, so they are
-// checked against the tool definitions here: a tool or field renamed or removed fails this until the
-// prompt says the same.
-const prompts = readPrompts();
-
-// Every name a tool has: the tools', and every property of their arguments and results, at any depth.
-function namesIn(schema: unknown, names: Set<string>) {
-  if (!schema || typeof schema !== "object") return;
-  const { properties } = schema as { properties?: Record<string, unknown> };
-  for (const name of Object.keys(properties ?? {})) names.add(name);
-  for (const value of Object.values(schema)) namesIn(value, names);
-}
-const KNOWN = new Set(TOOL_DEFS.map((tool) => tool.name));
-for (const tool of TOOL_DEFS) {
-  namesIn(tool.inputSchema, KNOWN);
-  namesIn(tool.outputSchema, KNOWN);
-}
-
-test("the server's prompts are the ones in prompts/", () => {
-  const generated = readFileSync(new URL("../src/mcp-prompts.ts", import.meta.url), "utf8");
-  assert.equal(generated, promptsModule(), "src/mcp-prompts.ts is stale: run npm run docs");
-  assert.deepEqual(
-    PROMPTS.map(({ name }) => name),
-    ["executive-summary", "executive-summary-after-call", "task-summary"],
-  );
-});
+// A deployment's prompts are Markdown files in its deploy repo's prompts/ folder, which `npm run prompts`
+// checks against Cade's tools and saves to the database, for the MCP server to offer (see
+// scripts/prompts.ts). The cade-deploy template starts the folder with examples.
 
 test("a prompt's file gives its title, description and arguments", () => {
   const prompt = parsePrompt("a-prompt", "---\ndescription: Does a thing.\narguments:\n  task: The task.\n  period?: When.\n---\n\n# Do a thing\n\nSteps.\n");
@@ -46,26 +24,67 @@ test("a prompt's file gives its title, description and arguments", () => {
     text: "# Do a thing\n\nSteps.\n",
   });
   assert.deepEqual(parsePrompt("plain", "---\ndescription: No arguments.\n---\n# Plain\nSteps.").arguments, []);
-  // A file that isn't one says which and why, rather than serving something half read.
+  // Saved on Windows, it reads the same.
+  assert.deepEqual(parsePrompt("crlf", "---\r\ndescription: x\r\n---\r\n# T\r\nSteps.\r\n").title, "T");
+  // A file that isn't one says which and why, rather than saving something half read.
   assert.throws(() => parsePrompt("Bad_Name", "---\ndescription: x\n---\n# T\nx"), /prompts\/Bad_Name\.md: its name/);
   assert.throws(() => parsePrompt("no-title", "---\ndescription: x\n---\nSteps."), /no-title\.md: it starts with/);
   assert.throws(() => parsePrompt("no-description", "---\narguments:\n  task: x\n---\n# T\nx"), /has a description/);
   assert.throws(() => parsePrompt("bad-argument", "---\ndescription: x\narguments:\n  Task x\n---\n# T\nx"), /"Task x" isn't an argument/);
 });
 
-test("the prompts name only tools, arguments and fields Cade's MCP server has, and only prompts that exist", () => {
-  for (const { name, text } of prompts) {
-    // `get_task`, `task_id`, `original_thread.thread_id`: each part with an underscore is a tool or a field.
-    const named = [...text.matchAll(/`([a-z_.]+)/g)].flatMap(([, code]) => code!.split(".")).filter((part) => part.includes("_"));
-    assert.ok(named.length, name);
-    for (const part of named) assert.ok(KNOWN.has(part), `${name} names ${part}, which no tool has`);
-    for (const [, other] of text.matchAll(/\*\*([a-z0-9-]+)\*\* prompt/g)) assert.ok(prompts.some((prompt) => prompt.name === other), `${name} names the prompt ${other}`);
-  }
+test("the prompts in a folder are its Markdown files but the README, by name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cade-prompts-test-"));
+  writeFileSync(join(dir, "task-summary.md"), EXAMPLE);
+  writeFileSync(join(dir, "a-report.md"), "---\ndescription: A report.\n---\n# Report\nSteps.");
+  writeFileSync(join(dir, "README.md"), "# How to write a prompt\nNot a prompt.");
+  writeFileSync(join(dir, "notes.txt"), "Not a prompt either.");
+  assert.deepEqual(readPrompts(dir).map((prompt) => prompt.name), ["a-report", "task-summary"]);
 });
 
-test("every prompt that changes something asks for approval first, as the guardrails do", () => {
-  for (const { name, text } of prompts) {
-    assert.match(text, /"Go ahead\?" and stop/, name);
-    assert.match(text, /On a clear yes/, name);
+test("a prompt may name only the tools and fields this Cade has, and prompts that are there", () => {
+  const example = parsePrompt("task-summary", EXAMPLE);
+  assert.deepEqual(promptProblems([example]), []);
+  // A tool a newer Cade renamed or removed, and a prompt that isn't in the folder.
+  const stale = parsePrompt("report", "---\ndescription: x\n---\n# Report\n\n`get_executive_summary` with `task_id`, then the **summary-v2** prompt.\n");
+  assert.deepEqual(promptProblems([example, stale]), [
+    "report: names get_executive_summary, which no tool of this Cade has",
+    "report: names the prompt summary-v2, which isn't in prompts/",
+  ]);
+});
+
+test("saving prompts makes the table exactly them, and leaves an unchanged one as it was", async () => {
+  const DB = fakeD1();
+  const rows = async () => (await DB.prepare("SELECT name, title, arguments, hash, updated_at FROM prompts ORDER BY name").all<any>()).results;
+  const summary = parsePrompt("task-summary", EXAMPLE);
+  const report = parsePrompt("report", "---\ndescription: It's a report.\n---\n# Client's report\nSteps.");
+  await DB.exec(promptsSql([summary, report]));
+  const first = await rows();
+  assert.deepEqual(first.map((row) => [row.name, row.title]), [["report", "Client's report"], ["task-summary", "Summarize a task"]]);
+  assert.deepEqual(JSON.parse(first[1].arguments), [{ name: "task", description: "The task: its ID, a link to its card, or its title.", required: true }]);
+
+  // Unchanged, a prompt keeps its row; changed, its hash changes; taken out of the folder, it goes.
+  await DB.prepare("UPDATE prompts SET updated_at = '2000-01-01 00:00:00'").run();
+  await DB.exec(promptsSql([{ ...summary, description: "Changed." }]));
+  const second = await rows();
+  assert.deepEqual(second.map((row) => row.name), ["task-summary"]);
+  assert.notEqual(second[0].hash, first[1].hash);
+  assert.notEqual(second[0].updated_at, "2000-01-01 00:00:00");
+  await DB.prepare("UPDATE prompts SET updated_at = '2000-01-01 00:00:00'").run();
+  await DB.exec(promptsSql([{ ...summary, description: "Changed." }]));
+  assert.equal((await rows())[0].updated_at, "2000-01-01 00:00:00");
+
+  // An empty folder means no prompts.
+  await DB.exec(promptsSql([]));
+  assert.deepEqual(await rows(), []);
+});
+
+test("only `npm run prompts` writes the prompts: the Worker's code reads them and nothing more", () => {
+  // A prompt is instructions every connected agent follows, so nothing from Slack or an agent may change one.
+  const files = (dir: URL): URL[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(new URL(`${entry.name}/`, dir)) : [new URL(entry.name, dir)]));
+  for (const file of files(new URL("../src/", import.meta.url))) {
+    const code = readFileSync(file, "utf8");
+    assert.doesNotMatch(code, /(INSERT|REPLACE)\s+(OR\s+\w+\s+)?INTO\s+prompts\b|UPDATE\s+prompts\b|DELETE\s+FROM\s+prompts\b/i, file.pathname);
   }
 });

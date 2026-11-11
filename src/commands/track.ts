@@ -1,5 +1,5 @@
 import { groupDisabled, knownProject } from "../channels.ts";
-import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.ts";
+import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted, promptByName } from "../db.ts";
 import { CLOSE_ALL, callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
 import { moveMessage, offerStart } from "./move.ts";
 import { mcpEnabled } from "../mcp.ts";
@@ -279,34 +279,37 @@ async function createAndGuide({ env, waitUntil }: Context, task: Task, origin: O
         await callSlack(env, "chat.postEphemeral", {
           channel: origin.channel,
           user,
-          text: `Your task is up. To have your AI agent write its summary:\n${howTo(posted.taskId)}\n${NOT_CONNECTED}`,
+          text: `Your task is up. To have your AI agent write its summary:\n${await howTo(env, posted.taskId)}\n${NOT_CONNECTED}`,
         });
       }),
     );
     return CLOSE_ALL;
   }
   if (!first?.taskId) return CLOSE_ALL;
-  return { response_action: "update", view: agentView(first.taskId) };
+  return { response_action: "update", view: agentView(await howTo(env, first.taskId)) };
 }
 
 const NOT_CONNECTED = "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.";
 
-// How to have the agent summarize the task with this ID. Cade's MCP server offers the steps as the
-// task-summary prompt (see prompts/), which only the person can start: in Claude Code a slash command,
-// named after the server as connect-your-agent adds it (cade). Any other agent is asked in words, and
-// works it out from the tools.
-const howTo = (taskId: string) =>
-  `In Claude Code, run:\n\`\`\`/mcp__cade__task-summary ${taskId}\`\`\`\nIn any other agent, paste this:\n\`\`\`Summarize the Cade task ${taskId} and save the summary once I approve it.\`\`\``;
+// How to have the agent summarize the task with this ID, in Slack's mrkdwn. Words any agent works out
+// from the tools; and when the deployment has a task-summary prompt (see getPrompt in mcp.ts), which only
+// the person can start, its slash command in Claude Code, named after the server as connect-your-agent
+// adds it (cade).
+async function howTo(env: AppEnv, taskId: string) {
+  const words = `\`\`\`Summarize the Cade task ${taskId} and save the summary once I approve it.\`\`\``;
+  if (!(await promptByName(env, "task-summary"))) return `Paste this into it:\n${words}`;
+  return `In Claude Code, run:\n\`\`\`/mcp__cade__task-summary ${taskId}\`\`\`\nIn any other agent, paste this:\n${words}`;
+}
 
 // The second form: how to have the agent summarize it, and where to go if the agent isn't connected.
-function agentView(taskId: string) {
+function agentView(howTo: string) {
   const section = (mrkdwn: string) => ({ type: "section", text: { type: "mrkdwn", text: mrkdwn } });
   return {
     type: "modal",
     title: plainText("Summarize with AI"),
     close: plainText("Done"),
     blocks: [
-      section(`:white_check_mark: *The task is made.* To have your AI agent write its summary:\n${howTo(taskId)}`),
+      section(`:white_check_mark: *The task is made.* To have your AI agent write its summary:\n${howTo}`),
       { type: "context", elements: [{ type: "mrkdwn", text: NOT_CONNECTED }] },
     ],
   };

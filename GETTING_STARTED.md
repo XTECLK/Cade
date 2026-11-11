@@ -269,6 +269,14 @@ group` once per group, which drops its old `external` and `incidents`
 channels from `cade.config.json`. Requirements already in a client channel
 are left as they were, and no longer tracked.
 
+Workflows for people's AI agents, such as a task's summary and an executive
+summary, are prompts your deploy repo keeps in `prompts/`, to change or add to.
+A deploy repo made before them doesn't have the folder: copy `prompts/` from
+the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, add
+`"prompts": "node scripts/cade.mjs prompts"` to its `package.json`, then run
+`npm run deploy` (or `npm run prompts` after a change). See `prompts/README.md`
+there.
+
 Executive summaries and the Google web app are gone: after updating, delete
 `googleUrl` and any project's `workDoc` from `cade.config.json` (`npm run
 config` says so until you do), and `npm run wrangler -- secret delete
@@ -304,7 +312,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
   one.
 - **Executive summaries** aren't written by Cade: a team that wants them
   runs a workflow with its own AI agent, such as the `executive-summary`
-  prompt Cade's MCP server offers (see
+  prompt the deploy repo starts with (see
   [the workflows guide](https://xteclk.github.io/Cade/workflows.html)).
 - **Task threads and notes** are in the
   database, on pages of the Worker (Settings → Web pages on the app's Home tab to open them).

@@ -5,7 +5,7 @@ import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
-import { subtasksOf, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
+import { subtasksOf, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, promptByName, promptHashes, prompts, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
@@ -14,7 +14,6 @@ import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, viaAgent
 import { nameMap } from "./export.ts";
 import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
-import { PROMPTS } from "./mcp-prompts.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { releaseRequest } from "./commands/release.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, shownPeople, unsentPrs, waitsForSubtasks } from "./tasks.ts";
@@ -22,13 +21,15 @@ import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
 import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
+import type { PromptRow } from "./db.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
 import type { Changes, Priority, Release, ReleaseStatus, Role, SlackMessage, Status, StoredTask, Task } from "./types.ts";
 
 // What a tool gives: its text, or its text and its data (structuredContent).
 type ToolResult = string | { text: string; data: Record<string, unknown> };
-type ToolRunner<Args> = (env: AppEnv, user: string, args: Args, extra: { loaded: string }) => Promise<ToolResult>;
+// `loaded` is the version of the tool set the session loaded, `current` the server's (see toolsetVersion).
+type ToolRunner<Args> = (env: AppEnv, user: string, args: Args, extra: { loaded: string; current: string }) => Promise<ToolResult>;
 // A JSON-RPC request's id.
 type RpcId = string | number | null;
 // A JSON-RPC message as an agent sends it. Nothing in it is trusted until answer and callTool have
@@ -117,7 +118,7 @@ function apiKeyOf(request: Request) {
 }
 
 // What the agent is told when it connects, and the rules it must keep, are in guardrails.ts. Besides the
-// tools it offers prompts, workflows built on them that a person picks (see prompts/ and getPrompt).
+// tools it offers prompts, the deployment's own workflows built on them, which a person picks (see getPrompt).
 
 
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
@@ -134,17 +135,24 @@ const TOOLS = TOOL_DEFS.map((tool) => {
 });
 
 // The version of the tool set: a short hash of everything a client loads when it connects, so it changes
-// with any change to a tool, its description, a prompt, the instructions or the summary, and can't be forgotten.
+// with any change to a tool, its description, the instructions or the summary, and can't be forgotten.
 function hashOf(text: string) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
   return hash.toString(16).padStart(8, "0");
 }
-export const TOOLSET_VERSION = hashOf(JSON.stringify([TOOL_DEFS, PROMPTS, INSTRUCTIONS, SERVER_DESCRIPTION]));
+export const TOOLSET_VERSION = hashOf(JSON.stringify([TOOL_DEFS, INSTRUCTIONS, SERVER_DESCRIPTION]));
+
+// The version with the deployment's prompts in it, which `npm run prompts` changes without a deploy. A
+// deployment without prompts has TOOLSET_VERSION itself.
+async function toolsetVersion(env: AppEnv) {
+  const saved = await promptHashes(env);
+  return saved ? hashOf(`${TOOLSET_VERSION}|${saved}`) : TOOLSET_VERSION;
+}
 
 // A session ID holds the tool set the session loaded (the client sends it back on every request), so the
 // server, which keeps nothing, can tell a session that is out of date.
-const sessionIdFor = () => `cade-${TOOLSET_VERSION}-${crypto.randomUUID()}`;
+const sessionIdFor = (current: string) => `cade-${current}-${crypto.randomUUID()}`;
 const loadedVersionOf = (request: Request) => /^cade-([0-9a-f]{8})-/.exec(request.headers.get("mcp-session-id") ?? "")?.[1] ?? "";
 
 // Thrown by a tool for what the agent should be told, as a result it can
@@ -186,19 +194,19 @@ export async function handleMcp(request: Request, env: AppEnv) {
   }
   const batch = Array.isArray(body);
   const messages: unknown[] = Array.isArray(body) ? body : [body];
-  const loaded = loadedVersionOf(request);
-  const answers = (await Promise.all(messages.map((message) => answer(env, user, message, loaded)))).filter(Boolean);
+  const versions = { loaded: loadedVersionOf(request), current: await toolsetVersion(env) };
+  const answers = (await Promise.all(messages.map((message) => answer(env, user, message, versions)))).filter(Boolean);
   // Notifications and answers to us need none.
   if (!answers.length) return new Response(null, { status: 202, headers });
   // A session that connects is given an ID that names the tool set it loads.
   const connecting = messages.some((message) => (message as RpcMessage | null)?.method === "initialize");
-  return Response.json(batch ? answers : answers[0], { headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor() }) } });
+  return Response.json(batch ? answers : answers[0], { headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor(versions.current) }) } });
 }
 
 const success = (id: RpcId, result: unknown) => ({ jsonrpc: "2.0", id, result });
 const failure = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
+async function answer(env: AppEnv, user: string, raw: unknown, versions: { loaded: string; current: string }) {
   if (!raw || typeof raw !== "object" || (raw as RpcMessage).jsonrpc !== "2.0") return failure(null, -32600, "Invalid request");
   const message = raw as RpcMessage;
   // No id: a notification, or an answer to a request of ours (there are none).
@@ -209,7 +217,7 @@ async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
       return success(id, {
         protocolVersion: typeof params?.protocolVersion === "string" && PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
         capabilities: { tools: {}, prompts: {} },
-        serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${TOOLSET_VERSION}`, description: SERVER_DESCRIPTION },
+        serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${versions.current}`, description: SERVER_DESCRIPTION },
         instructions: INSTRUCTIONS,
       });
     case "ping":
@@ -217,28 +225,33 @@ async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
     case "tools/list":
       return success(id, { tools: TOOLS.map(({ run, ...tool }) => tool) });
     case "tools/call":
-      return callTool(env, user, id, params, loaded);
+      return callTool(env, user, id, params, versions);
     case "prompts/list":
-      return success(id, { prompts: PROMPTS.map(({ text, ...prompt }) => prompt) });
+      return success(id, { prompts: (await prompts(env)).map(({ text, ...prompt }) => ({ ...prompt, arguments: argumentsOf(prompt) })) });
     case "prompts/get":
-      return getPrompt(id, params);
+      return getPrompt(env, id, params);
     default:
       return failure(id, -32601, `Method not found: ${method}`);
   }
 }
 
-// A prompt (see prompts/ and scripts/prompts.ts): its instructions, then the arguments the person gave,
-// as one message from them. It reads nothing and changes nothing; the tools it names do, with the same
-// approval as ever.
-function getPrompt(id: RpcId, params: RpcParams | undefined) {
-  const prompt = PROMPTS.find((candidate) => candidate.name === params?.name);
+// A prompt's arguments, as saved (JSON, written by scripts/prompts.ts).
+const argumentsOf = (prompt: Pick<PromptRow, "arguments">): PromptArgument[] => JSON.parse(prompt.arguments);
+type PromptArgument = { name: string; description: string; required: boolean };
+
+// A prompt, one of the deployment's (saved by `npm run prompts`, see scripts/prompts.ts): its
+// instructions, then the arguments the person gave, as one message from them. It reads nothing and
+// changes nothing; the tools it names do, with the same approval as ever.
+async function getPrompt(env: AppEnv, id: RpcId, params: RpcParams | undefined) {
+  const prompt = typeof params?.name === "string" ? await promptByName(env, params.name) : null;
   if (!prompt) return failure(id, -32602, `Unknown prompt: ${params?.name}`);
+  const args = argumentsOf(prompt);
   const given = params?.arguments ?? {};
   if (typeof given !== "object" || Array.isArray(given)) return failure(id, -32602, "arguments is an object of strings");
   const values = new Map(Object.entries(given).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""));
-  const missing = prompt.arguments.filter((arg) => arg.required && !values.has(arg.name));
+  const missing = args.filter((arg) => arg.required && !values.has(arg.name));
   if (missing.length) return failure(id, -32602, `The prompt ${prompt.name} needs ${missing.map((arg) => arg.name).join(" and ")}`);
-  const lines = prompt.arguments.flatMap((arg) => {
+  const lines = args.flatMap((arg) => {
     const value = values.get(arg.name);
     return value ? [`- ${arg.name}: ${value.trim()}`] : [];
   });
@@ -248,15 +261,15 @@ function getPrompt(id: RpcId, params: RpcParams | undefined) {
 
 // Said at the end of a tool's text while the session has an older tool set than the server (get_server_info
 // says it on its own).
-const staleNotice = (loaded: string) =>
-  loaded && loaded !== TOOLSET_VERSION
-    ? `\n\nCade's tools were updated after this session started (it loaded ${loaded}, the server has ${TOOLSET_VERSION}). Tell the person to disconnect and connect Cade again to load them.`
+const staleNotice = ({ loaded, current }: { loaded: string; current: string }) =>
+  loaded && loaded !== current
+    ? `\n\nCade's tools were updated after this session started (it loaded ${loaded}, the server has ${current}). Tell the person to disconnect and connect Cade again to load them.`
     : "";
 
-async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams | undefined, loaded: string) {
+async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams | undefined, versions: { loaded: string; current: string }) {
   const tool = TOOLS.find((candidate) => candidate.name === params?.name);
   if (!tool) return failure(id, -32602, `Unknown tool: ${params?.name}`);
-  const notice = tool.name === "get_server_info" ? "" : staleNotice(loaded);
+  const notice = tool.name === "get_server_info" ? "" : staleNotice(versions);
   const reply = (text: string, isError?: boolean, data?: Record<string, unknown>) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
   // Each person's agent has a limit of calls a minute (see rate-limit.ts); over it, it is told how long to wait.
   const wait = await mcpCallWait(env, user);
@@ -275,7 +288,7 @@ async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams 
   }
   try {
     // A tool gives its text, or { text, data } to pass on its data as well.
-    const result = await tool.run(env, user, args, { loaded });
+    const result = await tool.run(env, user, args, versions);
     if (typeof result === "string") return reply(result);
     // A result that holds user IDs carries the names of those people too, so no lookup is needed to show them.
     const named = tool.outputSchema?.properties?.user_names ? await withUserNames(env, result) : result;
@@ -339,13 +352,13 @@ async function requestApprovalTool(env: AppEnv, user: string, args: SendApproval
 }
 
 // Which version of the tool set this session loaded, against the one the server has now.
-async function getServerInfo(env: AppEnv, user: string, args: GetServerInfoArgs, { loaded = "" } = {}) {
-  const status = !loaded ? "UNKNOWN" : loaded === TOOLSET_VERSION ? "CURRENT" : "OUTDATED";
-  const text = [`Cade ${SERVER_VERSION}, tool set ${TOOLSET_VERSION}.`];
+async function getServerInfo(env: AppEnv, user: string, args: GetServerInfoArgs, { loaded, current }: { loaded: string; current: string }) {
+  const status = !loaded ? "UNKNOWN" : loaded === current ? "CURRENT" : "OUTDATED";
+  const text = [`Cade ${SERVER_VERSION}, tool set ${current}.`];
   if (status === "CURRENT") text.push("This session has the latest tools.");
   else if (status === "OUTDATED") text.push(`This session loaded tool set ${loaded}, so it doesn't have the latest tools. Tell the person to disconnect and connect Cade again to load them.`);
   else text.push("This client doesn't say which tool set it loaded, so I can't tell if it is the latest. Disconnecting and connecting Cade again loads the latest.");
-  return { text: text.join(" "), data: { server_version: SERVER_VERSION, toolset_version: TOOLSET_VERSION, session_toolset_version: loaded, status } };
+  return { text: text.join(" "), data: { server_version: SERVER_VERSION, toolset_version: current, session_toolset_version: loaded, status } };
 }
 
 // The channel and the ts of the thread a link points to (a link to a reply

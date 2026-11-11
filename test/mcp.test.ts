@@ -9,7 +9,8 @@ import { check } from "./schema.ts";
 import type { AppEnv } from "../src/env.ts";
 import type { TestContext } from "node:test";
 import type { StoredTask } from "../src/types.ts";
-import { context } from "./helpers.ts";
+import { EXAMPLE, context } from "./helpers.ts";
+import { parsePrompt, promptsSql } from "../scripts/prompts.ts";
 
 const SIGNING_SECRET = "test-signing-secret";
 const DB = fakeD1();
@@ -207,38 +208,51 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
 });
 
-test("the MCP endpoint offers the prompts in prompts/, with the arguments the person gave", async (t) => {
+// Saves prompts as `npm run prompts` does: the task-summary example, and a report with an optional argument.
+async function savePrompts(more: string[] = []) {
+  const report = "---\ndescription: A client report.\narguments:\n  project: The project.\n  period?: When.\n---\n# Write a report\n\nSteps.\n";
+  await DB.exec(promptsSql([parsePrompt("task-summary", EXAMPLE), parsePrompt("report", report), ...more.map((source, i) => parsePrompt(`more-${i}`, source))]));
+}
+
+test("the MCP endpoint offers the deployment's prompts, with the arguments the person gave", async (t) => {
   mock(t);
   const url = addressIn(await slash("mcp init"));
   const call = async (method, params?) => (await rpc(url, { id: 1, method, params })).json<any>();
 
+  // A deployment that saved none offers none.
+  assert.deepEqual((await call("prompts/list")).result.prompts, []);
+  assert.equal((await call("prompts/get", { name: "task-summary", arguments: { task: "x" } })).error.code, -32602);
+
   // The list says what to pick and what to give; the instructions come only when one is picked.
+  await savePrompts();
   const { prompts } = (await call("prompts/list")).result;
-  assert.deepEqual(prompts.map((prompt) => prompt.name), ["executive-summary", "executive-summary-after-call", "task-summary"]);
+  assert.deepEqual(prompts.map((prompt) => prompt.name), ["report", "task-summary"]);
   const summary = prompts.find((prompt) => prompt.name === "task-summary");
   assert.equal(summary.title, "Summarize a task");
-  assert.deepEqual(summary.arguments.map(({ name, required }) => [name, required]), [["task", true]]);
+  assert.deepEqual(summary.arguments, [{ name: "task", description: "The task: its ID, a link to its card, or its title.", required: true }]);
   assert.ok(prompts.every((prompt) => !("text" in prompt)));
 
   const { result } = await call("prompts/get", { name: "task-summary", arguments: { task: " C0123ABCD:1700000000.000100 " } });
+  assert.equal(result.description, "Write a Cade task's summary from its Slack threads, and save it once you approve.");
   assert.equal(result.messages.length, 1);
   assert.equal(result.messages[0].role, "user");
   const { text } = result.messages[0].content;
   assert.match(text, /^# Summarize a task\n/);
-  assert.match(text, /call `update_task` once/);
+  assert.match(text, /`update_task` with `task_id` and `summary`/);
   assert.match(text, /\n## Given\n\n- task: C0123ABCD:1700000000\.000100\n$/);
 
   // An optional argument left out isn't listed; one given is.
-  const plain = (await call("prompts/get", { name: "executive-summary", arguments: { project: "Acme" } })).result.messages[0].content.text;
+  const plain = (await call("prompts/get", { name: "report", arguments: { project: "Acme" } })).result.messages[0].content.text;
   assert.match(plain, /- project: Acme\n$/);
   assert.doesNotMatch(plain, /- period:/);
-  const dated = (await call("prompts/get", { name: "executive-summary", arguments: { project: "Acme", period: "2026-11-01 to 2026-11-14" } })).result.messages[0].content.text;
+  const dated = (await call("prompts/get", { name: "report", arguments: { project: "Acme", period: "2026-11-01 to 2026-11-14" } })).result.messages[0].content.text;
   assert.match(dated, /- project: Acme\n- period: 2026-11-01 to 2026-11-14\n$/);
 
   // What's missing or unknown is refused, not guessed.
   assert.match((await call("prompts/get", { name: "task-summary", arguments: { task: "  " } })).error.message, /needs task/);
   assert.match((await call("prompts/get", { name: "task-summary" })).error.message, /needs task/);
   assert.equal((await call("prompts/get", { name: "nope" })).error.code, -32602);
+  assert.equal((await call("prompts/get", { name: 7 })).error.code, -32602);
   assert.equal((await call("prompts/get", { name: "task-summary", arguments: ["x"] })).error.code, -32602);
 });
 
@@ -1013,9 +1027,9 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.equal(view.type, "modal");
     assert.equal(view.submit, undefined);
     const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
-    // Cade's task-summary prompt for Claude Code, and words for any other agent, both naming the task by its ID.
-    assert.match(text, /In Claude Code, run:\n```\/mcp__cade__task-summary CDEV:100\.1```/);
-    assert.match(text, /In any other agent, paste this:\n```Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\.```/);
+    // Words for the agent, naming the task by its ID; no slash command, as this deployment has no task-summary prompt.
+    assert.match(text, /To have your AI agent write its summary:\nPaste this into it:\n```Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\.```/);
+    assert.doesNotMatch(text, /mcp__cade__/);
     // Short: the prompt, and one line for an agent that isn't connected yet.
     assert.equal(view.blocks.length, 2);
     assert.equal(view.blocks[1].elements[0].text, "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.");
@@ -1023,6 +1037,16 @@ test("after a task is made from a message, its form gives way to the prompt for 
     assert.ok(view.blocks.every((block) => (block.text?.text ?? "").length <= 3000));
     DB.reset();
   }
+});
+
+test("with a task-summary prompt saved, the form gives its slash command for Claude Code too", async (t) => {
+  mock(t, SLACK_FOR_TASKS);
+  await savePrompts();
+  const move = { channel: "CGEN", ts: "500.1", threadTs: "500.1", author: "UBOB", text: "Customers can't pay", link: "https://acme.slack.com/archives/CGEN/p5001?thread_ts=500.1&cid=CGEN" };
+  const { view } = await submitTrack({ channel: "CDEV", move });
+  const text = view.blocks.map((block) => block.text?.text ?? "").join("\n");
+  assert.match(text, /In Claude Code, run:\n```\/mcp__cade__task-summary CDEV:100\.1```/);
+  assert.match(text, /In any other agent, paste this:\n```Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\.```/);
 });
 
 test("the prompt follows privately when the task takes too long to post for the form to wait", async (t) => {
@@ -1041,7 +1065,6 @@ test("the prompt follows privately when the task takes too long to post for the 
   assert.deepEqual(await submitted, { response_action: "clear" });
   const ephemeral = calls.find((call) => call.method === "chat.postEphemeral");
   assert.equal(ephemeral.args.user, "UCREATOR");
-  assert.match(ephemeral.args.text, /```\/mcp__cade__task-summary CDEV:100\.1```/);
   assert.match(ephemeral.args.text, /Summarize the Cade task CDEV:100\.1 and save the summary once I approve it\./);
   assert.match(ephemeral.args.text, /Home tab and press AI agent/);
 });
@@ -1572,6 +1595,19 @@ test("a session is given the version of the tool set it loads, and told when the
   assert.deepEqual(check(TOOL_DEFS.find((def) => def.name === "get_projects").outputSchema, stale.structuredContent), []);
   assert.doesNotMatch((await call("get_projects", {}, { "mcp-session-id": session })).content[0].text, /tools were updated/);
   assert.doesNotMatch((await call("get_projects", {}, {})).content[0].text, /tools were updated/);
+  // Saving prompts changes the version without a deploy, so a session from before is told to reconnect.
+  await savePrompts();
+  const renewed = await (await rpc(url, { id: 4, method: "initialize", params: { protocolVersion: "2025-06-18" } })).json<any>();
+  const withPrompts = renewed.result.serverInfo.version.split("+")[1];
+  assert.match(withPrompts, /^[0-9a-f]{8}$/);
+  assert.notEqual(withPrompts, TOOLSET_VERSION);
+  assert.match((await call("get_projects", {}, { "mcp-session-id": session })).content[0].text, new RegExp(`it loaded ${TOOLSET_VERSION}, the server has ${withPrompts}`));
+  assert.equal((await info({ "mcp-session-id": session })).structuredContent.status, "OUTDATED");
+  // The same prompts saved again change nothing.
+  await savePrompts();
+  assert.equal((await (await rpc(url, { id: 5, method: "initialize", params: { protocolVersion: "2025-06-18" } })).json<any>()).result.serverInfo.version, `1.0.0+${withPrompts}`);
+  await DB.exec("DELETE FROM prompts");
+
   // A session ID that isn't Cade's is no sign of anything.
   assert.doesNotMatch((await call("get_projects", {}, { "mcp-session-id": "abc" })).content[0].text, /tools were updated/);
 });

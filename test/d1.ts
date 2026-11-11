@@ -5,7 +5,7 @@ const MIGRATIONS = new URL("../migrations/", import.meta.url);
 
 // A stand-in for a D1 binding, backed by an in-memory SQLite database with
 // the migrations applied. reset() empties it, for a fresh one per test. It has the part of
-// D1Database Cade uses (prepare, bind, first, all, run), and is typed as one for that.
+// D1Database Cade uses (prepare, bind, first, all, run, exec), and is typed as one for that.
 export function fakeD1(): D1Database & { reset(): void } {
   let db: DatabaseSync;
   const binding = {
@@ -14,6 +14,10 @@ export function fakeD1(): D1Database & { reset(): void } {
       for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
         db.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
       }
+    },
+    // Several statements at once, as `wrangler d1 execute --file` runs them (see scripts/prompts.ts).
+    async exec(sql: string) {
+      db.exec(sql);
     },
     prepare(sql: string) {
       const statement = (params: any[]): any => ({

@@ -1,4 +1,4 @@
--- Made by `npm run schema` from migrations/ (up to 0029_drop_client_channel_leftovers.sql): don't edit it by hand.
+-- Made by `npm run schema` from migrations/ (up to 0030_prompts.sql): don't edit it by hand.
 -- The database as the migrations leave it, for reference only: a change to the database is a new
 -- file in migrations/, then `npm run schema` to bring this up to date (a test fails until then).
 
@@ -48,6 +48,16 @@ CREATE TABLE projects (
   name TEXT NOT NULL UNIQUE COLLATE NOCASE,
   created_by TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE prompts (
+  name TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  arguments TEXT NOT NULL DEFAULT '[]',
+  text TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE releases (

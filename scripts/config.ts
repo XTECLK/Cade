@@ -16,6 +16,11 @@
 //   mcp       whether people can connect their AI agent to      → MCP
 //             Cade's MCP endpoint (optional, on): false turns
 //             it off, and the Home tab gives no keys
+//   threadRotationDays                                         → THREAD_ROTATION_DAYS
+//             for Slack's free plan, which hides messages after
+//             90 days: an open task whose thread is older than
+//             this many days gets a new one, linked both ways
+//             (optional, off). 80 leaves time to spare
 //
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required
@@ -62,7 +67,7 @@ export function readConfig(json) {
   }
   // Removed with executive summaries, which a team now writes with its own AI agent's workflow.
   if (config.googleUrl !== undefined) throw new Error("googleUrl is no longer a setting: Cade doesn't use Google any more. Delete it.");
-  const known = ["projects", "timezone", "mcp", "admins", "aiModel"];
+  const known = ["projects", "timezone", "mcp", "admins", "aiModel", "threadRotationDays"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (PROJECT_SETTINGS.includes(unknown)) {
     throw new Error(`cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`);
@@ -100,6 +105,8 @@ export function readConfig(json) {
   secrets.ADMINS = JSON.stringify([...new Set(admins)]);
   // Always set, so taking it out of the file goes back to the default model.
   secrets.AI_MODEL_NAME = config.aiModel === undefined ? "" : checkAiModel(config.aiModel);
+  // Always set, so taking it out of the file turns it off.
+  secrets.THREAD_ROTATION_DAYS = config.threadRotationDays === undefined ? "" : checkRotationDays(config.threadRotationDays);
   if (config.mcp !== undefined) {
     if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
     // Both are set, so turning it back on replaces an earlier "off".
@@ -128,6 +135,12 @@ const PROJECT_SETTINGS = SWITCHES;
 function checkSwitch(key, value) {
   if (typeof value !== "boolean") throw new Error(`${key} is true or false.`);
   return value;
+}
+
+// `days` as the secret's text if it's a whole number of days, else throws.
+export function checkRotationDays(days: unknown) {
+  if (typeof days === "number" && Number.isInteger(days) && days >= 1) return String(days);
+  throw new Error("threadRotationDays is a whole number of days, such as 80 (Slack's free plan hides messages after 90).");
 }
 
 // `aiModel` if it's a Workers AI text model's name, else throws.

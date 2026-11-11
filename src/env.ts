@@ -18,6 +18,8 @@ export interface AppEnv extends Env {
   NEW_TASK_DETECTION?: string;
   AI_AGENT_SUMMARY?: string;
   SUMMARY_CANVAS?: string;
+  // Days after which an open task's thread gets a new root (see rotate.ts), or "" for never.
+  THREAD_ROTATION_DAYS?: string;
 }
 
 export type FeatureSecret = "NEW_TASK_DETECTION" | "AI_AGENT_SUMMARY" | "SUMMARY_CANVAS";

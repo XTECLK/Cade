@@ -6,6 +6,7 @@ import { publishHome } from "./home.ts";
 import { findIntent, intentsOn, plainMessage } from "./intents.ts";
 import { handleMcp } from "./mcp.ts";
 import { retryUnposted } from "./retry.ts";
+import { rotateThreads } from "./rotate.ts";
 import { withSettings } from "./settings.ts";
 import { BadEnvelope, checkSlashCommand, readEvent, readInteraction } from "./envelopes.ts";
 import { OutdatedPayload } from "./payloads.ts";
@@ -77,10 +78,12 @@ export default {
   },
 
   // The cron in wrangler.toml, every minute; every fifth posts tasks Slack
-  // refused.
+  // refused, and once an hour old threads are rotated (see rotate.ts).
   async scheduled(controller: ScheduledController, env: AppEnv, ctx: ExecutionContext) {
     env = await withSettings(env);
-    if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) ctx.waitUntil(retryUnposted(env));
+    const minute = new Date(controller.scheduledTime).getUTCMinutes();
+    if (minute % 5 === 0) ctx.waitUntil(retryUnposted(env));
+    if (minute === 0) ctx.waitUntil(rotateThreads(env, controller.scheduledTime));
   },
 } satisfies ExportedHandler<AppEnv>;
 

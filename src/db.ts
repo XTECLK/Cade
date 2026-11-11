@@ -865,3 +865,15 @@ export async function promptHashes(env: DbEnv) {
   const rows = (await env.DB.prepare("SELECT name, hash FROM prompts ORDER BY name").all<{ name: string; hash: string }>()).results;
   return rows.map((row) => `${row.name}:${row.hash}`).join(",");
 }
+
+// Moves the task at `oldTs` to the root message `newTs` (see rotate.ts): a task, its kept messages and
+// its notes are all found by their root's ts.
+export async function moveTaskThread(env: DbEnv, channel: string, oldTs: string, newTs: string) {
+  for (const sql of [
+    "UPDATE tasks SET ts = ? WHERE channel = ? AND ts = ?",
+    "UPDATE messages SET task_ts = ? WHERE channel = ? AND task_ts = ?",
+    "UPDATE task_notes SET task_ts = ? WHERE channel = ? AND task_ts = ?",
+  ]) {
+    await env.DB.prepare(sql).bind(newTs, channel, oldTs).run();
+  }
+}

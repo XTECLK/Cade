@@ -2687,10 +2687,11 @@ test("npm run config turns cade.config.json into the Worker's secrets", async ()
     PROJECTS: JSON.stringify(projects),
     ADMINS: "[]",
     AI_MODEL_NAME: "",
+    THREAD_ROTATION_DAYS: "",
     TIMEZONE: "Asia/Colombo",
   });
   // The timezone is optional.
-  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects), ADMINS: "[]", AI_MODEL_NAME: "" });
+  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects), ADMINS: "[]", AI_MODEL_NAME: "", THREAD_ROTATION_DAYS: "" });
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {
@@ -2936,6 +2937,103 @@ test("the cron leaves alone posts that may still be under way", async (t) => {
   await waitingTask();
   await runCron();
   assert.equal(calls.length, 0);
+});
+
+// Thread rotation (see rotate.ts): the cron, on the hour, gives an open task older than
+// threadRotationDays a new root message.
+const OLD_ROOT = "1765000000.000100"; // 6 December 2025, 26 days before runCron's time
+const NEW_ROOT = "1767225600.000200";
+
+async function oldThread(status: Status = "TODO") {
+  const { task } = storedTask({ status });
+  await putTask(env, "CDEV", OLD_ROOT, { ...task, export: { url: `https://worker.example.net/t/CDEV/${OLD_ROOT}` } });
+  await DB.prepare("INSERT INTO messages (channel, task_ts, ts, text) VALUES ('CDEV', ?, '1765000001.000100', 'on it')").bind(OLD_ROOT).run();
+  await DB.prepare("INSERT INTO task_notes (channel, task_ts, body) VALUES ('CDEV', ?, 'notes')").bind(OLD_ROOT).run();
+}
+
+const rotating = {
+  // Replies are posted just after the new root: the old thread's note, then the new one's.
+  "chat.postMessage": (args) => ({ channel: args.channel, ts: args.thread_ts ? `176722560${args.thread_ts === OLD_ROOT ? 1 : 2}.000300` : NEW_ROOT }),
+  "chat.getPermalink": (args) => ({ permalink: `https://slack.example/p${args.message_ts}` }),
+};
+
+test("the cron rotates an open task's thread older than threadRotationDays, linking old and new", async (t) => {
+  const calls = mockSlack(t, rotating);
+  await oldThread();
+  await runCron({ ...env, SUMMARY_CANVAS: "off", THREAD_ROTATION_DAYS: "20" });
+
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  // The card again as a new root, then a note in each thread.
+  assert.equal(posts.length, 3);
+  assert.equal(posts[0].args.thread_ts, undefined);
+  assert.equal(posts[1].args.thread_ts, OLD_ROOT);
+  assert.match(posts[1].args.text, new RegExp(`This thread is rotated.*New messages go <https://slack.example/p${NEW_ROOT}\\|here>`));
+  assert.equal(posts[2].args.thread_ts, NEW_ROOT);
+  assert.match(posts[2].args.text, new RegExp(`Rotated thread. Complete history <https://worker.example.net/t/CDEV/${NEW_ROOT}\\|here>, older thread <https://slack.example/p${OLD_ROOT}\\|here>`));
+  // The old card is its title and where it went, with no buttons or strip.
+  const old = calls.find((call) => call.method === "chat.update" && call.args.ts === OLD_ROOT);
+  assert.deepEqual(old.args.attachments, []);
+  assert.deepEqual(old.args.blocks.map(blockText), ["*Fix login*", `:recycle: This thread is rotated. New messages go <https://slack.example/p${NEW_ROOT}|here>.`]);
+  // The new card links its history at its new address.
+  const update = calls.find((call) => call.method === "chat.update");
+  assert.equal(update.args.ts, NEW_ROOT);
+  assert.match(JSON.stringify(update.args.attachments), new RegExp(`/t/CDEV/${NEW_ROOT}`));
+
+  // The task, its kept messages and its notes are found by the new root now.
+  assert.equal(await savedTask("CDEV", OLD_ROOT), null);
+  const task = await savedTask("CDEV", NEW_ROOT);
+  assert.equal(task.link, `https://slack.example/p${NEW_ROOT}`);
+  assert.equal(task.export.url, `https://worker.example.net/t/CDEV/${NEW_ROOT}`);
+  // Its history runs on across both threads: the old thread's messages, then the rotation.
+  const { results } = await DB.prepare("SELECT text FROM messages WHERE task_ts = ? ORDER BY ts").bind(NEW_ROOT).all();
+  assert.deepEqual(results.map((row) => String(row.text).split(".")[0]), ["on it", ":recycle: Rotated thread"]);
+  assert.ok(await DB.prepare("SELECT 1 FROM task_notes WHERE task_ts = ?").bind(NEW_ROOT).first());
+});
+
+test("rotating a task's thread redraws its subtasks' cards, which link the new root", async (t) => {
+  const calls = mockSlack(t, rotating);
+  await oldThread();
+  // A subtask posted since, too young to rotate itself, with an owner of its own (so saving its task
+  // wouldn't redraw it anyway: see followParent).
+  const subtask = { ...storedTask({ owners: ["UREX"] }).task, title: "Its part", parent: { ts: OLD_ROOT, title: "Fix login" } };
+  await markTaskPosted(env, await insertTask(env, "CDEV", subtask, {}), "1766000000.000100");
+  await runCron({ ...env, SUMMARY_CANVAS: "off", THREAD_ROTATION_DAYS: "20" });
+
+  const redrawn = calls.find((call) => call.method === "chat.update" && call.args.ts === "1766000000.000100");
+  assert.match(JSON.stringify(redrawn.args.attachments), new RegExp(`Subtask of <https://slack.example/p${NEW_ROOT}\\|Fix login>`));
+});
+
+test("a subtask rotates by its own thread's age, and after its task in the same run, links the task's new root", async (t) => {
+  // Each new root gets the next ts, the task's first as it is the older.
+  let roots = 0;
+  const calls = mockSlack(t, { ...rotating, "chat.postMessage": (args) => ({ channel: args.channel, ts: args.thread_ts ? "1767225609.000300" : `176722560${++roots}.000100` }) });
+  await oldThread();
+  const subtask = { ...storedTask({ owners: ["UREX"] }).task, title: "Its part", parent: { ts: OLD_ROOT, title: "Fix login" } };
+  await markTaskPosted(env, await insertTask(env, "CDEV", subtask, {}), "1765000500.000100");
+  await runCron({ ...env, SUMMARY_CANVAS: "off", THREAD_ROTATION_DAYS: "20" });
+
+  const [taskRoot, subtaskRoot] = ["1767225601.000100", "1767225602.000100"];
+  assert.equal((await savedTask("CDEV", subtaskRoot)).parent.ts, taskRoot);
+  const card = calls.filter((call) => call.method === "chat.update" && call.args.ts === subtaskRoot).at(-1);
+  assert.match(JSON.stringify(card.args.attachments), new RegExp(`Subtask of <https://slack.example/p${taskRoot}\\|Fix login>`));
+});
+
+test("the cron leaves young threads, Done tasks, and every thread without threadRotationDays", async (t) => {
+  for (const [status, days] of [["TODO", "80"], ["DONE", "20"], ["TODO", ""]] as const) {
+    const calls = mockSlack(t, rotating);
+    await oldThread(status);
+    await runCron({ ...env, SUMMARY_CANVAS: "off", THREAD_ROTATION_DAYS: days });
+    assert.deepEqual(calls, [], `${status}, ${days || "off"}`);
+    assert.ok(await savedTask("CDEV", OLD_ROOT));
+  }
+});
+
+test("npm run config sets THREAD_ROTATION_DAYS from threadRotationDays, always, and checks it", async () => {
+  const { readConfig } = await import("../scripts/config.ts");
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  assert.equal(readConfig(JSON.stringify({ projects, threadRotationDays: 80 })).THREAD_ROTATION_DAYS, "80");
+  assert.equal(readConfig(JSON.stringify({ projects })).THREAD_ROTATION_DAYS, "");
+  for (const days of [0, 1.5, "80"]) assert.throws(() => readConfig(JSON.stringify({ projects, threadRotationDays: days })), /threadRotationDays is a whole number/);
 });
 
 test("the cron tells nobody while it keeps trying, and gives up after the last attempt", async (t) => {

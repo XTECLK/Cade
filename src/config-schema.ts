@@ -34,5 +34,6 @@ export const CONFIG_SCHEMA: Schema = {
     mcp: { type: "boolean" },
     admins: { type: "array", items: { type: "string", pattern: "^[UW][A-Z0-9]{2,}$", description: "a Slack user ID, such as U0123ABCD" } },
     aiModel: { type: "string" },
+    threadRotationDays: { type: "integer", minimum: 1 },
   },
 };

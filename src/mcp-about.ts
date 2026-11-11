@@ -9,6 +9,7 @@ export const ABOUT = [
   `Through this server a person's own AI agent can create tasks, create incidents and summarize a task.`,
   `It can also read tasks and threads, change a task, post in a task's thread or any other, see who has room for more work, and change a release (pull requests sent to the client for approval).`,
   `These tools are building blocks: any other agent or tool can use them to implement a team's own workflows, such as generating an executive summary, which Cade doesn't do itself.`,
+  `Some workflows come as prompts a person can pick, such as summarizing a task or writing an executive summary.`,
 ];
 
 // What the client is sent.

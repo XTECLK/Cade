@@ -224,6 +224,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
 | `scripts/` | `config`, `dev`, `group`, and `slack-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
+| `prompts/` | The MCP server's prompts, a Markdown file each: workflows built on the tools (a task's summary, an executive summary, following up the client call). `npm run docs` reads the folder into `src/mcp-prompts.ts`; a test fails while that is stale, or if a prompt names a tool or field the tools don't have |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
@@ -264,7 +265,13 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   call. The tools read tasks, threads, people, projects, availability and releases, and write
   tasks, task messages, releases, approval requests and task summaries. Work that is a team's own, such as an
   executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
-  [docs/workflows.html](docs/workflows.html). The full list, with every argument, is
+  [docs/workflows.html](docs/workflows.html).
+- **Prompts.** Workflows Cade offers come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in
+  their agent (in Claude Code, `/mcp__cade__task-summary …`). Each is a file in `prompts/`, with a description and
+  its arguments in the frontmatter (see `scripts/prompts.ts`); its text is sent only when it's picked, so a prompt
+  costs nothing in a session that doesn't use it. A Worker can't read files, so `npm run docs` (which `npm run dev`
+  and `npm run deploy` run first) puts the folder into `src/mcp-prompts.ts`: adding a prompt is adding a file.
+- **The tool list.** The full list, with every argument, is
   [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
   fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`: it takes its arguments as
   `src/mcp-args.ts` types them, which `npm run docs` also makes from the `inputSchema`, so the schema the agent

@@ -14,6 +14,7 @@ import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, viaAgent
 import { nameMap } from "./export.ts";
 import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
+import { PROMPTS } from "./mcp-prompts.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { releaseRequest } from "./commands/release.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, shownPeople, unsentPrs, waitsForSubtasks } from "./tasks.ts";
@@ -41,7 +42,7 @@ type ListedTask = Omit<TaskEntry, "link">;
 
 // Cade as an MCP server, so a person's own AI agent (Claude, Gemini, Cursor,
 // Codex, …) can read a Slack thread and write what it makes of it into a
-// task, with the model and subscription they already have. Twenty-one tools:
+// task, with the model and subscription they already have. Nineteen tools:
 //
 //   get_task(task_id, fields?)         one task: its details, summary and
 //                                      notes, not its threads
@@ -115,7 +116,8 @@ function apiKeyOf(request: Request) {
   return (request.headers.get("x-apikey") ?? "").trim();
 }
 
-// What the agent is told when it connects, and the rules it must keep, are in guardrails.ts.
+// What the agent is told when it connects, and the rules it must keep, are in guardrails.ts. Besides the
+// tools it offers prompts, workflows built on them that a person picks (see prompts/ and getPrompt).
 
 
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
@@ -132,13 +134,13 @@ const TOOLS = TOOL_DEFS.map((tool) => {
 });
 
 // The version of the tool set: a short hash of everything a client loads when it connects, so it changes
-// with any change to a tool, its description, the instructions or the summary, and can't be forgotten.
+// with any change to a tool, its description, a prompt, the instructions or the summary, and can't be forgotten.
 function hashOf(text: string) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
   return hash.toString(16).padStart(8, "0");
 }
-export const TOOLSET_VERSION = hashOf(JSON.stringify([TOOL_DEFS, INSTRUCTIONS, SERVER_DESCRIPTION]));
+export const TOOLSET_VERSION = hashOf(JSON.stringify([TOOL_DEFS, PROMPTS, INSTRUCTIONS, SERVER_DESCRIPTION]));
 
 // A session ID holds the tool set the session loaded (the client sends it back on every request), so the
 // server, which keeps nothing, can tell a session that is out of date.
@@ -206,7 +208,7 @@ async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
     case "initialize":
       return success(id, {
         protocolVersion: typeof params?.protocolVersion === "string" && PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${TOOLSET_VERSION}`, description: SERVER_DESCRIPTION },
         instructions: INSTRUCTIONS,
       });
@@ -216,9 +218,32 @@ async function answer(env: AppEnv, user: string, raw: unknown, loaded: string) {
       return success(id, { tools: TOOLS.map(({ run, ...tool }) => tool) });
     case "tools/call":
       return callTool(env, user, id, params, loaded);
+    case "prompts/list":
+      return success(id, { prompts: PROMPTS.map(({ text, ...prompt }) => prompt) });
+    case "prompts/get":
+      return getPrompt(id, params);
     default:
       return failure(id, -32601, `Method not found: ${method}`);
   }
+}
+
+// A prompt (see prompts/ and scripts/prompts.ts): its instructions, then the arguments the person gave,
+// as one message from them. It reads nothing and changes nothing; the tools it names do, with the same
+// approval as ever.
+function getPrompt(id: RpcId, params: RpcParams | undefined) {
+  const prompt = PROMPTS.find((candidate) => candidate.name === params?.name);
+  if (!prompt) return failure(id, -32602, `Unknown prompt: ${params?.name}`);
+  const given = params?.arguments ?? {};
+  if (typeof given !== "object" || Array.isArray(given)) return failure(id, -32602, "arguments is an object of strings");
+  const values = new Map(Object.entries(given).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""));
+  const missing = prompt.arguments.filter((arg) => arg.required && !values.has(arg.name));
+  if (missing.length) return failure(id, -32602, `The prompt ${prompt.name} needs ${missing.map((arg) => arg.name).join(" and ")}`);
+  const lines = prompt.arguments.flatMap((arg) => {
+    const value = values.get(arg.name);
+    return value ? [`- ${arg.name}: ${value.trim()}`] : [];
+  });
+  const text = lines.length ? `${prompt.text}\n## Given\n\n${lines.join("\n")}\n` : prompt.text;
+  return success(id, { description: prompt.description, messages: [{ role: "user", content: { type: "text", text } }] });
 }
 
 // Said at the end of a tool's text while the session has an older tool set than the server (get_server_info

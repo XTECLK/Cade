@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.ts",
-    "dev": "node scripts/dev.ts",
+    "dev": "node scripts/docs.ts && node scripts/dev.ts",
     "wrangler": "node scripts/wrangler.ts",
-    "deploy": "node scripts/wrangler.ts deploy && node scripts/wrangler.ts d1 migrations apply DB --remote",
+    "deploy": "node scripts/docs.ts && node scripts/wrangler.ts deploy && node scripts/wrangler.ts d1 migrations apply DB --remote",
     "test": "node --test",
     "docs": "node scripts/docs.ts",
     "schema": "node scripts/schema.ts",

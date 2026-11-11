@@ -303,7 +303,8 @@ After updating, the **Home** tab and any new shortcuts or events come with
   [Settings](#settings)), so a test channel can sit alongside the real
   one.
 - **Executive summaries** aren't written by Cade: a team that wants them
-  runs a workflow with its own AI agent (see
+  runs a workflow with its own AI agent, such as the `executive-summary`
+  prompt Cade's MCP server offers (see
   [the workflows guide](https://xteclk.github.io/Cade/workflows.html)).
 - **Task threads and notes** are in the
   database, on pages of the Worker (Settings → Web pages on the app's Home tab to open them).

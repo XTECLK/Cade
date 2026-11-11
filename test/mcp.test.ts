@@ -164,9 +164,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.match(init.result.serverInfo.description, /project management and task tracking tool that lives in Slack/);
   // Reports such as an executive summary are workflows built on the tools, not tools of Cade's.
   assert.match(init.result.serverInfo.description, /any other agent or tool can use them to implement a team's own workflows, such as generating an executive summary/);
+  assert.match(init.result.serverInfo.description, /Some workflows come as prompts a person can pick/);
   assert.doesNotMatch(init.result.instructions, /Google Doc/);
   assert.doesNotMatch(init.result.instructions, /project management and task tracking/);
-  assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
+  assert.deepEqual(Object.keys(init.result.capabilities), ["tools", "prompts"]);
   // The instructions are the rules for every tool; what one tool needs, such as what its preview
   // shows, is in its own description.
   const tools = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools;
@@ -204,6 +205,41 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
+});
+
+test("the MCP endpoint offers the prompts in prompts/, with the arguments the person gave", async (t) => {
+  mock(t);
+  const url = addressIn(await slash("mcp init"));
+  const call = async (method, params?) => (await rpc(url, { id: 1, method, params })).json<any>();
+
+  // The list says what to pick and what to give; the instructions come only when one is picked.
+  const { prompts } = (await call("prompts/list")).result;
+  assert.deepEqual(prompts.map((prompt) => prompt.name), ["executive-summary", "executive-summary-after-call", "task-summary"]);
+  const summary = prompts.find((prompt) => prompt.name === "task-summary");
+  assert.equal(summary.title, "Summarize a task");
+  assert.deepEqual(summary.arguments.map(({ name, required }) => [name, required]), [["task", true]]);
+  assert.ok(prompts.every((prompt) => !("text" in prompt)));
+
+  const { result } = await call("prompts/get", { name: "task-summary", arguments: { task: " C0123ABCD:1700000000.000100 " } });
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].role, "user");
+  const { text } = result.messages[0].content;
+  assert.match(text, /^# Summarize a task\n/);
+  assert.match(text, /call `update_task` once/);
+  assert.match(text, /\n## Given\n\n- task: C0123ABCD:1700000000\.000100\n$/);
+
+  // An optional argument left out isn't listed; one given is.
+  const plain = (await call("prompts/get", { name: "executive-summary", arguments: { project: "Acme" } })).result.messages[0].content.text;
+  assert.match(plain, /- project: Acme\n$/);
+  assert.doesNotMatch(plain, /- period:/);
+  const dated = (await call("prompts/get", { name: "executive-summary", arguments: { project: "Acme", period: "2026-11-01 to 2026-11-14" } })).result.messages[0].content.text;
+  assert.match(dated, /- project: Acme\n- period: 2026-11-01 to 2026-11-14\n$/);
+
+  // What's missing or unknown is refused, not guessed.
+  assert.match((await call("prompts/get", { name: "task-summary", arguments: { task: "  " } })).error.message, /needs task/);
+  assert.match((await call("prompts/get", { name: "task-summary" })).error.message, /needs task/);
+  assert.equal((await call("prompts/get", { name: "nope" })).error.code, -32602);
+  assert.equal((await call("prompts/get", { name: "task-summary", arguments: ["x"] })).error.code, -32602);
 });
 
 test("get_thread_history reads a thread, and a private channel only for someone in it", async (t) => {

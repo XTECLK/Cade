@@ -1,10 +1,12 @@
-// Writes the website's MCP pages from the tool definitions in src/mcp-tools.ts, so the site and
-// the server can't disagree: docs/mcp.html (how to connect an agent, which the AI agent window in Cade links to, and every tool, its
-// arguments and its result), and src/mcp-args.ts, the tools' argument types. `npm run docs` writes them;
-// test/docs.test.ts checks they are up to date.
+// Writes the website's MCP pages from the tool definitions in src/mcp-tools.ts and the prompts in prompts/,
+// so the site and the server can't disagree: docs/mcp.html (how to connect an agent, which the AI agent
+// window in Cade links to, every prompt, and every tool, its arguments and its result), src/mcp-args.ts,
+// the tools' argument types, and src/mcp-prompts.ts, the prompts (see prompts.ts). `npm run docs` writes
+// them; test/docs.test.ts and test/prompts.test.ts check they are up to date.
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
+import { promptsModule, readPrompts } from "./prompts.ts";
 import type { Schema } from "../src/validate.ts";
 
 const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -37,6 +39,17 @@ function table(schema, empty) {
     .map((row) => `<tr><td>${code(row.name)}</td><td>${escape(row.type)}</td><td>${row.required ? "yes" : ""}</td><td>${escape(row.note)}</td></tr>`)
     .join("\n");
   return `<div class="tablewrap"><table>\n<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`;
+}
+
+// The prompts, as a table: what a person picks in their agent, and what they give it.
+function promptsTable() {
+  const body = readPrompts()
+    .map((prompt) => {
+      const args = prompt.arguments.map((arg) => `${code(arg.name)}${arg.required ? "" : " (optional)"}: ${escape(arg.description)}`).join("<br>");
+      return `<tr><td>${code(prompt.name)}</td><td>${escape(prompt.description)}</td><td>${args || "None."}</td></tr>`;
+    })
+    .join("\n");
+  return `<div class="tablewrap"><table>\n<thead><tr><th>Prompt</th><th>What it does</th><th>Arguments</th></tr></thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`;
 }
 
 export function mcpPage() {
@@ -103,7 +116,14 @@ export function mcpPage() {
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
-    <p>Reports such as a task's summary or an executive summary for a client are workflows your agent runs with these tools: see <a href="workflows.html">Workflows</a>.</p>
+  </div>
+</section>
+
+<section class="tool" id="prompts">
+  <div class="wrap">
+    <h2>Prompts</h2>
+    <p>Workflows built on the tools, which Cade offers as MCP prompts: you pick one in your agent, and it follows its steps, showing you everything before it's written. In Claude Code each is a slash command, such as <code>/mcp__cade__task-summary</code> followed by its arguments; other clients list them in their own way. See <a href="workflows.html">Workflows</a>.</p>
+    ${promptsTable()}
   </div>
 </section>
 
@@ -200,4 +220,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log("Wrote docs/mcp.html");
   writeFileSync(new URL("../src/mcp-args.ts", import.meta.url), argTypes());
   console.log("Wrote src/mcp-args.ts");
+  writeFileSync(new URL("../src/mcp-prompts.ts", import.meta.url), promptsModule());
+  console.log("Wrote src/mcp-prompts.ts");
 }

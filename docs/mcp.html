@@ -48,7 +48,21 @@
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
-    <p>Reports such as a task's summary or an executive summary for a client are workflows your agent runs with these tools: see <a href="workflows.html">Workflows</a>.</p>
+  </div>
+</section>
+
+<section class="tool" id="prompts">
+  <div class="wrap">
+    <h2>Prompts</h2>
+    <p>Workflows built on the tools, which Cade offers as MCP prompts: you pick one in your agent, and it follows its steps, showing you everything before it's written. In Claude Code each is a slash command, such as <code>/mcp__cade__task-summary</code> followed by its arguments; other clients list them in their own way. See <a href="workflows.html">Workflows</a>.</p>
+    <div class="tablewrap"><table>
+<thead><tr><th>Prompt</th><th>What it does</th><th>Arguments</th></tr></thead>
+<tbody>
+<tr><td><code>executive-summary</code></td><td>Write an executive summary of a Cade project for a client, for a period (what was done, and how the open work is going), into your team's own document once you approve.</td><td><code>project</code>: The project, by name.<br><code>period</code> (optional): The period it covers, such as 2026-11-01 to 2026-11-14 or &quot;the last two weeks&quot;. Left out, it starts where the last summary ended.</td></tr>
+<tr><td><code>executive-summary-after-call</code></td><td>After a client call on an executive summary, bring the project's Cade tasks in line with what was decided, one task at a time, as you approve.</td><td><code>project</code>: The project, by name.<br><code>summary</code> (optional): Where the summary the call went through is: a link to the document, or which one in it.</td></tr>
+<tr><td><code>task-summary</code></td><td>Write a Cade task's summary from its Slack threads, or bring the one it has up to date, and save it once you approve.</td><td><code>task</code>: The task: its ID, a link to its card or a message in its thread, or its title.</td></tr>
+</tbody>
+</table></div>
   </div>
 </section>
 

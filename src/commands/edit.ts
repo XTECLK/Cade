@@ -21,7 +21,7 @@ const BLOCKED_OPTION = {
 // The Edit form: everything on a task in one place, its owners,
 // reviewers and testers, status, priority and due date, and pull requests.
 // An incident's priority and due date never change, so its form leaves them
-// out. The task card's ⋯ → Edit opens it as the task stands (see menu.ts),
+// out. The task card's Edit button opens it as the task stands (see menu.ts),
 // and a suggestion's Edit filled in with what was suggested (see
 // ai-suggest.ts). Saving applies what changed as one change (see
 // changes.ts), so the thread hears it as one message.

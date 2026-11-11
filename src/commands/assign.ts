@@ -6,7 +6,7 @@ import type { Handler } from "../types.ts";
 // to that role; `reviewer` and `tester` work the same way, and short words
 // do too: `dev`, `review`, `test` or `qa`. Cade reacts ✅ to the command and,
 // in a message of its own, asks them to do their part. Without a role and
-// someone mentioned, it says what to send; the task card's ⋯ → Edit has
+// someone mentioned, it says what to send; the task card's Edit button has
 // every role in one form.
 //
 // People are only asked when there's something for them to do: reviewers

@@ -1,18 +1,18 @@
 import { callSlack } from "../slack.ts";
-import { NOT_A_TASK, TASK_MENU_ACTION, loadTask } from "../tasks.ts";
+import { NOT_A_TASK, TASK_EDIT_ACTION, TASK_MENU_ACTION, loadTask } from "../tasks.ts";
 import { editForm } from "./edit.ts";
 import { archiveTask } from "./archive.ts";
 import { releaseForm } from "./release.ts";
 import { subtaskForm, subtasksView } from "./subtask.ts";
-import type { Handler } from "../types.ts";
+import type { Context, Handler, SlackPayload } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { StoredTask } from "../types.ts";
 
 type Origin = { channel: string; ts: string };
 
-// The ⋯ menu on a task's card (see taskMenu in tasks.ts) has up to three
-// choices, without a command message in the task's thread:
-//   Edit     one form for the people, status, priority and due date (not on
+// The Edit button and the ⋯ menu on a task's card (see taskActions in tasks.ts), without a command
+// message in the task's thread:
+//   Edit     (the button) one form for the people, status, priority and due date (not on
 //            an incident, whose are fixed) and pull requests (see edit.ts);
 //            saving it posts who changed what in the thread, as the record,
 //            and the card updates.
@@ -23,7 +23,7 @@ type Origin = { channel: string; ts: string };
 //   Archive  archives the task, as `@Cade archive` does (see archive.ts),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
-// before had other choices; they open Edit, which has everything.
+// before had Edit in the menu, and other choices; they open Edit, which has everything.
 const FORMS: Record<"edit" | "subtask" | "subtasks" | "release", (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
   edit: (env, origin, task) => editForm(origin, task),
   subtask: (env, origin, task) => subtaskForm(origin, task),
@@ -37,28 +37,31 @@ const FORMS: Record<"edit" | "subtask" | "subtasks" | "release", (env: AppEnv, o
 export default {
   actions: {
     // Opening a form must happen within Slack's three seconds of the click.
-    // The menu is on the task's root message.
-    [TASK_MENU_ACTION]: async (payload, context) => {
-      const { env } = context;
-      const origin = { channel: payload.channel.id, ts: payload.message.ts };
-      const choice = payload.actions[0].selected_option.value;
-      const task = await loadTask(env, origin.channel, origin.ts);
-      if (choice === "archive" && task) {
-        context.waitUntil(
-          (async () => {
-            const text = await archiveTask(env, origin.channel, origin.ts, payload.user.id);
-            if (text) await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.ts, text });
-          })(),
-        );
-        return;
-      }
-      const form = FORMS[choice as keyof typeof FORMS] ?? FORMS.edit;
-      const view = task ? await form(env, origin, task) : NOT_A_TASK;
-      if (typeof view === "string") {
-        await callSlack(env, "chat.postEphemeral", { channel: origin.channel, user: payload.user.id, text: view });
-        return;
-      }
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view });
-    },
+    // The buttons are on the task's root message.
+    [TASK_EDIT_ACTION]: (payload, context) => openForm(payload, context, "edit"),
+    [TASK_MENU_ACTION]: (payload, context) => openForm(payload, context, payload.actions[0].selected_option.value),
   },
 } satisfies Handler;
+
+// Does what `choice` on the card of the task the payload came from asks: archives it, or opens its form.
+async function openForm(payload: SlackPayload, context: Context, choice: string) {
+  const { env } = context;
+  const origin = { channel: payload.channel.id, ts: payload.message.ts };
+  const task = await loadTask(env, origin.channel, origin.ts);
+  if (choice === "archive" && task) {
+    context.waitUntil(
+      (async () => {
+        const text = await archiveTask(env, origin.channel, origin.ts, payload.user.id);
+        if (text) await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.ts, text });
+      })(),
+    );
+    return;
+  }
+  const form = FORMS[choice as keyof typeof FORMS] ?? FORMS.edit;
+  const view = task ? await form(env, origin, task) : NOT_A_TASK;
+  if (typeof view === "string") {
+    await callSlack(env, "chat.postEphemeral", { channel: origin.channel, user: payload.user.id, text: view });
+    return;
+  }
+  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view });
+}

@@ -81,9 +81,9 @@ async function send(path, body, headers = {}, environment = env) {
 const interaction = (payload) =>
   new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
 
-// A message's blocks, then those of its attachment: a task's message has
-// only its title outside the attachment that gives it a priority strip.
-const allBlocks = (args) => [...(args.blocks ?? []), ...(args.attachments?.[0]?.blocks ?? [])];
+// A message's blocks, then those of its attachment: a task's message has only its title (and its row
+// of buttons, left out here: see cardButtons) outside the attachment that gives it a priority strip.
+const allBlocks = (args) => [...(args.blocks ?? []), ...(args.attachments?.[0]?.blocks ?? [])].filter((block) => block.type !== "actions");
 
 // A section's text, or a context block's first element's.
 const blockText = (block) => block.text?.text ?? block.elements?.[0]?.text;
@@ -968,6 +968,10 @@ test("commands without what they need say what to send", async (t) => {
   }
 });
 
+// A card's Edit button and ⋯ menu, in the row under its title, or undefined (an archived card has none).
+const cardButtons = (args) => args.blocks.find((block) => block.type === "actions")?.elements;
+const cardMenu = (args) => cardButtons(args)?.find((element) => element.action_id === "task:menu");
+
 // Choosing `choice` from the ⋯ menu on the card of the task at CDEV/100.1.
 const cardMenuClick = (choice) =>
   interaction({
@@ -979,22 +983,37 @@ const cardMenuClick = (choice) =>
     actions: [{ action_id: "task:menu", selected_option: { value: choice } }],
   });
 
-test("a task's card has a menu: Edit, Release while it has PRs not sent, and Archive", async (t) => {
+test("a task's card has an Edit button, and a menu: Add subtask, Release while it has PRs not sent, and Archive", async (t) => {
   const menu = async (record) => {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent("<@UBOT> status in progress"));
-    const { accessory } = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args.blocks[0];
-    assert.equal(accessory.action_id, "task:menu");
-    return accessory.options.map((option) => option.text.text);
+    const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
+    // Both sit in one row under the title: the Edit button first, then the ⋯ menu.
+    assert.deepEqual(cardButtons(card).map((element) => [element.type, element.action_id]), [["button", "task:edit"], ["overflow", "task:menu"]]);
+    assert.equal(cardButtons(card)[0].text.text, "Edit");
+    return cardMenu(card).options.map((option) => option.text.text);
   };
-  assert.deepEqual(await menu(ownTask()), ["Edit", "Add subtask", "Archive"]);
+  assert.deepEqual(await menu(ownTask()), ["Add subtask", "Archive"]);
   const withPrs = ownTask();
   withPrs.task.prs = [PR, MR];
-  assert.deepEqual(await menu(withPrs), ["Edit", "Add subtask", "Release", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Add subtask", "Release", "Archive"]);
   // Once every PR is sent, there's nothing to release.
   // The fields of a release the menu reads.
   withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }] as Release[];
-  assert.deepEqual(await menu(withPrs), ["Edit", "Add subtask", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Add subtask", "Archive"]);
+});
+
+test("a card's Edit button opens the edit form, as Edit in the menu of a card posted before does", async (t) => {
+  for (const click of [
+    interaction({ type: "block_actions", trigger_id: "T1", user: { id: "UACTOR" }, channel: { id: "CDEV" }, message: { ts: "100.1" }, actions: [{ action_id: "task:edit" }] }),
+    cardMenuClick("edit"),
+  ]) {
+    const calls = mockSlack(t, { stored: [ownTask()] });
+    await send("/slack/interactions", click);
+    const { view } = calls.find((call) => call.method === "views.open").args;
+    assert.equal(view.callback_id, "task:edit");
+    assert.equal(JSON.parse(view.private_metadata).ts, "100.1");
+  }
 });
 
 test("@Cade archive and the card's Archive stop tracking the task, keeping its card and thread", async (t) => {
@@ -1007,10 +1026,10 @@ test("@Cade archive and the card's Archive stop tracking the task, keeping its c
     // Cade no longer finds it, but nothing is deleted.
     assert.equal(await savedTask(), null);
     assert.ok(!calls.some((call) => call.method === "chat.delete"));
-    // The card says who archived it, and has no menu.
+    // The card says who archived it, and has no buttons.
     const card = calls.find((call) => call.method === "chat.update").args;
     assert.equal(card.ts, "100.1");
-    assert.equal(card.blocks[0].accessory, undefined);
+    assert.equal(cardButtons(card), undefined);
     assert.match(statusLine(card), /^:file_cabinet: Archived by <@UACTOR>  ·  Due 31\/10\/2026$/);
     // The thread hears who did.
     const post = calls.find((call) => call.method === "chat.postMessage").args;
@@ -4585,7 +4604,7 @@ test("/cade resync <link> redraws a task's card, with its menu, and tells only w
   assert.equal(now, "");
   assert.equal(later.text, "Resynced the task <https://slack.example/p100|Fix login>.");
   const card = calls.find((call) => call.method === "chat.update" && call.args.ts === ts).args;
-  assert.equal(card.blocks[0].accessory.action_id, "task:menu");
+  assert.equal(cardMenu(card).action_id, "task:menu");
   assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
@@ -5706,7 +5725,7 @@ const subtaskOf = (ts: string, fields: Record<string, unknown> = {}) => historyT
 const cardText = (args) => allBlocks(args).map((block) => blockText(block) ?? "").join("\n");
 
 // The choices on the ⋯ menu of a card Cade posted or updated.
-const menuChoices = (args) => args.blocks[0].accessory.options.map((option) => option.text.text);
+const menuChoices = (args) => cardMenu(args).options.map((option) => option.text.text);
 
 test("Add subtask makes a subtask with the task's people, in its own thread, and the task's card counts it", async (t) => {
   const calls = mockSlack(t, {
@@ -5732,7 +5751,7 @@ test("Add subtask makes a subtask with the task's people, in its own thread, and
   // Its own card, naming the task, with no Add subtask: they go one level deep.
   const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts).args;
   assert.match(cardText(card), /^\[HIGH\] \*Fails on Safari\*\n:arrow_right_hook: Subtask of \*Fix login\*\n/);
-  assert.deepEqual(menuChoices(card), ["Edit", "Archive"]);
+  assert.deepEqual(menuChoices(card), ["Archive"]);
   const subtask = (await getTask(env, "CDEV", "200.1"))!;
   assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner, subtask.people.tester], ["100.1", "High", "20/11/2026", ["UREX"], ["UTESS"]]);
   // The task's thread hears of it, and its card counts it, with View subtasks.
@@ -5740,7 +5759,7 @@ test("Add subtask makes a subtask with the task's people, in its own thread, and
   assert.equal(told.text, "<@UTESS> added a subtask: <https://slack.example/p200|Fails on Safari>. It's tracked in its own thread.");
   const parent = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  0 closed\n/);
-  assert.deepEqual(menuChoices(parent), ["Edit", "Add subtask", "View subtasks", "Archive"]);
+  assert.deepEqual(menuChoices(parent), ["Add subtask", "View subtasks", "Archive"]);
 });
 
 test("Add subtask on a subtask says they go one level deep", async (t) => {

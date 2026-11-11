@@ -222,7 +222,7 @@ settings**). Projects added there are kept in Cade's database; ones in
 2. In the dev channel: `/cade task` → a form; submitting posts the task.
 3. In the task's thread: `@Cade status in progress` → ✅ on your message. A typed
    command gets a ✅ rather than a message in the thread; changes made from
-   the card's ⋯ → **Edit**, or by accepting a suggestion, are posted there
+   the card's **Edit** button, or by accepting a suggestion, are posted there
    once, as a change log followed by what it asks of the people it names
    (see [notifications](https://xteclk.github.io/Cade/notifications.html)).
 4. In the same thread: `@Cade assign owner @someone` → ✅, and the thread asks

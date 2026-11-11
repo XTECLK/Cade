@@ -16,7 +16,7 @@ const FIRST_LINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/;
 // text may be in quotes, and takes Slack formatting, mentions and links as
 // any message does. Slack only lets Cade change its own messages, and an
 // edited message notifies no one. A task's card isn't changed this way, as
-// it's drawn from the task on every change: its ⋯ → Edit changes the task.
+// it's drawn from the task on every change: its Edit button changes the task.
 // Only whoever sent it sees the answer.
 export default {
   name: "replace",
@@ -44,7 +44,7 @@ function newText(input: string) {
 // Changes the message at `link` to say `text`, and says how it went.
 async function replace(env: AppEnv, { channel, ts }: { channel: string; ts: string }, text: string, user: string) {
   if (await getTask(env, channel, ts)) {
-    return "That's a task's card, which I redraw from the task on every change. Change the task with ⋯ → Edit on the card instead.";
+    return "That's a task's card, which I redraw from the task on every change. Change the task with the Edit button on the card instead.";
   }
   try {
     // The blocks are replaced too, or Slack would keep showing the old ones,

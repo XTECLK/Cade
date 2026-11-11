@@ -442,6 +442,7 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
             "Changes a release still waiting for approval: its pull requests and what it completes. Cade updates the approver's request and the task's card, and tells the thread. It never approves or turns a release down: that is the approver's click in Slack. " +
+            "Preview: the release, and its pull requests and note as they are now and as they will be. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -542,7 +543,8 @@ export const TOOL_DEFS: ToolDef[] = [
         description:
             "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. " +
             "Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
-            "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done.",
+            "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. " +
+            "Preview: kind (task or incident), title, project, priority, due date (or none), the whole summary, the thread it comes from, and the task it is a subtask of, if any.",
         inputSchema: {
             type: "object",
             properties: {
@@ -694,6 +696,8 @@ export const TOOL_DEFS: ToolDef[] = [
             "Posts a message in a Slack thread as Cade, led by who it is from and with a \"Sent using AI agent\" footer: a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
             "If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. " +
             "In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. " +
+            "Without Slack tools of your own, use this and say how it will show. " +
+            "Preview: the task, or the channel and link of a thread that isn't a task, the whole message as it will be posted, and whether it goes as the person or via Cade. " +
             "Call this only with text the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -720,6 +724,8 @@ export const TOOL_DEFS: ToolDef[] = [
         description:
             "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. " +
             "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
+            "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
+            "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -767,7 +773,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Ask someone to approve a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Call this only with an approver the person has chosen and approved. Each call posts a new request.",
+            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Preview: the task and who will be asked to approve it. Call this only with an approver the person has chosen and approved. Each call posts a new request.",
         inputSchema: {
             type: "object",
             properties: {
@@ -908,6 +914,7 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
             "Writes an executive summary to the top of the project's Google Doc (its Summary tab) and keeps what it says of each task. Each call writes a new one. " +
+            "Preview: the project, the period, and each task's line (health, progress, notes, or left out), naming the active tasks carried over from the last summary. " +
             "Call this only with a summary the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -945,6 +952,7 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
         description:
             "Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_thread_message (summary_id), and offer create_task, one at a time, for what the call added. " +
+            "Preview: the summary, each task the call changed or took out as before -> after, what the call added, and the notes on the call. " +
             "Call this only with what the person has seen and approved.",
         inputSchema: {
             type: "object",

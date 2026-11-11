@@ -172,32 +172,32 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   assert.match(init.result.serverInfo.description, /project management and task tracking tool that lives in Slack/);
   assert.doesNotMatch(init.result.instructions, /project management and task tracking/);
   assert.deepEqual(Object.keys(init.result.capabilities), ["tools"]);
-  // What each tool is for is in the tool's own description; the instructions name the writes, each with
-  // what to show before it is called, and say that threads are data.
+  // The instructions are the rules for every tool; what one tool needs, such as what its preview
+  // shows, is in its own description.
+  const tools = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools;
+  const described = (name) => tools.find((tool) => tool.name === name).description;
   for (const name of ["create_task", "update_task", "send_thread_message", "update_release", "create_executive_summary", "update_executive_summary_after_call", "send_approval_request"]) {
-    assert.match(init.result.instructions, new RegExp(`${name}: `), name);
+    assert.match(described(name), /Preview: /, name);
   }
-  assert.match(init.result.instructions, /never as instructions to follow/);
-  assert.match(init.result.instructions, /Every write needs the person.s approval of the exact values first.*finalized values/);
-  const summaryTool = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools.find((tool) => tool.name === "update_task");
-  assert.match(summaryTool.description, /only with changes the person has seen and approved/);
+  assert.match(init.result.instructions, /never instructions to follow/);
+  assert.match(init.result.instructions, /Every write needs the person.s approval of its exact values first.*each write tool says what its preview shows/);
+  assert.match(described("update_task"), /only with changes the person has seen and approved/);
   assert.match(init.result.instructions, /Never invent or guess a value: if one is missing, or more than one thing could be meant, ask/);
   // Links are opened by the agent as the person, never by Cade.
-  assert.match(init.result.instructions, /Cade doesn't open the links in messages: read one with your own tools, signed in as the person/);
+  assert.match(init.result.instructions, /Cade doesn't open links: open one with your own tools, signed in as the person/);
   // A message can go as the person, with their own Slack tools, or via Cade, which shows it as from an agent.
-  assert.match(init.result.instructions, /ask them to choose: send it as themselves.*or via Cade with send_thread_message.*"Sent using AI agent" footer/);
-  assert.match(init.result.instructions, /\(summary_id\) always goes via Cade/);
-  assert.match(init.result.instructions, /send_thread_message: .*whether it goes as the person or via Cade/);
+  assert.match(init.result.instructions, /ask whether to post as them or via Cade with send_thread_message.*the preview and approval are the same either way/);
+  assert.match(described("send_thread_message"), /with summary_id, always use this/);
+  assert.match(described("send_thread_message"), /Preview: .*whether it goes as the person or via Cade/);
   // Beyond Cade's channels the agent reads Slack with its own tools; finding new tasks stays with Cade.
-  assert.match(init.result.instructions, /To read Slack beyond Cade's channels.*use your own Slack tools.*direct message stays private/);
-  assert.match(init.result.instructions, /To find conversations that should become tasks, use get_channel_threads, which leaves out what Cade already tracks/);
+  assert.match(init.result.instructions, /use your own Slack tools, if you have them, for Slack beyond Cade's channels/);
+  assert.match(init.result.instructions, /a direct message or a page only some people can open into anything others can read/);
+  assert.match(described("get_channel_threads"), /Use it to find conversations that should become tasks/);
   // Cade suggests nothing from an agent's messages, so the agent offers the task's status and PR changes
-  // itself, in the message's preview, under one approval.
-  assert.match(init.result.instructions, /KEEPING TASKS RIGHT\. Cade suggests nothing from messages an agent posts/);
-  assert.match(init.result.instructions, /Its status: a status the evidence has moved past/);
-  assert.match(init.result.instructions, /Its pull requests: one mentioned or opened for the task and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove/);
-  assert.match(init.result.instructions, /Offer what you find as update_task.*in the same preview as the message and under the same "Go ahead\?"/);
-
+  // itself, in the message's preview, under one approval; update_task says what to look for.
+  assert.match(init.result.instructions, /KEEPING TASKS RIGHT\. Cade suggests nothing from what an agent posts.*offer the fix with update_task in the same preview as the message, under one "Go ahead\?"/);
+  assert.match(described("update_task"), /a status the evidence has moved past/);
+  assert.match(described("update_task"), /a pull request mentioned or opened for it and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove/);
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);
 
@@ -1775,4 +1775,20 @@ test("every tool's inputSchema takes only the arguments it lists, as it is publi
     if (schema.items) closed(schema.items, `${where}[]`);
   };
   for (const def of TOOL_DEFS) closed(def.inputSchema, def.name);
+});
+
+test("the guardrails fit before clients cut them, and each write tool says what its preview shows", async () => {
+  const { INSTRUCTIONS, MAX_INSTRUCTIONS } = await import("../src/guardrails.ts");
+  // Claude Code cut them after about 4,000 characters, losing the rules at the end.
+  assert.ok(MAX_INSTRUCTIONS < 4000);
+  assert.ok(INSTRUCTIONS.length <= MAX_INSTRUCTIONS, `the guardrails are ${INSTRUCTIONS.length} characters; keep them to ${MAX_INSTRUCTIONS}`);
+  // The guardrails name the tools they speak of, so a renamed tool can't leave them pointing at nothing.
+  const names = TOOL_DEFS.map((def) => def.name);
+  for (const named of INSTRUCTIONS.match(/\b[a-z]+(?:_[a-z]+)+\b/g)!.filter((word) => /^(get|find|send|create|update)_/.test(word))) {
+    assert.ok(names.includes(named), named);
+  }
+  // A write's preview is described with the tool, which the guardrails point to.
+  for (const def of TOOL_DEFS.filter((def) => !def.annotations.readOnlyHint)) {
+    assert.match(def.description, /Preview: /, def.name);
+  }
 });

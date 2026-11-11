@@ -272,7 +272,9 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   `src/mcp-args.ts` types them, which `npm run docs` also makes from the `inputSchema`, so the schema the agent
   sees, the check its arguments pass and the code's types can't disagree.
 - **Rules for the agent.** What it is told when it connects is in `src/guardrails.ts`: above all, to show the person
-  exactly what it will write and get their approval before any tool that changes something.
+  exactly what it will write and get their approval before any tool that changes something. They are the rules for
+  every tool, kept under `MAX_INSTRUCTIONS` (clients cut a longer text short); what one tool needs, such as what its
+  preview shows, is in that tool's description.
 - **Versions.** A session ID names the tool set it loaded (a hash of the tools, the rules and the description); a tool
   called from an older session says so, and `get_server_info` reports it.
 - **Summaries.** A task's summary, written by `create_task` or `update_task`, goes to the top of its notes page on the

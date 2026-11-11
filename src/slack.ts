@@ -101,6 +101,7 @@ export interface SlackAnswers {
   "users.list": Paged & { members?: SlackUser[] };
   "views.open": {};
   "views.publish": {};
+  "views.push": {};
   "views.update": {};
 }
 export type SlackMethod = keyof SlackAnswers;

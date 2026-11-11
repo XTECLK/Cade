@@ -137,7 +137,7 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   // The title, led by its priority, then in small text a link to its notes
   // page (once it has one) and to its thread's export, its status and due date, its linked pull
   // requests (when it has any) by whether they're approved, and who works on
-  // it and who tracked it. Under the title, its Edit button and ⋯ menu; the rest sits in an
+  // it and who tracked it. Under the title, its buttons and ⋯ menu; the rest sits in an
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
   // in place of its status, and has no buttons, as Cade no longer tracks it.
@@ -208,22 +208,22 @@ export function waitsForSubtasks(task: Pick<Task, "subtaskCounts">, status: Stat
 
 // The buttons on a task's card, so people change it without typing a command in its thread (see
 // menu.ts). A section holds only one, so they sit in a row of their own under the title: Edit, one
-// form for everything and the change made most, as a button; then the ⋯ menu with the rest: Add
-// subtask, on a task that isn't a subtask itself (they go one level deep); View subtasks, once it has
-// any; Release, while it has PRs not sent for approval; and Archive, when it's no longer needed (see
-// archive.ts).
+// form for everything and the change made most; Subtasks, on a task that isn't a subtask itself (they
+// go one level deep), listing them with Add subtask; then the ⋯ menu with the rest: Release, while it
+// has PRs not sent for approval, and Archive, when it's no longer needed (see archive.ts).
 export const TASK_EDIT_ACTION = "task:edit";
+export const TASK_SUBTASKS_ACTION = "task:subtasks";
 export const TASK_MENU_ACTION = "task:menu";
 
 function taskActions(task: Task) {
-  return { type: "actions", elements: [{ type: "button", action_id: TASK_EDIT_ACTION, text: plainText("Edit") }, taskMenu(task)] };
+  const button = (action_id: string, text: string) => ({ type: "button", action_id, text: plainText(text) });
+  const elements = [button(TASK_EDIT_ACTION, "Edit"), !task.parent && button(TASK_SUBTASKS_ACTION, "Subtasks"), taskMenu(task)];
+  return { type: "actions", elements: elements.filter(Boolean) };
 }
 
 // The ⋯ menu: Archive is always there, so it is never empty.
 function taskMenu(task: Task) {
   const choices = [
-    !task.parent && ["subtask", "Add subtask"],
-    subtasksLine(task) && ["subtasks", "View subtasks"],
     task.prs?.length && unsentPrs(task).length && ["release", "Release"],
     ["archive", "Archive"],
   ].filter(Boolean) as [string, string][];

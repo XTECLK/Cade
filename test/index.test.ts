@@ -972,6 +972,14 @@ test("commands without what they need say what to send", async (t) => {
 const cardButtons = (args) => args.blocks.find((block) => block.type === "actions")?.elements;
 const cardMenu = (args) => cardButtons(args)?.find((element) => element.action_id === "task:menu");
 
+// Clicking a card's Subtasks button, on the task at CDEV/`ts`; then Add subtask under the list it opens.
+const subtasksClick = (ts = "100.1") =>
+  interaction({ type: "block_actions", trigger_id: "T1", user: { id: "UACTOR" }, channel: { id: "CDEV" }, message: { ts }, actions: [{ action_id: "task:subtasks" }] });
+const addFromList = (list, user = "UACTOR") => {
+  const button = list.blocks.at(-1).elements[0];
+  return interaction({ type: "block_actions", trigger_id: "T2", user: { id: user }, view: { id: "VLIST" }, actions: [{ action_id: button.action_id, value: button.value }] });
+};
+
 // Choosing `choice` from the ⋯ menu on the card of the task at CDEV/100.1.
 const cardMenuClick = (choice) =>
   interaction({
@@ -983,24 +991,23 @@ const cardMenuClick = (choice) =>
     actions: [{ action_id: "task:menu", selected_option: { value: choice } }],
   });
 
-test("a task's card has an Edit button, and a menu: Add subtask, Release while it has PRs not sent, and Archive", async (t) => {
+test("a task's card has Edit and Subtasks buttons, and a menu: Release while it has PRs not sent, and Archive", async (t) => {
   const menu = async (record) => {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent("<@UBOT> status in progress"));
     const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
-    // Both sit in one row under the title: the Edit button first, then the ⋯ menu.
-    assert.deepEqual(cardButtons(card).map((element) => [element.type, element.action_id]), [["button", "task:edit"], ["overflow", "task:menu"]]);
-    assert.equal(cardButtons(card)[0].text.text, "Edit");
+    // They sit in one row under the title: the buttons first, then the ⋯ menu.
+    assert.deepEqual(cardButtons(card).map((element) => [element.type, element.action_id, element.text?.text]), [["button", "task:edit", "Edit"], ["button", "task:subtasks", "Subtasks"], ["overflow", "task:menu", undefined]]);
     return cardMenu(card).options.map((option) => option.text.text);
   };
-  assert.deepEqual(await menu(ownTask()), ["Add subtask", "Archive"]);
+  assert.deepEqual(await menu(ownTask()), ["Archive"]);
   const withPrs = ownTask();
   withPrs.task.prs = [PR, MR];
-  assert.deepEqual(await menu(withPrs), ["Add subtask", "Release", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Release", "Archive"]);
   // Once every PR is sent, there's nothing to release.
   // The fields of a release the menu reads.
   withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }] as Release[];
-  assert.deepEqual(await menu(withPrs), ["Add subtask", "Archive"]);
+  assert.deepEqual(await menu(withPrs), ["Archive"]);
 });
 
 test("a card's Edit button opens the edit form, as Edit in the menu of a card posted before does", async (t) => {
@@ -5727,15 +5734,23 @@ const cardText = (args) => allBlocks(args).map((block) => blockText(block) ?? ""
 // The choices on the ⋯ menu of a card Cade posted or updated.
 const menuChoices = (args) => cardMenu(args).options.map((option) => option.text.text);
 
-test("Add subtask makes a subtask with the task's people, in its own thread, and the task's card counts it", async (t) => {
+test("Add subtask, under the card's list of subtasks, makes a subtask with the task's people, in its own thread, and the task's card counts it", async (t) => {
   const calls = mockSlack(t, {
     stored: [ownTask({ owners: ["UREX"], testers: ["UTESS"] })],
     "chat.postMessage": (args) => (args.thread_ts ? { ts: "300.1" } : { channel: args.channel, ts: "200.1" }),
     "chat.getPermalink": { permalink: "https://slack.example/p200" },
     "conversations.replies": { messages: [] },
   });
-  await send("/slack/interactions", cardMenuClick("subtask"));
-  const form = calls.find((call) => call.method === "views.open").args.view;
+  // Subtasks opens the list, empty for now, with Add subtask under it.
+  await send("/slack/interactions", subtasksClick());
+  const list = calls.find((call) => call.method === "views.open").args.view;
+  assert.match(list.blocks.map((block) => blockText(block) ?? "").join("\n"), /No subtasks yet\./);
+  assert.equal(list.blocks.at(-1).elements[0].text.text, "Add subtask");
+  // Add subtask opens the form over the list.
+  await send("/slack/interactions", addFromList(list));
+  const pushed = calls.find((call) => call.method === "views.push").args;
+  assert.equal(pushed.trigger_id, "T2");
+  const form = pushed.view;
   assert.equal(form.callback_id, "subtask:add");
   assert.match(blockText(form.blocks[0]), /Subtask of \*Fix login\*/);
   // It starts with the task's due date, which can be changed, and has its priority, which can't.
@@ -5746,28 +5761,37 @@ test("Add subtask makes a subtask with the task's people, in its own thread, and
 
   calls.length = 0;
   const values = { title: { value: { value: "Fails on Safari" } }, due_date: { value: { selected_date: "2026-11-20" } } };
-  await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UTESS" }, view: { callback_id: "subtask:add", private_metadata: form.private_metadata, state: { values } } }));
+  // Sending it closes the form and the list under it.
+  const sent = await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UTESS" }, view: { callback_id: "subtask:add", private_metadata: form.private_metadata, state: { values } } }));
+  assert.deepEqual(await sent.json(), { response_action: "clear" });
 
-  // Its own card, naming the task, with no Add subtask: they go one level deep.
+  // Its own card, naming the task, with no Subtasks button: they go one level deep.
   const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts).args;
   assert.match(cardText(card), /^\[HIGH\] \*Fails on Safari\*\n:arrow_right_hook: Subtask of \*Fix login\*\n/);
+  assert.deepEqual(cardButtons(card).map((element) => element.action_id), ["task:edit", "task:menu"]);
   assert.deepEqual(menuChoices(card), ["Archive"]);
   const subtask = (await getTask(env, "CDEV", "200.1"))!;
   assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner, subtask.people.tester], ["100.1", "High", "20/11/2026", ["UREX"], ["UTESS"]]);
-  // The task's thread hears of it, and its card counts it, with View subtasks.
+  // The task's thread hears of it, and its card counts it.
   const told = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
   assert.equal(told.text, "<@UTESS> added a subtask: <https://slack.example/p200|Fails on Safari>. It's tracked in its own thread.");
   const parent = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  0 closed\n/);
-  assert.deepEqual(menuChoices(parent), ["Add subtask", "View subtasks", "Archive"]);
+  assert.deepEqual(menuChoices(parent), ["Archive"]);
 });
 
-test("Add subtask on a subtask says they go one level deep", async (t) => {
+test("Add subtask on a subtask, from an older card's menu or a list opened before, says they go one level deep", async (t) => {
   const subtask = subtaskOf("100.2");
   const calls = mockSlack(t, { stored: [ownTask(), subtask] });
   await send("/slack/interactions", interaction({ ...JSON.parse(new URLSearchParams(cardMenuClick("subtask")).get("payload")!), message: { ts: "100.2" } }));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
   assert.match(calls[0].args.text, /subtasks don't have their own/);
+  // Add subtask in a list naming a task that has since become a subtask says so over the list.
+  calls.length = 0;
+  const list = { blocks: [{ type: "actions", elements: [{ action_id: "subtasks:add", value: JSON.stringify({ channel: "CDEV", ts: "100.2" }) }] }] };
+  await send("/slack/interactions", addFromList(list));
+  assert.deepEqual(calls.map((call) => call.method), ["views.push"]);
+  assert.match(blockText(calls[0].args.view.blocks[0]), /subtasks don't have their own/);
 });
 
 test("a subtask moving to Done moves it from open to closed on its task's card", async (t) => {
@@ -5777,7 +5801,7 @@ test("a subtask moving to Done moves it from open to closed on its task's card",
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  1 closed\n/);
 });
 
-test("View subtasks lists a task's subtasks, open first, each linking to its thread", async (t) => {
+test("Subtasks lists a task's subtasks, open first, each linking to its thread, then Add subtask", async (t) => {
   const calls = mockSlack(t, {
     stored: [
       ownTask(),
@@ -5785,9 +5809,10 @@ test("View subtasks lists a task's subtasks, open first, each linking to its thr
       subtaskOf("100.3", { title: "Open one", status: "IN_PROGRESS", owners: ["UREX"], link: "https://slack.example/p1003" }),
     ],
   });
-  await send("/slack/interactions", cardMenuClick("subtasks"));
+  await send("/slack/interactions", subtasksClick());
   const view = calls.find((call) => call.method === "views.open").args.view;
   assert.equal(view.title.text, "Subtasks");
+  assert.deepEqual(JSON.parse(view.blocks.at(-1).elements[0].value), { channel: "CDEV", ts: "100.1" });
   const text = view.blocks.map((block) => blockText(block) ?? "").join("\n");
   assert.match(text, /Subtasks: 1 open  ·  1 closed/);
   assert.match(text, /\*Open \(1\)\*\n<https:\/\/slack\.example\/p1003\|Open one>\n:arrow_forward: In progress  ·  Owner <@UREX>\n\n\*Closed \(1\)\*\n<https:\/\/slack\.example\/p1002\|Closed one>/);

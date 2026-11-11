@@ -12,14 +12,12 @@ import { SUBTASKS_CLOSE, TASK_BUTTON, readPayload, type SubtasksClose, type Task
 // the same channel, with its own card and thread, that names its parent; the parent's card counts
 // them, open and closed (Done). They go one level deep: a subtask has none of its own.
 //
-// Add subtask, on a task card's ⋯ menu (see menu.ts), opens the form below. The new subtask starts
+// Subtasks, a button on a task's card (see menu.ts), lists them in a modal, open first, each linking to
+// its thread, with Add subtask, which opens the form below over the list. The new subtask starts
 // with its parent's due date and people, and has its priority for good, which follows the parent's
 // (see followParent in tasks.ts); only the due date can be changed (a subtask of an incident is an incident too:
 // Urgent and due Immediate for good, so its form asks only for the title), as the same owner usually fixes and the same tester checks it, and the
 // parent's thread hears that it was added, with a link to the subtask's own thread.
-//
-// View subtasks, on the menu of a task that has any, lists them in a modal, open first, each linking
-// to its thread.
 //
 // A task moves to Client review or Done only once all its subtasks are done, as both speak of the
 // whole of it. Moving it there with some open, by a command, Edit, a suggestion or anything else,
@@ -30,6 +28,7 @@ import { SUBTASKS_CLOSE, TASK_BUTTON, readPayload, type SubtasksClose, type Task
 const SUBTASK_USAGE = "Give the subtask a title: `@Cade subtask Payment fails with a saved card`.";
 
 const ADD_VIEW = "subtask:add";
+const ADD_ACTION = "subtasks:add";
 const CLOSE_ALL_ACTION = "subtasks:close";
 const CANCEL_ACTION = "subtasks:cancel";
 
@@ -63,6 +62,14 @@ export default {
   slash: linkCommand,
   views: { [ADD_VIEW]: submit },
   actions: {
+    // Add subtask in the list of subtasks: the form goes over the list, and closes both once sent.
+    [ADD_ACTION]: async (payload, { env }) => {
+      const origin = readPayload<TaskRef>(TASK_BUTTON, payload.actions[0].value, "Add subtask button");
+      const parent = await loadTask(env, origin.channel, origin.ts);
+      const problem = !parent ? NOT_A_TASK : parent.parent ? ONE_LEVEL : null;
+      const view = problem ? { type: "modal", title: plainText("Add subtask"), close: plainText("Back"), blocks: [{ type: "section", text: mrkdwn(problem) }] } : subtaskForm(origin, parent!);
+      await callSlack(env, "views.push", { trigger_id: payload.trigger_id, view });
+    },
     [CLOSE_ALL_ACTION]: (payload, context) => {
       context.waitUntil(closeAll(payload, context));
     },
@@ -193,7 +200,8 @@ export function newSubtask(parent: StoredTask, ts: string, title: string, user: 
 }
 
 // The modal listing the subtasks of `parent`, at `origin`: open ones first, oldest first, then the
-// closed ones, each with its status and people, linking to its thread.
+// closed ones, each with its status and people, linking to its thread ("No subtasks yet." when it has
+// none), then Add subtask.
 export async function subtasksView(env: AppEnv, origin: TaskRef, parent: StoredTask) {
   const all = await subtasksOf(env, origin.channel, origin.ts);
   const open = all.filter(({ task }) => task.status !== "DONE");
@@ -201,9 +209,11 @@ export async function subtasksView(env: AppEnv, origin: TaskRef, parent: StoredT
   const heading = parent.link ? `<${parent.link}|${escapeSlack(parent.title)}>` : escapeSlack(parent.title);
   const blocks: SlackBlock[] = [
     { type: "section", text: mrkdwn(`*${heading}*`) },
-    { type: "context", elements: [mrkdwn(subtasksLine({ subtaskCounts: { open: open.length, closed: closed.length } }) || "No subtasks.")] },
+    { type: "context", elements: [mrkdwn(subtasksLine({ subtaskCounts: { open: open.length, closed: closed.length } }) || "No subtasks yet.")] },
     ...group("Open", open),
     ...group("Closed", closed),
+    // Under the list, Add subtask; a subtask has none of its own, so it can't add one.
+    ...(parent.parent ? [] : [{ type: "divider" }, { type: "actions", elements: [{ type: "button", action_id: ADD_ACTION, text: plainText("Add subtask"), style: "primary", value: JSON.stringify({ channel: origin.channel, ts: origin.ts }) }] }]),
   ];
   return { type: "modal", title: plainText("Subtasks"), close: plainText("Close"), blocks };
 }

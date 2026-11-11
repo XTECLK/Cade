@@ -15,21 +15,6 @@ type DbEnv = Pick<AppEnv, "DB">;
 
 export type { Release, ReleaseStatus, Role, Task };
 
-export interface SummaryItem {
-  channel?: string;
-  ts?: string;
-  kind: string;
-  title: string;
-  status?: string;
-  incident?: boolean;
-  included?: boolean;
-  health?: string | null;
-  progress?: string;
-  notes?: string;
-  informedAt?: string | null;
-  informedBy?: string | null;
-}
-
 export interface MessageRow {
   channel: string;
   taskTs: string;
@@ -107,38 +92,6 @@ interface ReleaseRow {
 }
 
 type ReleaseWithTaskRow = ReleaseRow & { task_channel: string; task_ts: string; task_title: string };
-
-interface SummaryRow {
-  id: number;
-  project: string;
-  created_by: string;
-  since: string;
-  until: string;
-  created_at: string;
-  published_at: string | null;
-  doc_id: string | null;
-  doc_url: string | null;
-  doc_lines: string | null;
-  call_notes: string | null;
-  call_by: string | null;
-  call_at: string | null;
-}
-
-interface SummaryItemRow {
-  stage: "BEFORE" | "AFTER";
-  task_channel: string;
-  task_ts: string;
-  kind: string;
-  title: string;
-  status: string;
-  incident: number;
-  included: number;
-  health: string | null;
-  progress: string;
-  notes: string;
-  informed_at: string | null;
-  informed_by: string | null;
-}
 
 interface MessageDbRow {
   user_id: string | null;
@@ -508,148 +461,6 @@ export async function dirtyCanvases(env: DbEnv) {
 
 export async function deleteCanvas(env: DbEnv, channel: string) {
   await env.DB.prepare("DELETE FROM canvases WHERE channel = ?").bind(channel).run();
-}
-
-// Executive summaries (see summaries.ts and migrations/0020).
-
-const summaryFromRow = (row: SummaryRow) => ({
-  id: row.id,
-  project: row.project,
-  createdBy: row.created_by,
-  since: row.since,
-  until: row.until,
-  createdAt: row.created_at,
-  publishedAt: row.published_at,
-  docId: row.doc_id,
-  docUrl: row.doc_url,
-  docLines: (row.doc_lines ? JSON.parse(row.doc_lines) : []) as string[],
-  callNotes: row.call_notes,
-  callBy: row.call_by,
-  callAt: row.call_at,
-});
-
-export type Summary = ReturnType<typeof summaryFromRow>;
-
-// Starts the summary of `project` (its name), `draft` being { createdBy, since, until },
-// and returns its id. It isn't one until recordSummaryDoc says it is in the doc.
-export async function insertSummary(env: DbEnv, project: string, draft: { createdBy: string; since: string; until: string }) {
-  const { id } = (await env.DB.prepare(
-    "INSERT INTO executive_summaries (project, created_by, since, until, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
-  )
-    .bind(project, draft.createdBy, draft.since, draft.until, new Date().toISOString())
-    .first<{ id: number }>())!;
-  return id;
-}
-
-// The summary `id` (written to the doc or not), or null.
-export async function getSummary(env: DbEnv, id: number) {
-  const row = await env.DB.prepare("SELECT * FROM executive_summaries WHERE id = ?").bind(id).first<SummaryRow>();
-  return row ? summaryFromRow(row) : null;
-}
-
-// The project's summaries in its doc, newest first: those written on or
-// before `onOrBefore` (an ISO timestamp), if given, at most `limit`.
-export async function summariesOf(env: DbEnv, project: string, { onOrBefore, limit = 10 }: { onOrBefore?: string | null; limit?: number } = {}) {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM executive_summaries
-     WHERE project = ? AND published_at IS NOT NULL AND (? IS NULL OR created_at <= ?)
-     ORDER BY created_at DESC, id DESC LIMIT ?`,
-  )
-    .bind(project, onOrBefore ?? null, onOrBefore ?? null, limit)
-    .all<SummaryRow>();
-  return results.map(summaryFromRow);
-}
-
-// The project's last summary in its doc, or null. Its `until` is where the next one's period starts.
-export async function lastSummary(env: DbEnv, project: string) {
-  return (await summariesOf(env, project, { limit: 1 }))[0] ?? null;
-}
-
-// Stores what a summary said of a task, in its BEFORE or AFTER version (`stage`): `item` is { channel,
-// ts, kind, title, status, incident, included, health, progress, notes }; channel and ts are "" for
-// something with no task.
-export async function putSummaryItem(env: DbEnv, id: number, stage: "BEFORE" | "AFTER", item: SummaryItem) {
-  await env.DB.prepare(
-    `INSERT INTO executive_summary_items (summary_id, stage, task_channel, task_ts, kind, title, status, incident, included, health, progress, notes, informed_at, informed_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (summary_id, stage, task_channel, task_ts, title) DO UPDATE SET
-       kind = excluded.kind, status = excluded.status, incident = excluded.incident,
-       included = excluded.included, health = excluded.health, progress = excluded.progress, notes = excluded.notes,
-       informed_at = excluded.informed_at, informed_by = excluded.informed_by`,
-  )
-    .bind(id, stage, item.channel ?? "", item.ts ?? "", item.kind, item.title, item.status ?? "", item.incident ? 1 : 0, item.included ? 1 : 0, item.health ?? null, item.progress ?? "", item.notes ?? "", item.informedAt ?? null, item.informedBy ?? null)
-    .run();
-}
-
-// What the summary said of each task, as { before, after }: lists of items in the order stored (see
-// putSummaryItem); `after` is empty until the call was recorded.
-export async function summaryItems(env: DbEnv, id: number) {
-  const { results } = await env.DB.prepare("SELECT * FROM executive_summary_items WHERE summary_id = ? ORDER BY rowid").bind(id).all<SummaryItemRow>();
-  const items: { before: SummaryItem[]; after: SummaryItem[] } = { before: [], after: [] };
-  for (const row of results) {
-    items[row.stage === "AFTER" ? "after" : "before"].push({
-      channel: row.task_channel,
-      ts: row.task_ts,
-      kind: row.kind,
-      title: row.title,
-      status: row.status,
-      incident: Boolean(row.incident),
-      included: Boolean(row.included),
-      health: row.health,
-      progress: row.progress,
-      notes: row.notes,
-      informedAt: row.informed_at,
-      informedBy: row.informed_by,
-    });
-  }
-  return items;
-}
-
-// Replaces the AFTER version of the summary with `items` (see putSummaryItem), and keeps what was said
-// of the call as a whole. An item that is the same as it was in the AFTER version before keeps the
-// time its thread was told about it; one that changed (or is new) has not been told.
-export async function putSummaryAfter(env: DbEnv, id: number, items: SummaryItem[], { notes, user }: { notes?: string | null; user: string }) {
-  const same = (a: SummaryItem, b: SummaryItem) => a.included === b.included && (a.health ?? null) === (b.health ?? null) && a.progress === b.progress && a.notes === b.notes;
-  const earlier = new Map((await summaryItems(env, id)).after.map((item) => [`${item.channel}:${item.ts}:${item.title}`, item]));
-  await env.DB.prepare("DELETE FROM executive_summary_items WHERE summary_id = ? AND stage = 'AFTER'").bind(id).run();
-  for (const item of items) {
-    const was = earlier.get(`${item.channel ?? ""}:${item.ts ?? ""}:${item.title}`);
-    const kept = was && same(was, item) ? { informedAt: was.informedAt, informedBy: was.informedBy } : {};
-    await putSummaryItem(env, id, "AFTER", { ...item, ...kept });
-  }
-  await env.DB.prepare("UPDATE executive_summaries SET call_notes = ?, call_by = ?, call_at = ? WHERE id = ?")
-    .bind(notes ?? "", user, new Date().toISOString(), id)
-    .run();
-}
-
-// Marks that the task's thread was told what the call decided about it in the summary `id`. Gives
-// "marked", "already" (it was told before) or "none" (the AFTER version has no such task).
-export async function markSummaryInformed(env: DbEnv, id: number, channel: string, ts: string, user: string): Promise<"marked" | "already" | "none"> {
-  const marked = await env.DB.prepare(
-    `UPDATE executive_summary_items SET informed_at = ?, informed_by = ?
-     WHERE summary_id = ? AND stage = 'AFTER' AND task_channel = ? AND task_ts = ? AND informed_at IS NULL RETURNING task_ts`,
-  )
-    .bind(new Date().toISOString(), user, id, channel, ts)
-    .first();
-  if (marked) return "marked";
-  const exists = await env.DB.prepare("SELECT 1 AS found FROM executive_summary_items WHERE summary_id = ? AND stage = 'AFTER' AND task_channel = ? AND task_ts = ?")
-    .bind(id, channel, ts)
-    .first();
-  return exists ? "already" : "none";
-}
-
-// Records that the summary was written to the doc `docId`, its tab being at
-// `url`, with `lines`, the text of each line written. It is a summary from then on.
-export async function recordSummaryDoc(env: DbEnv, id: number, docId: string, url: string, lines: string[]) {
-  await env.DB.prepare("UPDATE executive_summaries SET published_at = ?, doc_id = ?, doc_url = ?, doc_lines = ? WHERE id = ?")
-    .bind(new Date().toISOString(), docId, url, JSON.stringify(lines), id)
-    .run();
-}
-
-// Removes a summary that couldn't be written to the doc.
-export async function deleteSummary(env: DbEnv, id: number) {
-  await env.DB.prepare("DELETE FROM executive_summary_items WHERE summary_id = ?").bind(id).run();
-  await env.DB.prepare("DELETE FROM executive_summaries WHERE id = ? AND published_at IS NULL").bind(id).run();
 }
 
 // Counts a post Slack refused, for the task `id`. After the last attempt it

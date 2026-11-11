@@ -103,6 +103,7 @@ export function mcpPage() {
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
+    <p>Reports such as a task's summary or an executive summary for a client are workflows your agent runs with these tools: see <a href="workflows.html">Workflows</a>.</p>
   </div>
 </section>
 

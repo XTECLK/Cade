@@ -10,8 +10,6 @@ export interface AppEnv extends Env {
   ADMINS?: string | string[];
   PROJECTS?: unknown;
   PROJECTS_BASE?: unknown;
-  GOOGLE_URL?: string;
-  GOOGLE_SECRET?: string;
   AI_MODEL_NAME?: string;
   MCP?: string;
   SUMMARY_SETTLE_MS?: string | number;

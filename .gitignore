@@ -4,15 +4,11 @@ node_modules/
 *.iml
 # Local settings for npm run dev.
 .dev.vars
-# Tooling state written by the npm scripts: the Cloudflare account, the Slack
-# app and the Google web app (IDs only, no secrets).
+# Tooling state written by the npm scripts: the Cloudflare account and the
+# Slack app (IDs only, no secrets).
 .cade/
 # Your settings, uploaded with npm run config.
 cade.config.json
-# The Google web app: its secret, made by npm run google:create, and clasp's
-# project files.
-google/Secret.gs
-google/.clasp.json
 # Demo recording: .demo/ holds logged-in sessions and raw video.
 .demo/
 .playwright-mcp

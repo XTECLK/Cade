@@ -23,7 +23,6 @@ export const DEFAULT_DAYS = 14;
 export const MAX_DAYS = 90;
 export const MAX_PRESENCE = 50; // people whose Slack presence is looked up, one call each
 export const MAX_MATCHES = 10; // people find_user_by_name gives
-export const MAX_EARLIER_SUMMARIES = 10; // other summaries get_executive_summary lists
 export const MAX_NAMES = 50; // people whose names a result carries
 
 // How long a text can be, in characters.
@@ -32,14 +31,8 @@ export const MAX_SUMMARY = 8000;
 export const MAX_MESSAGE = 3000;
 export const MAX_RELEASE_NOTE = 300;
 export const MAX_PREVIEW = 300; // the start of a thread's first message
-export const MAX_ITEM_TITLE = 200; // something a client call added
-export const MAX_PROGRESS = 200;
-export const MAX_ITEM_NOTES = 1000;
-export const MAX_CALL_NOTES = 2000;
 
 // How many entries a list can hold.
-export const MAX_SUMMARY_ITEMS = 300;
-export const MAX_ADDED_ITEMS = 50;
 export const MAX_ASSIGNEES = 50; // people get_tasks is asked about
 
 // ── Allowed values ───────────────────────────────────────────────────────────────────────────
@@ -67,12 +60,6 @@ const SESSION_STATUSES = ["CURRENT", "OUTDATED", "UNKNOWN"];
 // Where a task came from, and who is around.
 const ORIGINAL_THREAD_STATES = ["found", "none", "unknown"];
 const PRESENCES = ["active", "away", "unknown"];
-
-// Executive summaries.
-const HEALTHS = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
-const ITEM_KINDS = ["COMPLETED", "ACTIVE", "ADDED"];
-const ITEM_CHANGES = ["pending", "unchanged", "changed", "removed", "added"];
-const LINE_TYPES = ["heading", "paragraph", "item"];
 
 // What get_users and find_user_by_name can give for each person, besides user_id.
 export const USER_FIELDS = ["name", "username"];
@@ -108,14 +95,6 @@ const outputWithNames = (properties: Record<string, Schema>) => outputOf({...pro
 
 // Property maps come first: a map is not an object of its own, but the `properties` of one or spread
 // into one. (EXTRA_FIELDS is the exception: it holds PR_ITEM, so it comes right after that.)
-
-// An executive summary's line for a task, as written and as agreed after the call.
-const VERSION = {
-    included: bool("Whether the summary mentions it"),
-    health: choice("For active work", [...HEALTHS, null], {type: ["string", "null"]}),
-    progress: str("Short free text, such as 3/5"),
-    notes: str("One point per line"),
-};
 
 const THREAD = {
     type: ["object", "null"],
@@ -694,7 +673,7 @@ export const TOOL_DEFS: ToolDef[] = [
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
             "Posts a message in a Slack thread as Cade, led by who it is from and with a \"Sent using AI agent\" footer: a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. " +
-            "If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. " +
+            "If you can also post as the person with Slack tools of your own, ask them which they want first. " +
             "In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. " +
             "Without Slack tools of your own, use this and say how it will show. " +
             "Preview: the task, or the channel and link of a thread that isn't a task, the whole message as it will be posted, and whether it goes as the person or via Cade. " +
@@ -705,7 +684,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 thread_id: str("The thread's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100. A task's ID is its thread's"),
                 link: str("Instead of thread_id: a link to a message in the thread, such as https://team.slack.com/archives/C0123ABCD/p1700000000123456"),
                 text: str(`The message, as plain text, written as the person would. Mention a person as <@U0123ABCD>, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most ${MAX_MESSAGE} characters`),
-                summary_id: int("An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread", {minimum: 1}),
             },
             required: ["text"],
             anyOf: [{required: ["thread_id"]}, {required: ["link"]}],
@@ -800,196 +778,6 @@ export const TOOL_DEFS: ToolDef[] = [
             toolset_version: str("The version of the tool set the server has now: it changes whenever a tool, a description or the instructions change"),
             session_toolset_version: str("The version of the tool set this session loaded when it connected, or empty if the client doesn't say"),
             status: choice("CURRENT: this session has the latest tools; OUTDATED: the person should disconnect and connect again; UNKNOWN: the client doesn't say which it loaded", SESSION_STATUSES),
-        }),
-    },
-    {
-        name: "get_executive_summary",
-        title: "Read an executive summary",
-        annotations: READS,
-        description:
-            "Reads an executive summary Cade kept of a project: what it said of each task as written and as agreed after the client call, and whether each task's thread has been told. It is where to start to write the next summary: its period ends where the next begins, and get_tasks (completed_from, completed_to, include_open) gives the tasks to cover.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                project: str("The project, by the name get_projects gives"),
-                date: str("The summary in force on that day. Default: the last one (YYYY-MM-DD)"),
-            },
-            required: ["project"],
-        },
-        outputSchema: outputWithNames({
-            project: str("The project's name"),
-            summary: {
-                type: ["object", "null"],
-                description: "The summary, or null if the project has none yet",
-                properties: {
-                    summary_id: int("For get_executive_summary_doc and update_executive_summary_after_call"),
-                    created_at: str("When it was written (YYYY-MM-DD HH:MM, UTC)"),
-                    created_by: str("Who wrote the summary: a Slack user ID, show the name, not the ID"),
-                    from: str("First day of its period (YYYY-MM-DD)"),
-                    to: str("Last day of its period (YYYY-MM-DD)"),
-                    doc_url: str("Where it is in the Google Doc"),
-                    call: {
-                        type: ["object", "null"],
-                        description: "What was said of the call as a whole, or null until it was recorded",
-                        properties: {
-                            notes: str("What was said of the call"),
-                            recorded_by: str("Who recorded the call: a Slack user ID, show the name, not the ID"),
-                            recorded_at: str("When it was recorded (YYYY-MM-DD HH:MM, UTC)")
-                        }
-                    },
-                    items: list("Each task with the summary as written (before) and as agreed after the call (after)", {
-                        type: "object",
-                        description: "A task's line in the summary",
-                        properties: {
-                            task_id: str("Empty for something added in the call that has no task"),
-                            title: str("The task's title when it was written"),
-                            status: str("Its status when it was written"),
-                            incident: bool("Whether the task is an incident"),
-                            kind: choice("COMPLETED: done in the period; ACTIVE: not done; ADDED: added in the call", ITEM_KINDS),
-                            before: {
-                                type: ["object", "null"],
-                                description: "As written; null for what the call added",
-                                properties: VERSION
-                            },
-                            after: {
-                                type: ["object", "null"],
-                                description: "As agreed after the call; null until the call is recorded",
-                                properties: VERSION
-                            },
-                            change: choice("pending: no call recorded yet", ITEM_CHANGES),
-                            informed_at: str("When the task's thread was told about this change, or empty. Tell it only if this is empty (YYYY-MM-DD HH:MM, UTC)"),
-                        },
-                        required: ["task_id", "title", "status", "incident", "kind", "before", "after", "change", "informed_at"],
-                    }),
-                },
-            },
-            earlier: list(`The project's other summaries, newest first (at most ${MAX_EARLIER_SUMMARIES})`, {
-                type: "object",
-                description: "Another summary of the project",
-                properties: {
-                    summary_id: int("The executive summary's number"),
-                    created_at: str("When it was written (YYYY-MM-DD HH:MM, UTC)"),
-                    from: str("A day, YYYY-MM-DD"),
-                    to: str("A day, YYYY-MM-DD")
-                },
-                required: ["summary_id", "created_at", "from", "to"]
-            }),
-        }),
-    },
-    {
-        name: "get_executive_summary_doc",
-        title: "Read an executive summary from its Google Doc",
-        annotations: READS_SLACK,
-        description:
-            "Reads a summary's section from the project's Google Doc as it reads now, after people edited it, such as in the client call. Compare it with get_executive_summary to find what the call changed, then record it with update_executive_summary_after_call.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                project: str("The project, by the name get_projects gives"),
-                summary_id: int("The summary, as get_executive_summary gives it. Default: the last one", {minimum: 1}),
-            },
-            required: ["project"],
-        },
-        outputSchema: outputOf({
-            project: str("The project's name"),
-            summary_id: int("The executive summary's number"),
-            doc_url: str("Where it is in the Google Doc"),
-            lines: list("The section's lines, in order", {
-                type: "object",
-                description: "A line of the section",
-                properties: {
-                    type: choice("What kind of line it is", LINE_TYPES),
-                    level: int("How deeply it is nested, 0 for the top"),
-                    text: str("The line's text"),
-                    task_id: str("The task the line links to, or empty"),
-                    written: bool("Whether Cade wrote this line (false: people added it)")
-                },
-                required: ["type", "level", "text", "task_id", "written"],
-            }),
-        }),
-    },
-    {
-        name: "create_executive_summary",
-        title: "Write an executive summary to the Google Doc",
-        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
-        description:
-            "Writes an executive summary to the top of the project's Google Doc (its Summary tab) and keeps what it says of each task. Each call writes a new one. " +
-            "Preview: the project, the period, and each task's line (health, progress, notes, or left out), naming the active tasks carried over from the last summary. " +
-            "Call this only with a summary the person has seen and approved.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                project: str("The project, by the name get_projects gives"),
-                from: str("First day of the period (YYYY-MM-DD). Default: the day after the last summary's period, or 7 days ago if there is none"),
-                to: str("Last day of the period (YYYY-MM-DD). Default: today"),
-                items: list("A line for each task the person said something about. A task not listed keeps what the last summary said (an active one with none is ON_TRACK) and completed ones are included; the result names the active ones it carried over. Only tasks of the project completed in the period or not done can be listed", {
-                    type: "object",
-                    description: "A task's line in the summary",
-                    properties: {
-                        task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
-                        included: bool("Whether the summary mentions it. Default true"),
-                        health: choice("ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess", HEALTHS),
-                        progress: str("Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show", {maxLength: MAX_PROGRESS}),
-                        notes: str("One point per line", {maxLength: MAX_ITEM_NOTES}),
-                    },
-                    required: ["task_id"],
-                }, {maxItems: MAX_SUMMARY_ITEMS}),
-            },
-            required: ["project"],
-        },
-        outputSchema: outputOf({
-            project: str("The project's name"),
-            summary_id: int("For get_executive_summary_doc and update_executive_summary_after_call"),
-            from: str("A day, YYYY-MM-DD"),
-            to: str("A day, YYYY-MM-DD"),
-            doc_url: str("Where it is in the Google Doc"),
-            carried_over: strings("Task IDs of the active tasks you didn't list, which kept what the last summary said"),
-        }),
-    },
-    {
-        name: "update_executive_summary_after_call",
-        title: "Record what the client call decided",
-        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
-        description:
-            "Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_thread_message (summary_id), and offer create_task, one at a time, for what the call added. " +
-            "Preview: the summary, each task the call changed or took out as before -> after, what the call added, and the notes on the call. " +
-            "Call this only with what the person has seen and approved.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                summary_id: int("The summary, as get_executive_summary gives it", {minimum: 1}),
-                items: list("The tasks whose health, progress, notes or inclusion the call changed (included false takes one out). The after version starts as the written one. Recording again replaces the earlier recording, but a task whose thread was told keeps that unless it changed again", {
-                    type: "object",
-                    description: "A task whose line the call changed",
-                    properties: {
-                        task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
-                        included: bool("Whether the summary mentions it"),
-                        health: choice("ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess", HEALTHS),
-                        progress: str("Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show", {maxLength: MAX_PROGRESS}),
-                        notes: str("One point per line", {maxLength: MAX_ITEM_NOTES})
-                    },
-                    required: ["task_id"],
-                }, {maxItems: MAX_SUMMARY_ITEMS}),
-                added: list("What the call added: a title for each, with task_id if it is already a task", {
-                    type: "object",
-                    description: "Something the call added",
-                    properties: {
-                        title: str("What was added", {maxLength: MAX_ITEM_TITLE}),
-                        task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
-                        health: choice("ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess", HEALTHS),
-                        progress: str("Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show", {maxLength: MAX_PROGRESS}),
-                        notes: str("One point per line", {maxLength: MAX_ITEM_NOTES})
-                    },
-                    required: ["title"],
-                }, {maxItems: MAX_ADDED_ITEMS}),
-                notes: str("Anything about the call as a whole", {maxLength: MAX_CALL_NOTES}),
-            },
-            required: ["summary_id"],
-        },
-        outputSchema: outputOf({
-            summary_id: int("The executive summary's number"),
-            changed: strings("Task IDs whose summary line the call changed or took out"),
-            added: int("How many items the call added")
         }),
     },
 ];

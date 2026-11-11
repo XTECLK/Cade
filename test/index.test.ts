@@ -21,11 +21,6 @@ import type { Allowed } from "../src/ai.ts";
 import type { Change, PlainMessage } from "../src/types.ts";
 
 const SIGNING_SECRET = "test-signing-secret";
-// The Google web app, for each group's Doc; the acme group's doc
-// and its Summary tab.
-const GOOGLE_URL = "https://script.google.com/macros/s/test/exec";
-const DOC_ID = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
-const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
 // Every environment shares this database; it is emptied for each test, and
 // again by mockSlack.
 const DB = fakeD1();
@@ -130,15 +125,13 @@ const savedTask = (channel = "CDEV", ts = "100.1") => getTask(env, channel, ts);
 // Replaces fetch with a fake Slack API, with an empty database holding just
 // `responses.stored` (task records). `responses` maps a
 // method name to its result; every call is recorded with its decoded arguments. Link preview
-// settings are recorded as `previews` rather than with the arguments. Requests to the
-// Google web app are recorded with their JSON body, as "doc",
-// answered by `responses.doc`.
+// settings are recorded as `previews` rather than with the arguments.
 // A call Cade made to Slack (or "respond", to a response_url), as mockSlack recorded it. Its `args`
 // are what Cade sent, read freely by the assertions.
 type Call = { method: string; args: any; headers?: unknown; previews?: { links?: boolean; media?: boolean } };
 let lastCalls: Call[] = [];
 // Slack's replies by method: a reply, or a function of the call's arguments giving one.
-type Replies = { stored?: readonly Stored[]; doc?: unknown } & Record<string, unknown>;
+type Replies = { stored?: readonly Stored[] } & Record<string, unknown>;
 
 // What Slack answers unless a test says otherwise: everyone in these tests is in every channel.
 const EVERYONE = ["UACTOR", "UADMIN", "UALICE", "UANN", "UBOB", "UCLICKER", "UCLIENT", "UCREATOR", "UDEV", "UDEV1", "UDEV2", "ULEAD", "UME", "UMIA", "UOTHER", "UPM", "UREX", "URIA", "UTC", "UTESS", "UTOM", "UZED", "UZOE"];
@@ -160,12 +153,6 @@ function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) 
     if (url === RESPONSE_URL) {
       calls.push({ method: "respond", args: JSON.parse(init.body) });
       return new Response("ok");
-    }
-    if (url === GOOGLE_URL) {
-      const body = JSON.parse(init.body);
-      calls.push({ method: "doc", args: body });
-      const reply = typeof responses.doc === "function" ? responses.doc(body) : responses.doc;
-      return Response.json(reply ?? { ok: true, url: DOC_TAB, elements: [] });
     }
     const method = new URL(url).pathname.replace("/api/", "");
     const args = Object.fromEntries(init.body);
@@ -1095,7 +1082,7 @@ test("Resync links the task's notes and thread pages on the card, and reads its 
   ]);
   assert.deepEqual(JSON.parse(rows[1].files as string), [{ name: "a.png", permalink: "https://acme.slack.com/files/a.png" }]);
 
-  // Again: nothing is stored twice, and Google is never involved.
+  // Again: nothing is stored twice.
   calls.length = 0;
   await runTasksCommand(`resync ${messageLink("CDEV", RESYNC_TS)}`, "CDEV", env);
   assert.equal((await storedMessages()).length, 2);
@@ -1113,15 +1100,13 @@ test("a new task has its thread stored as it is created, and its card links both
 });
 
 test("a reply is stored at once, only from a tracked task's thread, and not twice", async (t) => {
-  const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })] });
+  mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })] });
   await seeded;
   await send("/slack/events", reply("UREX", "100.6", "in the thread"));
   await send("/slack/events", reply("UREX", "100.6", "in the thread"));
   await send("/slack/events", threadEvent("not a task", { thread_ts: "999.1", ts: "100.8" }));
   await send("/slack/events", threadEvent("joined", { subtype: "channel_join", ts: "100.9" }));
   assert.deepEqual((await storedMessages()).map((row) => [row.task_ts, row.ts, row.text]), [["100.1", "100.6", "in the thread"]]);
-  // Nothing goes to Google, or anywhere, to store it.
-  assert.ok(!calls.some((call) => call.method === "doc"));
 });
 
 // Presses a button in Cade's web pages modal (see commands/configure.js) as `user`, with the calls of the last
@@ -2703,35 +2688,29 @@ test("npm run dev passes its settings to Wrangler as a quoted .env file", async 
   const { envFile } = await import("../scripts/dev.ts");
   const pairs = JSON.stringify([{ name: "acme", channel: "C0000000002" }]);
   assert.equal(
-    envFile({ PROJECTS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", GOOGLE_URL: undefined }),
+    envFile({ PROJECTS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", PUBLIC_URL: undefined }),
     `PROJECTS='${pairs}'\nTIMEZONE='UTC'\nSLACK_BOT_TOKEN='xoxb-1'`,
   );
   assert.throws(() => envFile({ SLACK_SIGNING_SECRET: "it's" }), /can't contain a quote/);
 });
 
-test("npm run dev asks for the Google web app's secret only with its URL", async () => {
+test("npm run dev asks for Slack's two secrets", async () => {
   const { SECRETS } = await import("../scripts/dev.ts");
-  const googleSecret = SECRETS.find(({ name }) => name === "GOOGLE_SECRET");
-  assert.equal(googleSecret.when({}), false);
-  assert.equal(googleSecret.when({ GOOGLE_URL: "https://script.google.com/x" }), true);
+  assert.deepEqual(SECRETS.map(({ name }) => name), ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"]);
   assert.deepEqual(SECRETS.filter((secret) => !secret.optional && !secret.when).map(({ name }) => name), [
     "SLACK_BOT_TOKEN",
     "SLACK_SIGNING_SECRET",
   ]);
 });
 
-test("cade.config.json can hold the Google web app's address and each group's doc", async () => {
+test("cade.config.json refuses googleUrl and workDoc, which went with executive summaries", async () => {
   const { readConfig } = await import("../scripts/config.ts");
-  const doc = "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit";
-  const projects = [{ name: "acme", channel: "C0000000002", workDoc: doc }];
-  const googleUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
-  const secrets = readConfig(JSON.stringify({ projects, googleUrl }));
-  assert.equal(secrets.GOOGLE_URL, googleUrl);
-  assert.equal(JSON.parse(secrets.PROJECTS)[0].workDoc, doc);
-  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], workDoc: "acme doc" }] })), /acme's workDoc should be a Google Doc's address/);
-  assert.throws(() => readConfig(JSON.stringify({ projects, googleUrl: doc })), /googleUrl should be the web app URL/);
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  assert.throws(() => readConfig(JSON.stringify({ projects, googleUrl: "https://script.google.com/macros/s/AKfy-abc/exec" })), /googleUrl is no longer a setting.*Delete it/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], workDoc: "https://docs.google.com/document/d/x/edit" }] })), /acme's workDoc is no longer a setting.*Delete it/);
+  assert.equal(readConfig(JSON.stringify({ projects })).GOOGLE_URL, undefined);
   // The old settings, and the secret, stay out of the file.
-  assert.throws(() => readConfig(JSON.stringify({ projects, sheetUrl: googleUrl })), /has "sheetUrl"/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, sheetUrl: "x" })), /has "sheetUrl"/);
   assert.throws(() => readConfig(JSON.stringify({ projects, googleSecret: "s" })), /has "googleSecret"/);
 });
 
@@ -2816,58 +2795,19 @@ test("messages about work already in hand suggest nothing", async (t) => {
   }
 });
 
-test("npm run google:create makes Secret.gs, finds the deployment and sets googleUrl", async () => {
-  const { deploymentIdIn, secretFile, webAppUrl, withGoogleUrl } = await import("../scripts/google-app.ts");
-  const secret = "a".repeat(64);
-  assert.match(secretFile(secret), new RegExp(`^// .*GOOGLE_SECRET.*\\nconst SECRET = "${secret}";\\n$`));
-  assert.throws(() => secretFile("short"), /long and hex/);
-
-  // clasp prints the HEAD deployment too; the new one is wanted.
-  const output = "Deployed AKfycbHEAD000000000000000000000 @HEAD\nDeployed AKfycbNEW1111111111111111111111-x @1\n";
-  assert.equal(deploymentIdIn(output), "AKfycbNEW1111111111111111111111-x");
-  assert.equal(deploymentIdIn("nothing here"), undefined);
-  assert.equal(webAppUrl("AKfycbNEW1"), "https://script.google.com/macros/s/AKfycbNEW1/exec");
-
-  // Other settings in cade.config.json are kept.
-  const config = JSON.parse(withGoogleUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
-  assert.deepEqual(config, { timezone: "UTC", channels: [], googleUrl: "https://script.google.com/macros/s/X/exec" });
-});
-
-test("the Google web app checks SECRET from Secret.gs, and each action has its function", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const read = (file) => readFile(new URL(`../google/${file}`, import.meta.url), "utf8");
-  const code = await read("Code.gs");
-  assert.match(code, /body\.secret !== secret/);
-  assert.match(code, /function authorize\(\)/);
-  const all = [code, await read("Doc.gs")].join("\n");
-  // The secret is checked from the SECRET property, which Secret.gs's SECRET fills on the first request.
-  assert.match(code, /getProperty\("SECRET"\)[\s\S]*typeof SECRET !== "undefined"[\s\S]*setProperty\("SECRET"/);
-  // secret.status is answered before the secret is checked: it says only whether it is stored.
-  assert.match(code, /body\.action === "secret\.status"\) return reply\(\{ ok: true, stored: Boolean\(secret\) \}\)/);
-  // Each action calls a function one of the files defines.
-  const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["doc.write", "doc.read", "doc.create"]);
-  for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
-    assert.match(all, new RegExp(`function ${name}\\(`), name);
-  }
-  const ignore = await read(".claspignore");
-  assert.deepEqual(ignore.split("\n").filter((line) => line.startsWith("!")), ["!Code.gs", "!Doc.gs", "!Secret.gs", "!appsscript.json"]);
-});
-
 test("the Slack app's description fits Slack's 140 characters", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
   assert.ok(template.display_information.description.length <= 140);
 });
 
-test("npm run setup leaves secrets to the scripts it runs, and asks for the one token it needs hidden", async () => {
+test("npm run setup leaves secrets and tokens to the scripts it runs", async () => {
   const { readFile } = await import("node:fs/promises");
   const script = await readFile(new URL("../scripts/setup.ts", import.meta.url), "utf8");
   // It sets no secrets itself.
   assert.doesNotMatch(script, /secret put/);
-  // The only token it asks for (the Slack bot token, to name the Google account after the workspace) is
-  // typed hidden, so a pasted token isn't shown, never through the plain prompt.
-  assert.deepEqual([...script.matchAll(/askHidden\("([^"]*)"/g)].map(([, question]) => question.split(" (")[0]), ["Slack bot token"]);
+  // Nor does it ask for a token: slack:create does, hidden.
+  assert.doesNotMatch(script, /askHidden/);
   assert.doesNotMatch(script, /ask\([^)]*token/i);
   const guide = await readFile(new URL("../GETTING_STARTED.md", import.meta.url), "utf8");
   assert.match(guide, /npm run setup/);
@@ -4508,17 +4448,6 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
   assert.match(markdown, /The last 50 done, most recently first\./);
 });
 
-test("a period's days start and end in TIMEZONE", async () => {
-  const { dayBoundary } = await import("../src/summaries.ts");
-  const colombo = { TIMEZONE: "Asia/Colombo" };
-  assert.equal(dayBoundary(colombo, "2026-10-25"), "2026-10-24T18:30:00.000Z");
-  assert.equal(dayBoundary(colombo, "2026-10-25", { end: true }), "2026-10-25T18:29:59.999Z");
-  assert.equal(dayBoundary({}, "2026-10-25"), "2026-10-25T00:00:00.000Z");
-  // Across a change of clocks, in London.
-  assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25"), "2026-10-24T23:00:00.000Z");
-  assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25", { end: true }), "2026-10-25T23:59:59.999Z");
-});
-
 // Clicks `actionId` on a private question, as posted or sent to a
 // response_url, as UACTOR. Returns what was sent to its response_url.
 async function answerPrivately(t, question, actionId, environment = env) {
@@ -5565,15 +5494,6 @@ test("changes that are not about people ask no one", () => {
   assert.deepEqual(changeRequests(changed({ status: { from: "TODO", to: "IN_PROGRESS" } })), []);
 });
 
-test("setup suggests a separate Google account for Cade", async () => {
-  const { cadeGmail, googleSignupUrl } = await import("../scripts/setup.ts");
-  assert.match(cadeGmail("Acme Inc."), /^cade\.acmeinc\.[a-z]{6}@gmail\.com$/);
-  assert.match(cadeGmail(), /^cade\.[a-z]{6}@gmail\.com$/);
-  assert.equal(cadeGmail("Acme", () => 0), "cade.acme.aaaaaa@gmail.com");
-  assert.ok(cadeGmail("A very long workspace name indeed").length - "@gmail.com".length <= 30);
-  assert.match(googleSignupUrl("cade.abcdef@gmail.com"), /^https:\/\/accounts\.google\.com\/.*Email=cade\.abcdef$/);
-});
-
 test("the Home tab's Refresh button draws it again", async (t) => {
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [storedTask({ owners: ["UME"] })] });
   const body = interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:refresh" }] });
@@ -5581,12 +5501,6 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   const [publish] = calls.filter((call) => call.method === "views.publish");
   assert.equal(publish.args.user_id, "UME");
   assert.match(publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n"), /Fix login/);
-
-  // The script is named after the Slack workspace.
-  const { scriptTitle } = await import("../scripts/google-app.ts");
-  assert.equal(scriptTitle("Acme Inc"), "Cade_Acme Inc");
-  assert.equal(scriptTitle("A/B <x>"), "Cade_A-B -x-");
-  assert.equal(scriptTitle(undefined), "Cade");
 
   // npm run setup reads the Worker's URL from the deploy, and .
   const { workerUrlIn } = await import("../scripts/setup.ts");
@@ -5687,24 +5601,6 @@ test("scripts keep a deployment's files in CADE_DEPLOY_DIR, and in the checkout 
   assert.equal(show({ CADE_DEPLOY_DIR: "/tmp/acme-deploy" }).HOME, "/tmp/acme-deploy/");
 });
 
-test("callWebApp follows Apps Script's redirect, and secretIn reads Secret.gs", async () => {
-  const { callWebApp, secretIn } = await import("../scripts/google-call.ts");
-  const calls = [];
-  const fetchImpl = async (url, init) => {
-    calls.push({ url, body: init?.body && JSON.parse(init.body) });
-    return url === "https://script.google.com/exec"
-      ? { status: 302, headers: { get: () => "https://script.googleusercontent.com/echo" } }
-      : { status: 200, json: async () => ({ ok: true, stored: true }) };
-  };
-  assert.deepEqual(await callWebApp("https://script.google.com/exec", "ab12", "secret.status", {}, fake(fetchImpl)), { ok: true, stored: true });
-  assert.deepEqual(calls[0].body, { secret: "ab12", action: "secret.status" });
-  assert.equal(calls[1].url, "https://script.googleusercontent.com/echo");
-  const html = async () => ({ status: 401, json: async () => { throw new Error("not json"); } });
-  assert.deepEqual(await callWebApp("https://x", "s", "a", {}, fake(html)), { ok: false, error: "HTTP 401" });
-  assert.equal(secretIn('// x\nconst SECRET = "abc123";\n'), "abc123");
-  assert.equal(secretIn(""), undefined);
-});
-
 // ---- Buttons and forms from older messages ----
 
 // A button's or form's payload that no longer fits what the handler reads (see payloads.ts) is told
@@ -5766,7 +5662,7 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
   const acme = { name: "acme", channel: "C0000000002" };
   for (const [config, problem] of [
     // A setting on a project the Worker doesn't read, misspelt or from an older format.
-    [{ projects: [{ ...acme, summaryCanvass: true }] }, /project acme: summaryCanvass isn't something this takes; it takes name, channel, workDoc, taskChangeDetection/],
+    [{ projects: [{ ...acme, summaryCanvass: true }] }, /project acme: summaryCanvass isn't something this takes; it takes name, channel, taskChangeDetection/],
     [{ projects: [{ ...acme, sheet: "https://docs.google.com/spreadsheets/d/x/edit" }] }, /project acme: sheet isn't something this takes/],
     // A project's people are its channel's, so they aren't listed.
     [{ projects: [{ ...acme, members: ["UANN"] }] }, /project acme: members isn't something this takes/],
@@ -5778,7 +5674,7 @@ test("npm run config refuses what cade.config.json can't say, such as a misspelt
     assert.throws(() => readConfig(JSON.stringify(config)), problem, JSON.stringify(config));
   }
   // What it does take is uploaded as it was.
-  const members = { ...acme, workDoc: "https://docs.google.com/document/d/abcdefghijklmnopqrstuvwxyz/edit", summaryCanvas: true };
+  const members = { ...acme, summaryCanvas: true };
   assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects: [members], mcp: true })).PROJECTS), [members]);
 });
 

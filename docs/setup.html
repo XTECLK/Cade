@@ -33,7 +33,7 @@
     <div class="eyebrow">Set up</div>
     <h1>Set up Cade in minutes. One command guides you.</h1>
     <p class="lede">
-      You get one Cloudflare Worker, one Slack app and, if you like, a Google Doc for executive summaries. There's no server
+      You get one Cloudflare Worker and one Slack app. There's no server
       to run. One command, <code>npm run setup</code>, does the setup with you: it runs each step, checks it worked, and
       stops whenever it needs you to click something.
     </p>
@@ -78,7 +78,7 @@ cd cade-deploy</code></pre>
             <h3>Follow along</h3>
             <p class="lede" style="font-size: .98rem;">Each step says what it's doing. It stops and tells you exactly what to do when a step needs a person:</p>
             <ul>
-              <li>Logging in to Cloudflare, and to Google for the Doc, in your browser</li>
+              <li>Logging in to Cloudflare in your browser</li>
               <li>Making a Slack app configuration token, and installing the app</li>
               <li>Giving the first admin's Slack member ID. Then, in Slack, you create a channel, invite Cade, and click Add project on its Home tab</li>
             </ul>
@@ -103,7 +103,6 @@ cd cade-deploy</code></pre>
           <li>Node.js 20 or newer, and git</li>
           <li>A Cloudflare account (the free plan is enough)</li>
           <li>A Slack workspace where you can create apps</li>
-          <li>Optional: a Google account, for executive summaries</li>
         </ul>
       </div>
       <div class="box safe">
@@ -117,7 +116,7 @@ cd cade-deploy</code></pre>
 <section class="alt">
   <div class="wrap">
     <div class="eyebrow">What the setup does</div>
-    <h2>Nine steps, most of them done for you</h2>
+    <h2>Eight steps, most of them done for you</h2>
     <p class="lede">Steps marked <b style="color: var(--amber);">You</b> need a click in your browser; the setup waits for you.</p>
     <ol class="checklist">
       <li>Get the code and run the tests</li>
@@ -127,7 +126,6 @@ cd cade-deploy</code></pre>
       <li>Create the Slack app</li>
       <li>Install the app and store its token<span class="you">You</span></li>
       <li>Set up the channels</li>
-      <li>Optional: the Google Doc</li>
       <li>Check it works</li>
     </ol>
     <div class="more">

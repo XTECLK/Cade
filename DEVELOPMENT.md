@@ -25,8 +25,7 @@ npm run check       # the type check, then the whole suite, in a few seconds, wi
 npm run setup       # Cloudflare login, the Worker, the Slack app, your first group
 ```
 
-`npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and asks for the first admin. The Worker is named `cade`, so use a Cloudflare account of its own for development. The Google Doc step is optional; skip
-it unless you're working on the executive summary tools. Then create a channel, invite Cade with `/invite @Cade`, and add it as a project from the app's Home tab.
+`npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and asks for the first admin. The Worker is named `cade`, so use a Cloudflare account of its own for development. Then create a channel, invite Cade with `/invite @Cade`, and add it as a project from the app's Home tab.
 [GETTING_STARTED.md](GETTING_STARTED.md) has every step by hand.
 
 When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in it, ignored by git. A team's real deployment keeps them in its own repo, made from the [cade-deploy](https://github.com/XTECLK/cade-deploy) template, which sets `CADE_DEPLOY_DIR` to point the scripts there (see `scripts/paths.ts`).
@@ -108,13 +107,11 @@ Other scripts:
 
 | Script | Does |
 | --- | --- |
-| `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, Google, then your first group |
-| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `GOOGLE_URL`, `MCP`) |
+| `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, then your first group |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `ADMINS`, `AI_MODEL_NAME`, `MCP`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
-| `npm run google:create` | Creates the Google web app (each group's executive-summary Doc) with clasp, and gives the Worker its address and secret |
-| `npm run google:update` | Pushes `google/` and redeploys it to the same address |
 
 ## How it works
 
@@ -219,15 +216,12 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/channels.ts` | `PROJECTS`: each group's dev channel |
 | `src/intents.ts` | Recognising intents in plain messages |
 | `src/slack.ts` | Calling Slack, Block Kit helpers, acknowledgements |
-| `src/google.ts` | Calling the Google web app |
 | `src/format.ts` | Times in `TIMEZONE`, and Slack users' names |
 | `src/export.ts` | Keeping each tracked thread's messages in D1 (`messages`) |
 | `src/notes.ts`, `src/links.ts` | A task's notes page and the addresses of its pages |
 | `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, Edit under Projects in Settings (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
 | `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
-| `src/doc.ts` | Writing executive summaries to each group's Google Doc, and reading them back |
-| `google/` | The Google web app's Apps Script (`Code.gs`, `Doc.gs`, `appsscript.json`), and `Secret.gs`, uncommitted, which only a new web app is pushed with |
-| `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
+| `scripts/` | `config`, `dev`, `group`, and `slack-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
@@ -265,8 +259,10 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   counted in `mcp_calls`); over it, the call is refused with how many seconds to wait.
 - **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
   above) and `outputSchema`. A result is text and `structuredContent` matching the schema, so IDs chain into the next
-  call. The tools read tasks, threads, people, projects, availability, releases and executive summaries, and write
-  tasks, task messages, releases, approval requests and summaries. The full list, with every argument, is
+  call. The tools read tasks, threads, people, projects, availability and releases, and write
+  tasks, task messages, releases, approval requests and task summaries. Work that is a team's own, such as an
+  executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
+  [docs/workflows.html](docs/workflows.html). The full list, with every argument, is
   [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
   fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`: it takes its arguments as
   `src/mcp-args.ts` types them, which `npm run docs` also makes from the `inputSchema`, so the schema the agent

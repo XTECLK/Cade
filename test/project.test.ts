@@ -19,9 +19,6 @@ const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   PROJECTS: [{ name: "acme", channel: "CDEV", summaryCanvas: true }],
-  // Every project has a Google Doc, which the Add project button has the web app make.
-  GOOGLE_URL: "https://script.google.com/macros/s/test/exec",
-  GOOGLE_SECRET: "g",
   // Only these can add projects and open the settings form.
   ADMINS: JSON.stringify(["UADMIN"]),
 } as unknown as AppEnv;
@@ -36,15 +33,10 @@ async function sign(body) {
 }
 
 // A fake Slack API: `slack` maps a method to its result (or a function of its arguments).
-function mock(t: TestContext, slack: Record<string, unknown> = {}, google: (body: any) => unknown = () => ({ ok: true, id: "1NewDocNewDocNewDocNewDocNewDoc" })) {
+function mock(t: TestContext, slack: Record<string, unknown> = {}) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
-    if (url === env.GOOGLE_URL) {
-      const body = JSON.parse(init.body);
-      calls.push({ method: `google:${body.action}`, args: body });
-      return Response.json(google(body));
-    }
     const method = new URL(url).pathname.split("/").pop();
     const args = Object.fromEntries(new URLSearchParams(init.body));
     calls.push({ method, args });
@@ -138,40 +130,25 @@ test("Add project refuses a non-admin, a taken or bad name and a private channel
   assert.match((await answer(addForm({ name: "Acme" }))).errors.name, /project called Acme already/);
   assert.match((await answer(addForm({ name: "$$$" }))).errors.name, /up to 40 letters/);
   assert.match((await answer(addForm({ channel: "CPRIV" }))).errors.channel, /invite me with \/invite @Cade/i);
-  assert.equal(calls.some((call) => call.method === "google:doc.create"), false);
   // A public channel Cade isn't in yet is joined.
   await answer(addForm({ name: "Billing team" }));
   assert.ok(calls.some((call) => call.method === "conversations.join" && call.args.channel === "CNEW"));
   assert.match(lastNotice(calls), /now the project \*Billing team\*/);
 });
 
-test("Add project makes the project's Google Doc first, and keeps it with the project", async (t) => {
-  const docId = "1PaymentsDocPaymentsDocPayments";
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING }, () => ({ ok: true, id: docId }));
-  await answer(addForm());
-  assert.match(lastNotice(calls), new RegExp(`https://docs\\.google\\.com/document/d/${docId}/edit\\|a Google Doc`));
-  assert.deepEqual(calls.filter((call) => call.method.startsWith("google:")).map((call) => [call.method, call.args.title]), [["google:doc.create", "payments executive summaries"]]);
+test("Add project adds nothing, saying why, when the channel can't be joined", async (t) => {
+  const failing = { "conversations.info": { channel: { name: "payments", is_member: false } }, ...ADDING, "conversations.join": new Error("is_archived") };
+  const calls = mock(t, failing);
   const { withSettings } = await import("../src/settings.ts");
-  assert.equal(projects(await withSettings(env)).find((p) => p.channel === "CNEW").workDoc, docId);
-});
-
-test("Add project needs Google set up, and adds nothing, saying why, when the doc can't be made", async (t) => {
-  const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING }, () => ({ ok: false, error: "quota" }));
-  const { withSettings } = await import("../src/settings.ts");
-  // The doc can't be made: the project isn't added, and the admin is told in the form.
   await answer(addForm());
-  assert.match(lastNotice(calls), /:x: I couldn't add \*payments\*: I couldn't make the project's Google Doc just now \(Google web app refused doc\.create: quota\)\. Nothing was added/);
+  assert.match(lastNotice(calls), /:x: I couldn't add \*payments\*: .*is_archived.*Nothing was added/);
   assert.deepEqual(projects(await withSettings(env)).map((p) => p.name), ["acme"]);
   // If the form was closed before then, the admin is told in a message from Cade instead.
-  const closed = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING, "views.update": new Error("not_found"), "chat.postMessage": {} }, () => ({ ok: false, error: "quota" }));
+  const closed = mock(t, { ...failing, "views.update": new Error("not_found"), "chat.postMessage": {} });
   await answer(addForm());
   const message = closed.find((call) => call.method === "chat.postMessage");
   assert.match(message.args.text, /couldn't add \*payments\*/);
   assert.equal(message.args.channel, "UADMIN");
-  // Without Google, it does not work, and nothing else is asked of Slack.
-  const bare = mock(t);
-  assert.match((await answer(addForm(), { ...env, GOOGLE_URL: undefined })).errors.channel, /Google web app isn't set up yet: run `npm run google:create`/);
-  assert.equal(bare.length, 0);
 });
 
 // The Project settings button in Configure on the Home tab (see home.js), pressed as `user`.

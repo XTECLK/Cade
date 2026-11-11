@@ -16,7 +16,6 @@ export const PROJECT_SCHEMA: Schema = {
   properties: {
     name: { type: "string" },
     channel: { type: "string", pattern: "^[CG][A-Z0-9]{8,}$", description: "a Slack channel ID, such as C0123ABCD" },
-    workDoc: { type: "string" },
     taskChangeDetection: SWITCH,
     newTaskDetection: SWITCH,
     aiAgentSummary: SWITCH,
@@ -32,7 +31,6 @@ export const CONFIG_SCHEMA: Schema = {
   properties: {
     projects: { type: "array", items: { type: "object" } },
     timezone: { type: "string" },
-    googleUrl: { type: "string" },
     mcp: { type: "boolean" },
     admins: { type: "array", items: { type: "string", pattern: "^[UW][A-Z0-9]{2,}$", description: "a Slack user ID, such as U0123ABCD" } },
     aiModel: { type: "string" },

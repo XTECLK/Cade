@@ -1,7 +1,5 @@
 import { projects } from "../channels.ts";
 import { addProject, setHomeProject } from "../db.ts";
-import { ensureWorkDoc } from "../doc.ts";
-import { googleEnabled } from "../google.ts";
 import { ADD_PROJECT_ACTION, SETTINGS_ACTION, publishHome } from "../home.ts";
 import { channelMembers } from "../access.ts";
 import { SETTINGS, applySettings, choicesOf, configEnv, isAdmin, settingOn, withSettings } from "../settings.ts";
@@ -18,9 +16,7 @@ const ADD_VIEW = "project:add";
 //   Add project       opens a form: a channel, a name (the channel's own by default) and each switch (see
 //                     settings.ts). Who works on it is whoever is in the channel. Submitting checks them, and then makes the project
 //                     as one added to cade.config.json would be: its tasks are tracked in that channel (see
-//                     channels.ts). Every project has a Google Doc for its executive summaries, made first
-//                     (so Google must be set up): without it nothing is added. The form turns into
-//                     "Adding…", then says whether it worked, and why not. The name and channel can't be
+//                     channels.ts). The form turns into "Adding…", then says whether it worked, and why not. The name and channel can't be
 //                     changed afterwards.
 //   Project settings  opens a form with the switches of the project picked on the Home tab, each following
 //                     the config or turned on or off.
@@ -29,8 +25,6 @@ export default {
   views: { [SETTINGS_VIEW]: saveSettings, [ADD_VIEW]: addProjectSubmit },
   actions: { [SETTINGS_ACTION]: openSettings, [ADD_PROJECT_ACTION]: openAddProject },
 } satisfies Handler;
-
-const NO_GOOGLE = "Every project keeps its executive summaries in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md), then try again.";
 
 const CHOICES = { config: "Use the config", on: "On", off: "Off" };
 const state = (on: boolean | "some") => (on === "some" ? "partly on" : on ? "on" : "off");
@@ -175,7 +169,7 @@ async function openAddProject(payload: SlackPayload, { env }: Context) {
 }
 
 // The form submitted: what can be checked quickly is, and a problem is shown on its field. Then the form
-// turns into "Adding…" and the rest follows, as making the Google Doc can take longer than Slack waits.
+// turns into "Adding…" and the rest follows, as joining the channel and saving can take longer than Slack waits.
 async function addProjectSubmit(payload: SlackPayload, context: Context) {
   const { env } = context;
   const user = payload.user.id;
@@ -187,7 +181,6 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
 
   const existing = projects(env).find((project) => project.channel === channel);
   if (existing) return { response_action: "errors", errors: { channel: `This channel is the project ${existing.name} already.` } };
-  if (!googleEnabled(env)) return { response_action: "errors", errors: { channel: NO_GOOGLE } };
   let info;
   try {
     ({ channel: info } = await callSlack(env, "conversations.info", { channel }));
@@ -202,7 +195,7 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
   }
 
   context.waitUntil(createProject(env, { channel: channel!, name, choices, joined: info.is_member }, user, payload.view.id));
-  return { response_action: "update", view: notice("Add project", `:hourglass_flowing_sand: Adding *${name}*… This takes a few seconds, as its Google Doc is made first.`) };
+  return { response_action: "update", view: notice("Add project", `:hourglass_flowing_sand: Adding *${name}*…`) };
 }
 
 // Makes the project and says how it went in the form, which Slack keeps showing until it's closed. If it
@@ -217,21 +210,13 @@ async function createProject(
   let text;
   try {
     if (!joined) await callSlack(env, "conversations.join", { channel });
-    // Its Google Doc, for executive summaries, is made first: without it the project isn't added.
-    let doc;
-    try {
-      doc = await ensureWorkDoc(env, { name, channel }, user);
-    } catch (error) {
-      console.error("Could not make a work doc", { name, error: error.message });
-      throw new Error(`I couldn't make the project's Google Doc just now (${error.message})`);
-    }
     await addProject(env, channel, name, user);
     // The project is known to the rest of the code once the database says so.
     const added = await withSettings(env);
     await applySettings(added, channel, choices, user);
     await setHomeProject(env, user, name);
     console.log("Project added", { name, channel, by: user });
-    text = `:white_check_mark: <#${channel}> is now the project *${name}*. Tasks made from messages can be tracked there with \`/cade task\`. Its executive summaries go in <https://docs.google.com/document/d/${doc}/edit|a Google Doc> I made for it (anyone with the link can view it; share it as Editor with whoever goes through the summaries).`;
+    text = `:white_check_mark: <#${channel}> is now the project *${name}*. Tasks made from messages can be tracked there with \`/cade task\`.`;
   } catch (error) {
     console.error("Could not add the project", { name, channel, error: error.message });
     text = `:x: I couldn't add *${name}*: ${error.message}. Nothing was added, so you can try again.`;

@@ -48,6 +48,7 @@
     <h3>Cursor, Codex and other clients</h3>
     <p>Add a remote MCP server with the endpoint and the header <code>x-apikey</code> set to your key. The Claude.ai and Gemini web apps can't send a custom header, so they can't connect yet.</p>
     <p><b>3.</b> Ask your agent something like "list my Cade tasks". Everything runs as you, so it reads only what you can read, and anything that changes a task or posts a message is shown to you first.</p>
+    <p>Reports such as a task's summary or an executive summary for a client are workflows your agent runs with these tools: see <a href="workflows.html">Workflows</a>.</p>
   </div>
 </section>
 
@@ -616,7 +617,7 @@
 <section class="tool" id="send_thread_message">
   <div class="wrap">
     <h2><code>send_thread_message</code></h2>
-    <p>Posts a message in a Slack thread as Cade, led by who it is from and with a &quot;Sent using AI agent&quot; footer: a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. If you can also post as the person with Slack tools of your own, ask them which they want first; with summary_id, always use this. In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. Without Slack tools of your own, use this and say how it will show. Preview: the task, or the channel and link of a thread that isn't a task, the whole message as it will be posted, and whether it goes as the person or via Cade. Call this only with text the person has seen and approved.</p>
+    <p>Posts a message in a Slack thread as Cade, led by who it is from and with a &quot;Sent using AI agent&quot; footer: a task's own thread, or any other thread in a channel the person is in. A mention notifies that person; @channel, @here and @everyone are not sent as mentions. If you can also post as the person with Slack tools of your own, ask them which they want first. In a task's thread, check first whether the message or the work means the task's status or pull requests should change, and offer that with update_task in the same preview: Cade suggests nothing from an agent's message. Without Slack tools of your own, use this and say how it will show. Preview: the task, or the channel and link of a thread that isn't a task, the whole message as it will be posted, and whether it goes as the person or via Cade. Call this only with text the person has seen and approved.</p>
     <p>Give one of <code>thread_id</code> or <code>link</code>.</p>
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -625,7 +626,6 @@
 <tr><td><code>thread_id</code></td><td>string</td><td></td><td>The thread's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100. A task's ID is its thread's</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>Instead of thread_id: a link to a message in the thread, such as https://team.slack.com/archives/C0123ABCD/p1700000000123456</td></tr>
 <tr><td><code>text</code></td><td>string</td><td>yes</td><td>The message, as plain text, written as the person would. Mention a person as &lt;@U0123ABCD&gt;, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most 3000 characters</td></tr>
-<tr><td><code>summary_id</code></td><td>integer</td><td></td><td>An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread · min 1</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -725,167 +725,6 @@
 <tr><td><code>toolset_version</code></td><td>string</td><td>yes</td><td>The version of the tool set the server has now: it changes whenever a tool, a description or the instructions change</td></tr>
 <tr><td><code>session_toolset_version</code></td><td>string</td><td>yes</td><td>The version of the tool set this session loaded when it connected, or empty if the client doesn't say</td></tr>
 <tr><td><code>status</code></td><td>string: CURRENT | OUTDATED | UNKNOWN</td><td>yes</td><td>CURRENT: this session has the latest tools; OUTDATED: the person should disconnect and connect again; UNKNOWN: the client doesn't say which it loaded</td></tr>
-</tbody>
-</table></div>
-  </div>
-</section>
-
-<section class="tool" id="get_executive_summary">
-  <div class="wrap">
-    <h2><code>get_executive_summary</code></h2>
-    <p>Reads an executive summary Cade kept of a project: what it said of each task as written and as agreed after the client call, and whether each task's thread has been told. It is where to start to write the next summary: its period ends where the next begins, and get_tasks (completed_from, completed_to, include_open) gives the tasks to cover.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project, by the name get_projects gives</td></tr>
-<tr><td><code>date</code></td><td>string</td><td></td><td>The summary in force on that day. Default: the last one (YYYY-MM-DD)</td></tr>
-</tbody>
-</table></div>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
-<tr><td><code>summary</code></td><td>object or null</td><td>yes</td><td>The summary, or null if the project has none yet</td></tr>
-<tr><td><code>summary.summary_id</code></td><td>integer</td><td></td><td>For get_executive_summary_doc and update_executive_summary_after_call</td></tr>
-<tr><td><code>summary.created_at</code></td><td>string</td><td></td><td>When it was written (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>summary.created_by</code></td><td>string</td><td></td><td>Who wrote the summary: a Slack user ID, show the name, not the ID</td></tr>
-<tr><td><code>summary.from</code></td><td>string</td><td></td><td>First day of its period (YYYY-MM-DD)</td></tr>
-<tr><td><code>summary.to</code></td><td>string</td><td></td><td>Last day of its period (YYYY-MM-DD)</td></tr>
-<tr><td><code>summary.doc_url</code></td><td>string</td><td></td><td>Where it is in the Google Doc</td></tr>
-<tr><td><code>summary.call</code></td><td>object or null</td><td></td><td>What was said of the call as a whole, or null until it was recorded</td></tr>
-<tr><td><code>summary.call.notes</code></td><td>string</td><td></td><td>What was said of the call</td></tr>
-<tr><td><code>summary.call.recorded_by</code></td><td>string</td><td></td><td>Who recorded the call: a Slack user ID, show the name, not the ID</td></tr>
-<tr><td><code>summary.call.recorded_at</code></td><td>string</td><td></td><td>When it was recorded (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>summary.items</code></td><td>object[]</td><td></td><td>Each task with the summary as written (before) and as agreed after the call (after) · A task's line in the summary</td></tr>
-<tr><td><code>summary.items[].task_id</code></td><td>string</td><td>yes</td><td>Empty for something added in the call that has no task</td></tr>
-<tr><td><code>summary.items[].title</code></td><td>string</td><td>yes</td><td>The task's title when it was written</td></tr>
-<tr><td><code>summary.items[].status</code></td><td>string</td><td>yes</td><td>Its status when it was written</td></tr>
-<tr><td><code>summary.items[].incident</code></td><td>boolean</td><td>yes</td><td>Whether the task is an incident</td></tr>
-<tr><td><code>summary.items[].kind</code></td><td>string: COMPLETED | ACTIVE | ADDED</td><td>yes</td><td>COMPLETED: done in the period; ACTIVE: not done; ADDED: added in the call</td></tr>
-<tr><td><code>summary.items[].before</code></td><td>object or null</td><td>yes</td><td>As written; null for what the call added</td></tr>
-<tr><td><code>summary.items[].before.included</code></td><td>boolean</td><td></td><td>Whether the summary mentions it</td></tr>
-<tr><td><code>summary.items[].before.health</code></td><td>string or null: ON_TRACK | AT_RISK | DELAYED | BLOCKED | </td><td></td><td>For active work</td></tr>
-<tr><td><code>summary.items[].before.progress</code></td><td>string</td><td></td><td>Short free text, such as 3/5</td></tr>
-<tr><td><code>summary.items[].before.notes</code></td><td>string</td><td></td><td>One point per line</td></tr>
-<tr><td><code>summary.items[].after</code></td><td>object or null</td><td>yes</td><td>As agreed after the call; null until the call is recorded</td></tr>
-<tr><td><code>summary.items[].after.included</code></td><td>boolean</td><td></td><td>Whether the summary mentions it</td></tr>
-<tr><td><code>summary.items[].after.health</code></td><td>string or null: ON_TRACK | AT_RISK | DELAYED | BLOCKED | </td><td></td><td>For active work</td></tr>
-<tr><td><code>summary.items[].after.progress</code></td><td>string</td><td></td><td>Short free text, such as 3/5</td></tr>
-<tr><td><code>summary.items[].after.notes</code></td><td>string</td><td></td><td>One point per line</td></tr>
-<tr><td><code>summary.items[].change</code></td><td>string: pending | unchanged | changed | removed | added</td><td>yes</td><td>pending: no call recorded yet</td></tr>
-<tr><td><code>summary.items[].informed_at</code></td><td>string</td><td>yes</td><td>When the task's thread was told about this change, or empty. Tell it only if this is empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>earlier</code></td><td>object[]</td><td>yes</td><td>The project's other summaries, newest first (at most 10) · Another summary of the project</td></tr>
-<tr><td><code>earlier[].summary_id</code></td><td>integer</td><td>yes</td><td>The executive summary's number</td></tr>
-<tr><td><code>earlier[].created_at</code></td><td>string</td><td>yes</td><td>When it was written (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>earlier[].from</code></td><td>string</td><td>yes</td><td>A day, YYYY-MM-DD</td></tr>
-<tr><td><code>earlier[].to</code></td><td>string</td><td>yes</td><td>A day, YYYY-MM-DD</td></tr>
-<tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
-</tbody>
-</table></div>
-  </div>
-</section>
-
-<section class="tool" id="get_executive_summary_doc">
-  <div class="wrap">
-    <h2><code>get_executive_summary_doc</code></h2>
-    <p>Reads a summary's section from the project's Google Doc as it reads now, after people edited it, such as in the client call. Compare it with get_executive_summary to find what the call changed, then record it with update_executive_summary_after_call.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project, by the name get_projects gives</td></tr>
-<tr><td><code>summary_id</code></td><td>integer</td><td></td><td>The summary, as get_executive_summary gives it. Default: the last one · min 1</td></tr>
-</tbody>
-</table></div>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
-<tr><td><code>summary_id</code></td><td>integer</td><td>yes</td><td>The executive summary's number</td></tr>
-<tr><td><code>doc_url</code></td><td>string</td><td>yes</td><td>Where it is in the Google Doc</td></tr>
-<tr><td><code>lines</code></td><td>object[]</td><td>yes</td><td>The section's lines, in order · A line of the section</td></tr>
-<tr><td><code>lines[].type</code></td><td>string: heading | paragraph | item</td><td>yes</td><td>What kind of line it is</td></tr>
-<tr><td><code>lines[].level</code></td><td>integer</td><td>yes</td><td>How deeply it is nested, 0 for the top</td></tr>
-<tr><td><code>lines[].text</code></td><td>string</td><td>yes</td><td>The line's text</td></tr>
-<tr><td><code>lines[].task_id</code></td><td>string</td><td>yes</td><td>The task the line links to, or empty</td></tr>
-<tr><td><code>lines[].written</code></td><td>boolean</td><td>yes</td><td>Whether Cade wrote this line (false: people added it)</td></tr>
-</tbody>
-</table></div>
-  </div>
-</section>
-
-<section class="tool" id="create_executive_summary">
-  <div class="wrap">
-    <h2><code>create_executive_summary</code></h2>
-    <p>Writes an executive summary to the top of the project's Google Doc (its Summary tab) and keeps what it says of each task. Each call writes a new one. Preview: the project, the period, and each task's line (health, progress, notes, or left out), naming the active tasks carried over from the last summary. Call this only with a summary the person has seen and approved.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project, by the name get_projects gives</td></tr>
-<tr><td><code>from</code></td><td>string</td><td></td><td>First day of the period (YYYY-MM-DD). Default: the day after the last summary's period, or 7 days ago if there is none</td></tr>
-<tr><td><code>to</code></td><td>string</td><td></td><td>Last day of the period (YYYY-MM-DD). Default: today</td></tr>
-<tr><td><code>items</code></td><td>object[]</td><td></td><td>A line for each task the person said something about. A task not listed keeps what the last summary said (an active one with none is ON_TRACK) and completed ones are included; the result names the active ones it carried over. Only tasks of the project completed in the period or not done can be listed · A task's line in the summary</td></tr>
-<tr><td><code>items[].task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>items[].included</code></td><td>boolean</td><td></td><td>Whether the summary mentions it. Default true</td></tr>
-<tr><td><code>items[].health</code></td><td>string: ON_TRACK | AT_RISK | DELAYED | BLOCKED</td><td></td><td>ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess</td></tr>
-<tr><td><code>items[].progress</code></td><td>string</td><td></td><td>Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show</td></tr>
-<tr><td><code>items[].notes</code></td><td>string</td><td></td><td>One point per line</td></tr>
-</tbody>
-</table></div>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
-<tr><td><code>summary_id</code></td><td>integer</td><td>yes</td><td>For get_executive_summary_doc and update_executive_summary_after_call</td></tr>
-<tr><td><code>from</code></td><td>string</td><td>yes</td><td>A day, YYYY-MM-DD</td></tr>
-<tr><td><code>to</code></td><td>string</td><td>yes</td><td>A day, YYYY-MM-DD</td></tr>
-<tr><td><code>doc_url</code></td><td>string</td><td>yes</td><td>Where it is in the Google Doc</td></tr>
-<tr><td><code>carried_over</code></td><td>string[]</td><td>yes</td><td>Task IDs of the active tasks you didn't list, which kept what the last summary said</td></tr>
-</tbody>
-</table></div>
-  </div>
-</section>
-
-<section class="tool" id="update_executive_summary_after_call">
-  <div class="wrap">
-    <h2><code>update_executive_summary_after_call</code></h2>
-    <p>Records the summary as it was agreed in the client call, next to the summary as it was written, so both are kept and can be compared. It posts nothing and changes no task or Google Doc. After it, tell each changed task's thread with send_thread_message (summary_id), and offer create_task, one at a time, for what the call added. Preview: the summary, each task the call changed or took out as before -&gt; after, what the call added, and the notes on the call. Call this only with what the person has seen and approved.</p>
-    
-    <h3>Arguments <small>inputSchema</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>summary_id</code></td><td>integer</td><td>yes</td><td>The summary, as get_executive_summary gives it · min 1</td></tr>
-<tr><td><code>items</code></td><td>object[]</td><td></td><td>The tasks whose health, progress, notes or inclusion the call changed (included false takes one out). The after version starts as the written one. Recording again replaces the earlier recording, but a task whose thread was told keeps that unless it changed again · A task whose line the call changed</td></tr>
-<tr><td><code>items[].task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>items[].included</code></td><td>boolean</td><td></td><td>Whether the summary mentions it</td></tr>
-<tr><td><code>items[].health</code></td><td>string: ON_TRACK | AT_RISK | DELAYED | BLOCKED</td><td></td><td>ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess</td></tr>
-<tr><td><code>items[].progress</code></td><td>string</td><td></td><td>Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show</td></tr>
-<tr><td><code>items[].notes</code></td><td>string</td><td></td><td>One point per line</td></tr>
-<tr><td><code>added</code></td><td>object[]</td><td></td><td>What the call added: a title for each, with task_id if it is already a task · Something the call added</td></tr>
-<tr><td><code>added[].title</code></td><td>string</td><td>yes</td><td>What was added</td></tr>
-<tr><td><code>added[].task_id</code></td><td>string</td><td></td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>added[].health</code></td><td>string: ON_TRACK | AT_RISK | DELAYED | BLOCKED</td><td></td><td>ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess</td></tr>
-<tr><td><code>added[].progress</code></td><td>string</td><td></td><td>Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show</td></tr>
-<tr><td><code>added[].notes</code></td><td>string</td><td></td><td>One point per line</td></tr>
-<tr><td><code>notes</code></td><td>string</td><td></td><td>Anything about the call as a whole</td></tr>
-</tbody>
-</table></div>
-    <h3>Result <small>outputSchema, in structuredContent</small></h3>
-    <div class="tablewrap"><table>
-<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
-<tbody>
-<tr><td><code>summary_id</code></td><td>integer</td><td>yes</td><td>The executive summary's number</td></tr>
-<tr><td><code>changed</code></td><td>string[]</td><td>yes</td><td>Task IDs whose summary line the call changed or took out</td></tr>
-<tr><td><code>added</code></td><td>integer</td><td>yes</td><td>How many items the call added</td></tr>
 </tbody>
 </table></div>
   </div>

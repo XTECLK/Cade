@@ -21,8 +21,6 @@ import { askHidden } from "./prompt.ts";
 export const SECRETS: { name: string; hint?: string; check?: (value: string) => boolean; when?: (settings: Record<string, string>) => boolean; optional?: boolean }[] = [
   { name: "SLACK_BOT_TOKEN", hint: "xoxb-…", check: (value) => value.startsWith("xoxb-") },
   { name: "SLACK_SIGNING_SECRET" },
-  // Asked only when cade.config.json has the Google web app's address.
-  { name: "GOOGLE_SECRET", when: (settings) => Boolean(settings.GOOGLE_URL) },
 ];
 
 // The .env file Wrangler reads: values in single quotes, so JSON such as

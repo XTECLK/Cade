@@ -157,8 +157,6 @@ export type SendThreadMessageArgs = {
   link?: string;
   // The message, as plain text, written as the person would. Mention a person as <@U0123ABCD>, with their user ID and never their name: only the ID notifies them, and a name written out notifies no one. The preview shows the name, but the call keeps the ID. At most 3000 characters
   text: string;
-  // An executive summary's number, as get_executive_summary gives it. Give it when the message tells the thread what a client call decided (see update_executive_summary_after_call): Cade then marks the task as told, and refuses to send if it was told already. Only for a task's thread
-  summary_id?: number;
 };
 
 export type UpdateTaskArgs = {
@@ -217,75 +215,6 @@ export type GetServerInfoArgs = {
 
 };
 
-export type GetExecutiveSummaryArgs = {
-  // The project, by the name get_projects gives
-  project: string;
-  // The summary in force on that day. Default: the last one (YYYY-MM-DD)
-  date?: string;
-};
-
-export type GetExecutiveSummaryDocArgs = {
-  // The project, by the name get_projects gives
-  project: string;
-  // The summary, as get_executive_summary gives it. Default: the last one
-  summary_id?: number;
-};
-
-export type CreateExecutiveSummaryArgs = {
-  // The project, by the name get_projects gives
-  project: string;
-  // First day of the period (YYYY-MM-DD). Default: the day after the last summary's period, or 7 days ago if there is none
-  from?: string;
-  // Last day of the period (YYYY-MM-DD). Default: today
-  to?: string;
-  // A line for each task the person said something about. A task not listed keeps what the last summary said (an active one with none is ON_TRACK) and completed ones are included; the result names the active ones it carried over. Only tasks of the project completed in the period or not done can be listed
-  items?: {
-    // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
-    task_id: string;
-    // Whether the summary mentions it. Default true
-    included?: boolean;
-    // ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess
-    health?: "ON_TRACK" | "AT_RISK" | "DELAYED" | "BLOCKED";
-    // Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show
-    progress?: string;
-    // One point per line
-    notes?: string;
-  }[];
-};
-
-export type UpdateExecutiveSummaryAfterCallArgs = {
-  // The summary, as get_executive_summary gives it
-  summary_id: number;
-  // The tasks whose health, progress, notes or inclusion the call changed (included false takes one out). The after version starts as the written one. Recording again replaces the earlier recording, but a task whose thread was told keeps that unless it changed again
-  items?: {
-    // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
-    task_id: string;
-    // Whether the summary mentions it
-    included?: boolean;
-    // ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess
-    health?: "ON_TRACK" | "AT_RISK" | "DELAYED" | "BLOCKED";
-    // Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show
-    progress?: string;
-    // One point per line
-    notes?: string;
-  }[];
-  // What the call added: a title for each, with task_id if it is already a task
-  added?: {
-    // What was added
-    title: string;
-    // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
-    task_id?: string;
-    // ON_TRACK, AT_RISK, DELAYED or BLOCKED, for work not done. Judge it from what the tasks and threads show, never guess
-    health?: "ON_TRACK" | "AT_RISK" | "DELAYED" | "BLOCKED";
-    // Short free text, such as 3/5 or 2 of 4 CRMs live, from what the tasks show
-    progress?: string;
-    // One point per line
-    notes?: string;
-  }[];
-  // Anything about the call as a whole
-  notes?: string;
-};
-
 // Each tool's arguments, by its name.
 export interface ToolArgs {
   get_task: GetTaskArgs;
@@ -307,8 +236,4 @@ export interface ToolArgs {
   update_task: UpdateTaskArgs;
   send_approval_request: SendApprovalRequestArgs;
   get_server_info: GetServerInfoArgs;
-  get_executive_summary: GetExecutiveSummaryArgs;
-  get_executive_summary_doc: GetExecutiveSummaryDocArgs;
-  create_executive_summary: CreateExecutiveSummaryArgs;
-  update_executive_summary_after_call: UpdateExecutiveSummaryAfterCallArgs;
 }

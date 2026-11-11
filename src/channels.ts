@@ -7,7 +7,6 @@ export interface Project {
   channel: string;
   // Whether it was added with the Add project button, not the config.
   added?: boolean;
-  workDoc?: string;
   // true, false, or the kinds of suggestion to make (see intents.ts).
   taskChangeDetection?: boolean | string[];
   newTaskDetection?: boolean;

@@ -2,6 +2,5 @@
   "timezone": "Asia/Colombo",
   "aiModel": "@cf/zai-org/glm-4.7-flash",
   "mcp": true,
-  "admins": ["U0000000001"],
-  "googleUrl": "https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec"
+  "admins": ["U0000000001"]
 }

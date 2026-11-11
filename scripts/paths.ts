@@ -1,6 +1,6 @@
 // Where the scripts find things.
 //
-//   ROOT  this checkout of Cade: the code, migrations, slack/ and google/.
+//   ROOT  this checkout of Cade: the code, migrations and slack/.
 //   HOME  where your deployment keeps its own files: cade.config.json,
 //         .cade/ (the Cloudflare account, the Slack app, the Google web app).
 //

@@ -3,12 +3,10 @@
 // checking it the way Cade reads it. Edit the file, then run `npm run config`;
 // changes take effect without a deploy. See GETTING_STARTED.md.
 //
-//   projects  each project: its Slack channel, Doc and        → PROJECTS
+//   projects  each project: its Slack channel and             → PROJECTS
 //             settings (below)
 //   timezone  for times on the web pages and summaries        → TIMEZONE
 //             (optional)
-//   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
-//             every project's Doc
 //   admins    the Slack user IDs of the people who can run        → ADMINS
 //             project settings from Slack
 //             (a Slack form); none without it
@@ -21,8 +19,6 @@
 //
 // Everything else is set on each project, not at the top of the file:
 //   name, channel (an ID) required
-//   workDoc       the project's Google Doc, for executive summaries (an
-//                 address; without it create_executive_summary can't be used)
 //   taskChangeDetection
 //                 the proactive agent: Cade reading messages in the threads
 //                 it manages and offering changes (optional, on): true, or
@@ -41,8 +37,7 @@
 //                 (optional, off)
 // A project can also be added from the Home tab, which keeps it in the database.
 //
-// The real secrets (the bot token, the signing secret and GOOGLE_SECRET,
-// which the web app's address is useless without) are set once with
+// The real secrets (the bot token and the signing secret) are set once with
 // `wrangler secret put` and kept out of files.
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -51,7 +46,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projects } from "../src/channels.ts";
 import { CONFIG_SCHEMA, PROJECT_SCHEMA } from "../src/config-schema.ts";
-import { docId } from "../src/doc.ts";
 import { validate } from "../src/validate.ts";
 import "./cloudflare.ts";
 import { HOME, ROOT } from "./paths.ts";
@@ -66,7 +60,9 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["projects", "timezone", "googleUrl", "mcp", "admins", "aiModel"];
+  // Removed with executive summaries, which a team now writes with its own AI agent's workflow.
+  if (config.googleUrl !== undefined) throw new Error("googleUrl is no longer a setting: Cade doesn't use Google any more. Delete it.");
+  const known = ["projects", "timezone", "mcp", "admins", "aiModel"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (PROJECT_SETTINGS.includes(unknown)) {
     throw new Error(`cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`);
@@ -80,14 +76,13 @@ export function readConfig(json) {
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one project.`);
-  const badWorkDoc = list.find((project) => project.workDoc !== undefined && !docId(project.workDoc));
-  if (badWorkDoc) throw new Error(`${badWorkDoc.name}'s workDoc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
 
   for (const project of list) {
     try {
       if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
       // Removed: people pin and unpin by hand, so Cade's pins didn't stay right; the summary canvas lists open tasks.
       if (project.activeTasksPinning !== undefined) throw new Error("activeTasksPinning is no longer a setting: Cade doesn't pin tasks (the summary canvas lists the open ones). Delete it.");
+      if (project.workDoc !== undefined) throw new Error("workDoc is no longer a setting: Cade doesn't write executive summaries any more. Delete it.");
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
       throw new Error(`${project.name}'s ${error.message}`);
@@ -109,12 +104,6 @@ export function readConfig(json) {
     if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
     // Both are set, so turning it back on replaces an earlier "off".
     secrets.MCP = config.mcp ? "on" : "off";
-  }
-  if (config.googleUrl !== undefined) {
-    if (!/^https:\/\/script\.google\.com\/\S+\/exec$/.test(config.googleUrl)) {
-      throw new Error("googleUrl should be the web app URL from Apps Script: https://script.google.com/…/exec.");
-    }
-    secrets.GOOGLE_URL = config.googleUrl;
   }
 
   // Then the schema, for the rest of what the file and each project may say, and nothing else: a
@@ -169,14 +158,12 @@ export async function uploadConfig() {
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
     const own = ["taskChangeDetection", "newTaskDetection", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
-    const workDoc = project.workDoc ? `, workDoc ${project.workDoc}` : "";
-    console.log(`${project.name}: channel ${project.channel}${workDoc}${own}`);
+    console.log(`${project.name}: channel ${project.channel}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.MCP) console.log(`mcp: ${secrets.MCP}`);
   console.log(`admins: ${JSON.parse(secrets.ADMINS).join(", ") || "none"}`);
   if (secrets.AI_MODEL_NAME) console.log(`aiModel: ${secrets.AI_MODEL_NAME}`);
-  if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));

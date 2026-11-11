@@ -15,10 +15,9 @@ export const SETTINGS: { key: SettingKey; label: string; about: string }[] = [
   { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
 
-// What else a project keeps in the database besides those: its work doc, which isn't changed in the
-// form (the Add project button makes it).
-// Who works on a project isn't kept: it is whoever is in its channel (see channelMembers in access.ts).
-const STORED: string[] = [...SETTINGS.map((setting) => setting.key), "workDoc"];
+// What a project keeps in the database. Who works on a project isn't kept: it is whoever is in its
+// channel (see channelMembers in access.ts).
+const STORED: string[] = SETTINGS.map((setting) => setting.key);
 
 // The env with the projects added with the Add project button and the settings changed on the admin
 // page merged into its projects, so the code that reads them (projects, groupSetting, …) needs no

@@ -110,6 +110,7 @@ Other scripts:
 | `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, then your first group |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `ADMINS`, `AI_MODEL_NAME`, `MCP`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
+| `npm run schema` | Writes `schema.sql`, the database as `migrations/` leaves it, after adding a migration |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 
@@ -222,7 +223,8 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, Edit under Projects in Settings (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
 | `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
 | `scripts/` | `config`, `dev`, `group`, and `slack-app`, behind the npm scripts above |
-| `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
+| `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
+| `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
 

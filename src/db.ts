@@ -1,10 +1,8 @@
 // Tasks are stored in D1 (the DB binding). Each is stored before its root
 // message is posted; once posted, it is found by the message's channel and
 // ts. The root message is rendered from the row
-// after every change (see saveTask). The schema is in migrations/; the
-// requirements table, and tasks' source_channel, source_thread_ts and
-// source_link, are left from when a client channel could be paired, and no
-// longer read.
+// after every change (see saveTask). The schema is in migrations/, and all
+// of it in one place in schema.sql.
 
 import type { AppEnv } from "./env.ts";
 import type { Priority, Release, ReleaseStatus, Role, Status, StoredTask, Task } from "./types.ts";

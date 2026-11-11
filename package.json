@@ -9,6 +9,7 @@
     "deploy": "node scripts/wrangler.ts deploy && node scripts/wrangler.ts d1 migrations apply DB --remote",
     "test": "node --test",
     "docs": "node scripts/docs.ts",
+    "schema": "node scripts/schema.ts",
     "db:migrate": "node scripts/wrangler.ts d1 migrations apply DB --remote",
     "db:migrate:local": "node scripts/wrangler.ts d1 migrations apply DB --local",
     "slack:create": "node scripts/slack-app.ts create",

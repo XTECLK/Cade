@@ -31,3 +31,20 @@ test("0025 moves incidents from source_incident to kind, and every other task is
   assert.ok(!columns.includes("source_incident"));
   assert.throws(() => db.exec("UPDATE tasks SET kind = 'bug'"), /CHECK constraint failed/);
 });
+
+test("0029 drops what was left from client channels, keeping the tasks", () => {
+  const { db, rest } = before("0029");
+  db.exec(`INSERT INTO tasks (channel, ts, title, priority, status, created_by, source_channel, source_thread_ts, source_link) VALUES
+    ('CDEV', '1.1', 'Fix login', 'High', 'TODO', 'U1', 'CCLIENT', '0.9', 'https://acme.slack.com/archives/CCLIENT/p9')`);
+  rest();
+  assert.deepEqual({ ...db.prepare("SELECT ts, title FROM tasks").get() }, { ts: "1.1", title: "Fix login" });
+  const columns = db.prepare("PRAGMA table_info(tasks)").all().map((row) => row.name);
+  assert.ok(!columns.some((name) => String(name).startsWith("source_")));
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'requirements'").get(), undefined);
+});
+
+// schema.sql is made from the migrations by `npm run schema`, for reading the database in one place.
+test("schema.sql is the database as the migrations leave it", async () => {
+  const { SCHEMA_FILE, currentSchema } = await import("../scripts/schema.ts");
+  assert.equal(readFileSync(SCHEMA_FILE, "utf8"), currentSchema(), "schema.sql is stale: run npm run schema");
+});

@@ -43,5 +43,6 @@ people's own AI agents (`src/mcp.ts`). How it works, and where each part lives: 
 - Follow the code around yours: small functions, plain words, and comments that say why, not what.
 - A command, setting or message people see is documented where they'll look: see "Adding a command" in
   DEVELOPMENT.md, and `docs/notifications.html` for what Cade posts.
-- Database changes are a new file in `migrations/`, never an edit to an old one.
+- Database changes are a new file in `migrations/`, never an edit to an old one; then run `npm run schema` to bring
+  `schema.sql`, the current schema for reading, up to date (a test fails while it is stale).
 - Commit or push only when asked.

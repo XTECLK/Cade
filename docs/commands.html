@@ -179,8 +179,8 @@
         <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
         <p>Moves a message into the task's thread that the link points to. The link is required: without it Cade says so. To pick from the open tasks instead, use the message's ⋯ → <b>Move to existing</b>.</p>
         <ul>
-          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the channel's open tasks and incidents, and nothing is posted until it moves. Outside a dev channel, with more than one group, it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
-          <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message in the dev channel to track it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>New task</b> button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
+          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the channel's open tasks and incidents, and nothing is posted until it moves. Outside a dev channel, with more than one project, it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
+          <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message in the dev channel to track it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>New task</b> button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message.</li>
           <li><b>With a link:</b> paste the link to a task's or incident's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
           <li>Only the message is copied, not its replies or attachments, and a message in the dev channel is never moved twice.</li>
@@ -230,7 +230,7 @@
       <article class="entry">
         <h3>The summary canvas</h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Off by default</span></div>
-        <p>With <code>summaryCanvas</code> on in <code>cade.config.json</code> (for every group or one), every dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. Each title opens its thread. People are named (@name) rather than mentioned, so rewriting the canvas doesn't notify them. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
+        <p>With <code>summaryCanvas</code> on for a project (in <code>cade.config.json</code>, or under Settings → Projects on Cade's Home tab), its dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. Each title opens its thread. People are named (@name) rather than mentioned, so rewriting the canvas doesn't notify them. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
       </article>
 
       <article class="entry">
@@ -267,7 +267,7 @@
     <h2>Up and running in minutes, with a guided script.</h2>
     <p class="lede">One command walks you through it: it asks for what it needs, runs each step, skips what's already done and tells you when something needs a click in your browser. No AI agent needed. Your tokens never leave your terminal.</p>
     <ol class="mini-steps">
-      <li><span class="dot">1</span><div><h3>Copy it to your repo</h3><p>Fork Cade on GitHub and clone your copy.</p></div></li>
+      <li><span class="dot">1</span><div><h3>Copy the deploy template</h3><p>Use the cade-deploy template on GitHub and clone your copy.</p></div></li>
       <li><span class="dot">2</span><div><h3>Run the script</h3><p><code>npm run setup</code> starts the guided setup in your terminal.</p></div></li>
       <li><span class="dot">3</span><div><h3>Answer its questions</h3><p>Click through the logins and Slack settings when it asks. That's it.</p></div></li>
     </ol>

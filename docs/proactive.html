@@ -35,8 +35,8 @@
     <p class="lede">
       In the task and incident threads it manages, Cade notices what you're about to do, such as handing the task over,
       pasting a PR or saying it's done, and offers it to you privately. Nothing changes until you click. It works in
-      three layers, each built on the one before, and you turn the last two on or off in <code>cade.config.json</code>,
-      for every group or for each group on its own.
+      three layers, each built on the one before. The proactive agent, with its AI suggestions, is turned on or off for
+      each project, in <code>cade.config.json</code> or under Settings → Projects on Cade's Home tab.
     </p>
     <ul class="toc">
       <li><a href="#layers">The three layers</a></li>
@@ -68,7 +68,7 @@
       <div class="feature">
         <div class="bar"></div>
         <h3>2 · Proactive agent</h3>
-        <span class="where"><code>suggestions</code> · on by default</span>
+        <span class="where"><code>taskChangeDetection</code> · on by default</span>
         <p>Cade reads messages in the threads it manages and offers, privately, what you're about to do.</p>
         <ul>
           <li>“@mia can you review this?” offers to add a reviewer</li>
@@ -80,7 +80,7 @@
       <div class="feature">
         <div class="bar"></div>
         <h3>3 · AI suggestions</h3>
-        <span class="where">On by default</span>
+        <span class="where">With the proactive agent</span>
         <p>The proactive agent reads task threads with a small model on Cloudflare Workers AI, so one message can mean several changes.</p>
         <ul>
           <li>Several people across roles, added or removed</li>
@@ -100,7 +100,7 @@
     <p class="lede">With the proactive agent on, Cade reads messages in the task and incident threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
     <p class="lede"><b>Off for one person.</b> Anyone can turn off the suggestions Cade offers them in Cade's Home tab, under <b>Settings → Suggestions</b>, and turn them on again there. Their messages are then not read with AI, and they update tasks themselves; everyone else keeps theirs. Each suggestion ends with a line saying where that is. After three suggestions rejected in a row, Cade also offers to turn them off; <b>Keep them</b> stops it asking for 30 days.</p>
     <p class="lede"><b>Not for messages an AI agent sent.</b> A message an app posted for someone, such as one sent with their AI agent's own Slack tool (“Sent using Claude”), gets no suggestion, the same as one sent through Cade's agent tools: the agent changes the task itself. An <code>@Cade …</code> command sent that way still works.</p>
-    <p class="lede"><b>On by default.</b> Set <code>"taskChangeDetection": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="commands.html#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"taskChangeDetection": false</code> on a project in <code>cade.config.json</code> (or under Settings → Projects on Cade's Home tab), for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="commands.html#tidy">new message posted in a channel</a> all keep working.</p>
     <div class="entries">
 
       <article class="entry">
@@ -143,7 +143,7 @@
     <div class="eyebrow">AI suggestions</div>
     <h2>One message, every change, read with AI</h2>
     <p class="lede">The proactive agent reads messages in task threads with a small model on Cloudflare Workers AI. That catches many ways of saying things, and several changes in one message.</p>
-    <p class="lede"><b>On by default.</b> It needs the <code>AI</code> binding in <code>wrangler.toml</code>, and the proactive agent on: with <code>"taskChangeDetection": false</code>, nothing is read. Name another Workers AI model with <code>"aiModel"</code> at the top of <code>cade.config.json</code>.</p>
+    <p class="lede"><b>On whenever the proactive agent is.</b> It needs the <code>AI</code> binding in <code>wrangler.toml</code>, and the proactive agent on: with <code>"taskChangeDetection": false</code>, nothing is read. Name another Workers AI model with <code>"aiModel"</code> at the top of <code>cade.config.json</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -186,7 +186,7 @@
     <h2>Up and running in minutes, with a guided script.</h2>
     <p class="lede">One command walks you through it: it asks for what it needs, runs each step, skips what's already done and tells you when something needs a click in your browser. No AI agent needed. Your tokens never leave your terminal.</p>
     <ol class="mini-steps">
-      <li><span class="dot">1</span><div><h3>Copy it to your repo</h3><p>Fork Cade on GitHub and clone your copy.</p></div></li>
+      <li><span class="dot">1</span><div><h3>Copy the deploy template</h3><p>Use the cade-deploy template on GitHub and clone your copy.</p></div></li>
       <li><span class="dot">2</span><div><h3>Run the script</h3><p><code>npm run setup</code> starts the guided setup in your terminal.</p></div></li>
       <li><span class="dot">3</span><div><h3>Answer its questions</h3><p>Click through the logins and Slack settings when it asks. That's it.</p></div></li>
     </ol>

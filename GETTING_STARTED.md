@@ -21,8 +21,9 @@ It first asks which version of Cade to deploy: a release, or `main`, the
 latest development version.
 
 It takes you through steps 2 to 7 below: Cloudflare login, the Worker, the
-Slack app, then the first admin. It
-is numbered ([1/4]…), uses arrow-key menus and Yes/No choices, offers to open the pages you need to click in, skips
+Slack app, the first admin, then, optionally, a GitHub token (see
+`GITHUB_TOKEN` under [Secrets](#secrets-in-cloudflare-only)). It
+is numbered ([1/5]…), uses arrow-key menus and Yes/No choices, offers to open the pages you need to click in, skips
 what's done already, ends with a summary of what was done, and can be run again
 to carry on. Tokens and secrets are asked for by the
 scripts it runs, hidden, and never stored in a file.
@@ -51,8 +52,8 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: send the Add project button in a channel to add it (an `admins` person), the Project settings button to change its switches; projects there are kept in Cade's database (tables `projects` and `project_settings`), so `projects` can be left out of the file. | Write them by hand, or leave it out and use the Add project button on the app's Home tab (step 7). |
-| `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `projects` | Optional | Projects kept in the file, each with the settings in the next table. A project is a Slack channel where the team tracks its tasks and incidents. Projects can instead live in Cade's database: an `admins` person adds one with the Add project button on the app's Home tab, and changes its switches under Settings → Projects → Edit; projects there are kept in Cade's database (tables `projects` and `project_settings`), so `projects` can be left out of the file. | Write them by hand, or leave it out and use the Add project button on the app's Home tab (step 7). |
+| `timezone` | Optional (UTC) | The time zone for times on the web pages and summaries, as an IANA name such as `Asia/Colombo`. With the proactive agent on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `admins` | Optional (none) | The Slack user IDs of the people who can add projects and change each project's switches from Slack (Settings on the app's Home tab), without editing the file. Everyone else is told only an admin can. | `npm run setup` asks for the first one. Or add `"admins": ["U0123ABCD"]` (in Slack, click the person's name or picture, then ⋯ → Copy member ID; it starts with `U`), then `npm run config`. |
 | `aiModel` | Optional | The Workers AI text model that reads messages for suggestions, one for every project, such as `"@cf/google/gemma-4-26b-a4b-it"`. Without it, the default, `@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read these messages well. | Set `"aiModel"` at the top of `cade.config.json`, then `npm run config`. |
 | `threadRotationDays` | Optional (off) | For Slack's free plan, which hides messages older than 90 days, the thread's root message too. An open task (not Done) whose thread is older than this many days gets a new one: once an hour, Cade posts its card again as a new root, says in the old thread that new messages go there, and starts the new thread with links to the complete history (kept by Cade) and the old thread. Links to the task and its pages, and its ID, then use the new root. | Set `"threadRotationDays": 80` in `cade.config.json` (80 leaves time to spare), then `npm run config`. Take it out to turn it off. |
@@ -64,7 +65,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | --- | --- | --- |
 | `name` | **Required** | The project's name, as the project picker and your agent's `get_projects` show it. |
 | `channel` | **Required** | The project's Slack channel ID, where the team tracks its tasks and incidents: open the channel → click its name → **About** → **Channel ID** at the bottom (`C…`). The Add project button on the Home tab asks for it. |
-| `taskChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, with `ai`, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
+| `taskChangeDetection` | Optional (`true`) | **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them: a pasted PR link, a hand-off ("@mia can you review this?"), "on it", "lgtm" or "done", and, read with AI, a priority or due date. Each comes as one private message to whoever wrote it, with **Accept**, **Edit…** and **Reject**; nothing changes until then. `false` is **commands only**: nothing is read from messages in threads, while slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work. |
 | `newTaskDetection` | Optional (`true`) | **Task detection from new messages**: whether Cade asks about a message posted on its own in the channel, not in a thread, so it can be turned into work: track it as a task, report it as an incident, or move it to an existing thread. `false` leaves such messages alone; the same can still be done with the emoji, the message shortcuts and `@Cade` commands. It is separate from `taskChangeDetection`. |
 | `summaryCanvas` | Optional (`false`) | Whether the channel has a summary canvas of its tasks, kept up to date. `true` to keep one; with `false`, none is written and `/cade resync summary` says it is off, and a canvas already made stays as it is. |
 
@@ -214,8 +215,8 @@ In Slack:
 3. Open Cade's **Home** tab (**Apps** → **Cade** → **Home**).
 4. Click **Add project**, pick the channel and name the project.
 
-Each project's switches are on the same tab (**Project
-settings**). Projects added there are kept in Cade's database; ones in
+Each project's switches are on the same tab, under **Settings** →
+**Projects** → **Edit**. Projects added there are kept in Cade's database; ones in
 `cade.config.json` work too (see [Settings](#settings)).
 
 ## 8. Check it works
@@ -234,7 +235,7 @@ settings**). Projects added there are kept in Cade's database; ones in
    tasks (**My Tasks**, **Unassigned**, **All Tasks**). If it's blank, run
    `npm run slack:update` and reinstall the app (step 6).
 6. On any message, in a DM too: ⋯ → **More actions** → **New task** →
-   the task form, with a **Project** picker if you have more than one group;
+   the task form, with a **Project** picker if you have more than one project;
    submitting posts the task and copies the message into its thread.
 
 **If nothing answers:** run `npm run wrangler -- tail` and try again.
@@ -266,9 +267,9 @@ the app's page (step 6); the bot token usually stays the same.
 Groups no longer have a client or incidents channel: incidents are tracked
 in the dev channel, and the message shortcuts (**New task**, **New
 incident**, **Move to existing**) bring in messages from anywhere. After
-updating, run `npm run slack:update` for the new shortcuts, and `npm run
-group` once per group, which drops its old `external` and `incidents`
-channels from `cade.config.json`. Requirements already in a client channel
+updating, run `npm run slack:update` for the new shortcuts, and delete each
+project's old `external` and `incidents` channels from `cade.config.json`
+(`npm run config` refuses them until you do). Requirements already in a client channel
 are left as they were, and no longer tracked.
 
 Workflows for people's AI agents, such as a task's summary and an executive
@@ -309,7 +310,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
 - **The app icon.** Slack's manifest can't set an icon, so upload
   `slack/icon.png` (drawn from `slack/icon.svg`) under **Basic Information →
   Display Information** on the app's page at <https://api.slack.com/apps>.
-- **Test channels.** Several channel groups can run at once (see
+- **Test channels.** Several projects can run at once (see
   [Settings](#settings)), so a test channel can sit alongside the real
   one.
 - **Executive summaries** aren't written by Cade: a team that wants them

@@ -22,7 +22,7 @@ git clone https://github.com/XTECLK/Cade.git   # or your fork
 cd Cade
 npm install
 npm run check       # the type check, then the whole suite, in a few seconds, without Slack
-npm run setup       # Cloudflare login, the Worker, the Slack app, your first group
+npm run setup       # Cloudflare login, the Worker, the Slack app, your first admin, a GitHub token
 ```
 
 `npm run setup` deploys the Worker, creates the Slack app from `slack/manifest.json`, and asks for the first admin. The Worker is named `cade`, so use a Cloudflare account of its own for development. Then create a channel, invite Cade with `/invite @Cade`, and add it as a project from the app's Home tab.
@@ -107,13 +107,14 @@ Other scripts:
 
 | Script | Does |
 | --- | --- |
-| `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, then your first group |
-| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `ADMINS`, `AI_MODEL_NAME`, `MCP`) |
+| `npm run setup` | Takes you through the whole setup: Cloudflare, the Worker, the Slack app, your first admin, then, optionally, a GitHub token |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`PROJECTS`, `TIMEZONE`, `ADMINS`, `AI_MODEL_NAME`, `MCP`, `THREAD_ROTATION_DAYS`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run schema` | Writes `schema.sql`, the database as `migrations/` leaves it, after adding a migration |
 | `npm run prompts` | Checks the deploy repo's `prompts/` against the tools and saves them to D1 (`-- --check` only checks, `-- --local` saves to `npm run dev`'s database); `npm run deploy` checks before deploying and saves after |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
+| `npm run github` | Asks for a GitHub token, checks it and stores it as `GITHUB_TOKEN`, so the cron reads pull requests' states |
 
 ## How it works
 
@@ -207,12 +208,13 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.ts` | Turns a message or slash command into a command |
 | `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
-| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, `prs` (the Pull requests button), and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
+| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, `prs` (the Pull requests button), and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
 | `src/db.ts` | Reading and writing tasks in D1 |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
+| `src/rotate.ts` | The cron's job, hourly: giving an open task a new thread before Slack's free plan hides the old one (`threadRotationDays`) |
 | `src/github.ts` | The cron's job: reading whether tasks' GitHub pull requests are open, merged or closed |
-| `src/tasks.ts` | The task message: layout, saving, pins |
-| `src/channels.ts` | `PROJECTS`: each group's dev channel |
+| `src/tasks.ts` | The task message: layout, saving |
+| `src/channels.ts` | `PROJECTS`: each project's dev channel |
 | `src/intents.ts` | Recognising intents in plain messages |
 | `src/slack.ts` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/format.ts` | Times in `TIMEZONE`, and Slack users' names |
@@ -220,7 +222,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/notes.ts`, `src/links.ts` | A task's notes page and the addresses of its pages |
 | `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, Edit under Projects in Settings (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
 | `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
-| `scripts/` | `config`, `dev`, `group`, and `slack-app`, behind the npm scripts above |
+| `scripts/` | `setup`, `config`, `dev`, `github`, `prompts`, `schema`, `slack-app` and the rest, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |

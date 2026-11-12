@@ -15,6 +15,7 @@
     "db:migrate:local": "node scripts/wrangler.ts d1 migrations apply DB --local",
     "slack:create": "node scripts/slack-app.ts create",
     "slack:update": "node scripts/slack-app.ts update",
+    "github": "node scripts/github.ts",
     "config": "node scripts/config.ts",
     "demo:login": "node scripts/demo/login.ts",
     "demo:record": "node scripts/demo/record.ts",

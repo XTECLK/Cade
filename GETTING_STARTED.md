@@ -79,6 +79,7 @@ To add a project without editing the file, use the **Add project** button on the
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
+| `GITHUB_TOKEN` | Optional | Lets Cade read whether each GitHub pull request linked to an open task is open, merged or closed, every 15 minutes, for the task cards (`Pull requests: 2 open · 1 merged`). Without it, every pull request counts as open. | `npm run github` (also the last, optional step of `npm run setup`): it opens GitHub's page for a new **classic** token with the **repo** scope ticked, asks for the token, hidden, checks it with GitHub and stores it. A classic token reads every organisation your account can, where a fine-grained one reads a single owner's repositories; `repo` is the only classic scope that reads private repositories' pull requests, though Cade only reads whether each is open, merged or closed. An organisation with SAML single sign-on needs the token authorized for it (**Configure SSO** on the token's page). |
 
 ### Used once during setup, never stored
 

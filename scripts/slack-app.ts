@@ -67,8 +67,8 @@ async function slack(method, token, body) {
   return result;
 }
 
-// Stores a Worker secret with wrangler, which must be logged in.
-function putSecret(name, value) {
+// Stores a Worker secret with wrangler, which must be logged in (also for github.ts).
+export function putSecret(name, value) {
   return new Promise<void>((resolve, reject) => {
     const child = spawn("npx", ["wrangler", "secret", "put", name], {
       cwd: ROOT,

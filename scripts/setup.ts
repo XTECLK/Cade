@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Takes you through GETTING_STARTED.md in one command: Cloudflare login, the
-// Worker, the Slack app and the first admin. It runs the same npm scripts the guide names, so each can also be
+// Worker, the Slack app, the first admin, and, optionally, a GitHub token. It runs the same npm scripts the guide names, so each can also be
 // run alone, and it skips what's already done: run it again to carry on.
 //
 //   npm run setup
@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { HOME, ROOT } from "./paths.ts";
-import { ask, choose, confirm, intro, log, note, outro, pause } from "./prompt.ts";
+import { ask, choose, confirm, intro, log, note, openUrl, outro, pause } from "./prompt.ts";
 
 const SLACK_APP = `${HOME}.cade/slack-app.json`;
 
@@ -68,15 +68,7 @@ function runLive(command, args) {
   });
 }
 
-// Opens a page in the person's browser (best effort; the address is always printed too).
-function openUrl(url) {
-  const [command, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
-  try {
-    spawn(command, [...args, url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
-  } catch {}
-}
-
-const STEPS = 4;
+const STEPS = 5;
 let stepNumber = 0;
 const outcomes = [];
 async function step(title, work) {
@@ -158,6 +150,17 @@ You'll be asked for it, then to install the app and give its bot token; both hid
     await writeFile(file, `${JSON.stringify({ ...config, admins: ids }, null, 2)}\n`);
     if ((await runLive("node", ["scripts/config.ts"])) !== 0) fail("Uploading cade.config.json failed. npm run config retries it.");
     return `admin ${ids.join(", ")}`;
+  });
+
+  await step("GitHub (optional)", async () => {
+    // Pull requests' states, for the task cards (see src/github.ts); without a token, all count as open.
+    const hasToken = async () => /"GITHUB_TOKEN"/.test((await run("npx", ["wrangler", "secret", "list"])).output);
+    if (await hasToken()) {
+      console.log("A GitHub token is set already. npm run github replaces it.");
+      return "skipped, already set";
+    }
+    if ((await runLive("node", ["scripts/github.ts"])) !== 0) fail("Storing the GitHub token failed. npm run github retries it.");
+    return (await hasToken()) ? "token stored" : "skipped, pull requests count as open";
   });
 
   note(outcomes.join("\n"), "Summary");

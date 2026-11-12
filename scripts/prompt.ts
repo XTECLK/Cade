@@ -1,6 +1,7 @@
 // The terminal prompts of npm run setup and the other scripts, on @clack/prompts:
 // text, hidden text, select, confirm and multi-select, all with the arrow
 // keys, and Ctrl+C or Esc leaves cleanly.
+import { spawn } from "node:child_process";
 import * as clack from "@clack/prompts";
 
 export { intro, log, note, outro, spinner } from "@clack/prompts";
@@ -52,4 +53,12 @@ export function confirm(question: string, fallback = true): Promise<boolean> {
 // Picks any number of `options` ({ label, value, hint? }), typing to search, Tab to tick; returns their values.
 export async function chooseMany<T>(question: string, options: Option<T>[]): Promise<T[]> {
   return answered<T[]>(await clack.autocompleteMultiselect<T>({ message: message(question), options: options as never, required: false }));
+}
+
+// Opens a page in the person's browser (best effort; the address is always printed too).
+export function openUrl(url: string) {
+  const [command, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
+  try {
+    spawn(command, [...args, url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  } catch {}
 }

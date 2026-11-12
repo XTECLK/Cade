@@ -5,6 +5,7 @@ import { syncNotes } from "../notes.ts";
 import { writeSummary } from "../summary.ts";
 import { STATUSES, loadTask, saveTask, taskMessage } from "../tasks.ts";
 import { tasksWithStatus } from "../db.ts";
+import { readPrStates } from "../github.ts";
 import type { Handler, Status } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, SlashCommand } from "../types.ts";
@@ -20,11 +21,13 @@ const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 // cards look, such as the ⋯ menu, or one a failed update left behind. A task
 // gets the links to its notes page and its thread's page, if it has none, and
 // its thread is read from Slack again, to store what is missing (see
-// export.ts). Nothing changes but the message, so no one is notified, and only
+// export.ts). Where its GitHub pull requests stand is read again too, all the links' in one request
+// (see readPrStates in github.ts). Nothing changes but the message, so no one is notified, and only
 // whoever sent it sees the reply.
 //
 // `/cade resync all` in a dev channel redraws its tasks' cards, Done ones and subtasks too, quietly, as
-// for one, a run at a time (see resyncAll). Archived tasks' cards are left as they are.
+// for one, a run at a time (see resyncAll), having read all their GitHub pull requests in one request.
+// Archived tasks' cards are left as they are.
 //
 // `/cade resync summary` in a dev channel rewrites its summary canvas in
 // full, with its title, and makes it read-only again (see summary.ts), as
@@ -46,6 +49,8 @@ export default {
     context.waitUntil(
       (async () => {
         const lines: string[] = [];
+        const tasks = await Promise.all(links.map(({ channel, ts }) => loadTask(context.env, channel, ts)));
+        await readPrStates(context.env, tasks.flatMap((task) => task?.prs ?? []));
         for (const link of links) lines.push(await resync(context.env, link));
         await respondLater(command.responseUrl, { text: lines.join("\n") });
       })(),
@@ -68,7 +73,10 @@ function resyncAll(command: SlashCommand, context: Context, from: number) {
   if (!group) return "Send `/cade resync all` in a project's dev channel, for its task cards.";
   context.waitUntil(
     (async () => {
-      const tasks = await tasksWithStatus(context.env, group.channel, Object.keys(STATUSES) as Status[]);
+      const statuses = Object.keys(STATUSES) as Status[];
+      // Read first, so the cards are drawn with them.
+      await readPrStates(context.env, (await tasksWithStatus(context.env, group.channel, statuses)).flatMap(({ task }) => task.prs));
+      const tasks = await tasksWithStatus(context.env, group.channel, statuses);
       const batch = tasks.slice(from, from + ALL_BATCH);
       let next = from;
       let slowed = false;

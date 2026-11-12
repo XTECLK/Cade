@@ -139,9 +139,9 @@ cd cade-deploy</code></pre>
   <div class="wrap">
     <div class="eyebrow">Optional</div>
     <h2>Pull requests open, merged or closed</h2>
-    <p class="lede">With a GitHub token, Cade reads every 15 minutes whether each GitHub pull request linked to an open task is open, merged or closed, and the task's card counts them: <i>Pull requests: 2 open · 1 merged</i>. Without one, every pull request counts as open. Make a fine-grained token with read-only access to <b>Pull requests</b> on the repositories your tasks link to (every organisation they're in), then, in your deploy repo:</p>
-    <pre><code>npm run wrangler -- secret put GITHUB_TOKEN</code></pre>
-    <p class="lede">It asks for the token, hidden. The next run of the cron reads them.</p>
+    <p class="lede">With a GitHub token, Cade reads every 15 minutes whether each GitHub pull request linked to an open task is open, merged or closed, and the task's card counts them: <i>Pull requests: 2 open · 1 merged</i>. Without one, every pull request counts as open. It's the last, optional step of the setup, or, any time, in your deploy repo:</p>
+    <pre><code>npm run github</code></pre>
+    <p class="lede">It opens GitHub's page for a new <b>classic</b> token with the <b>repo</b> scope ticked, asks for the token, hidden, checks it with GitHub, and stores it in Cloudflare. A classic token reads every organisation your account can, where a fine-grained one reads a single owner's repositories. <b>repo</b> is the only classic scope that reads private repositories' pull requests, though Cade only reads whether each is open, merged or closed. If an organisation uses SAML single sign-on, authorize the token for it: <b>Configure SSO</b> on the token's page. The next run of the cron reads them.</p>
   </div>
 </section>
 </main>

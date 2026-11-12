@@ -5132,6 +5132,25 @@ test("suggestions can be set per group, over the setting for every group", async
   assert.equal(suggesting(split, "hand-offs", "CTESTDEV"), false);
 });
 
+test("npm run github stores a classic token with the repo scope, warns about a fine-grained one, and refuses others", async () => {
+  const { checkToken, NEW_TOKEN_URL } = await import("../scripts/github.ts");
+  const asked: { url: string; authorization: string | null }[] = [];
+  const github = (status: number, scopes: string | null, body: unknown = { login: "isuru" }) =>
+    (async (url, init) => {
+      asked.push({ url: String(url), authorization: new Headers(init?.headers).get("authorization") });
+      return new Response(JSON.stringify(body), { status, headers: scopes === null ? {} : { "x-oauth-scopes": scopes } });
+    }) as typeof fetch;
+
+  assert.deepEqual(await checkToken("ghp_ok", github(200, "read:org, repo")), { login: "isuru" });
+  assert.deepEqual(asked[0], { url: "https://api.github.com/user", authorization: "bearer ghp_ok" });
+  assert.deepEqual(await checkToken("github_pat_x", github(200, null)), { login: "isuru", narrow: true });
+  assert.match((await checkToken("ghp_public", github(200, "public_repo"))).problem!, /doesn't have the repo scope/);
+  assert.match((await checkToken("ghp_bad", github(401, null))).problem!, /doesn't accept that token/);
+  assert.match((await checkToken("ghp_down", github(503, null))).problem!, /HTTP 503/);
+  // The page it opens asks for a classic token with repo ticked.
+  assert.match(NEW_TOKEN_URL, /^https:\/\/github\.com\/settings\/tokens\/new\?scopes=repo&/);
+});
+
 test("npm run config checks each group's suggestions", async () => {
   const { readConfig } = await import("../scripts/config.ts");
   const projects = [
@@ -6198,6 +6217,38 @@ test("/cade resync all redraws every card in the channel, Done ones and subtasks
   // Outside a project's channel, it says where to send it.
   const elsewhere = await runTasksCommand("resync all", "CELSEWHERE");
   assert.match(JSON.parse(elsewhere.now).text, /in a project's dev channel/);
+});
+
+test("/cade resync reads its tasks' GitHub pull requests again, all in one request, and draws the cards with them", async (t) => {
+  const withToken = { ...env, GITHUB_TOKEN: "ghp_test" };
+  const tasks = () => [historyTask("1700000000.000100", { title: "Main", prs: [PR, MR] }), historyTask("1700000000.000300", { title: "Finished", status: "DONE", prs: [PR4] })];
+  const prLine = (calls, ts) => workLines(calls.find((call) => call.method === "chat.update" && call.args.ts === ts).args).find((line) => line.startsWith("Pull requests"));
+
+  // Several links: one request for every link's pull requests (the GitLab one isn't GitHub's).
+  let calls = mockSlack(t, { stored: tasks() });
+  let asked = mockGitHub({ 42: "MERGED", 9: "CLOSED" });
+  await runTasksCommand(`resync ${messageLink("CDEV", "1700000000.000100")} ${messageLink("CDEV", "1700000000.000300")}`, "CDEV", withToken);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0]!.query, /number: 42\)/);
+  assert.match(asked[0]!.query, /number: 9\)/);
+  assert.equal(prLine(calls, "1700000000.000100"), "Pull requests: 1 open  ·  1 merged");
+  assert.equal(prLine(calls, "1700000000.000300"), "Pull requests: 0 open  ·  0 merged");
+
+  // All: one request for every card's in the channel, Done ones too, before they're drawn.
+  calls = mockSlack(t, { stored: tasks() });
+  asked = mockGitHub({ 42: "MERGED", 9: "MERGED" });
+  const { later } = await runTasksCommand("resync all", "CDEV", withToken);
+  assert.equal(later.text, "Redrew cards 1–2 of 2: every card in this channel is up to date.");
+  assert.equal(asked.length, 1);
+  assert.equal(prLine(calls, "1700000000.000100"), "Pull requests: 1 open  ·  1 merged");
+  assert.equal(prLine(calls, "1700000000.000300"), "Pull requests: 0 open  ·  1 merged");
+
+  // Without a token, nothing is asked, and the cards are still drawn.
+  calls = mockSlack(t, { stored: tasks() });
+  asked = mockGitHub({ 42: "MERGED" });
+  await runTasksCommand("resync all", "CDEV");
+  assert.equal(asked.length, 0);
+  assert.equal(prLine(calls, "1700000000.000100"), "Pull requests: 2 open  ·  0 merged");
 });
 
 test("/cade resync all goes 40 cards a run, and says what to send for the next, or where to start again when Slack slows it", async (t) => {

@@ -6,7 +6,7 @@
 //
 // One GraphQL request a run asks for up to PER_RUN pull requests of open tasks, never read ones first
 // (see prsToSync), so a new link is read at the next run. A merged one is never asked again. Cards whose
-// pull requests changed are redrawn.
+// pull requests changed are redrawn. `/cade resync` reads its tasks' too, all in one request.
 import { prsToSync, setPrStates, tasksWithPrs } from "./db.ts";
 import { callSlack } from "./slack.ts";
 import { taskMessage } from "./tasks.ts";
@@ -32,22 +32,42 @@ type GitHubAnswer = {
 // whose pull requests changed.
 export async function syncPullRequests(env: AppEnv) {
   if (!env.GITHUB_TOKEN) return;
-  const prs = (await prsToSync(env, PER_RUN)).flatMap((url) => {
+  const changed = await readPrStates(env, await prsToSync(env, PER_RUN));
+  if (!changed.length) return;
+  for (const { channel, ts, task } of await tasksWithPrs(env, changed)) {
+    await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) }).catch((error: Error) => {
+      console.warn("Could not redraw a card after its pull requests changed", { ts, error: error.message });
+    });
+  }
+}
+
+// Reads where the GitHub ones of `urls` stand, in one request, and saves it; returns those whose state
+// changed. Also for `/cade resync` (see resync.ts), which redraws the cards itself. Nothing without
+// GITHUB_TOKEN, or when GitHub can't be reached: they keep the state last read.
+export async function readPrStates(env: AppEnv, urls: string[]) {
+  if (!env.GITHUB_TOKEN) return [];
+  const prs = [...new Set(urls)].flatMap((url) => {
     const match = GITHUB_PR.exec(url);
     return match ? [{ url, owner: match[1]!, repo: match[2]!, number: Number(match[3]) }] : [];
   });
-  if (!prs.length) return;
+  if (!prs.length) return [];
   const query = `query { ${prs
     .map(({ owner, repo, number }, i) => `p${i}: repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${number}) { state } }`)
     .join(" ")} }`;
-  const response = await fetch("https://api.github.com/graphql", {
-    method: "POST",
-    headers: { authorization: `bearer ${env.GITHUB_TOKEN}`, "content-type": "application/json", "user-agent": "Cade" },
-    body: JSON.stringify({ query }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { authorization: `bearer ${env.GITHUB_TOKEN}`, "content-type": "application/json", "user-agent": "Cade" },
+      body: JSON.stringify({ query }),
+    });
+  } catch (error) {
+    console.warn("Could not reach GitHub for pull requests", { error: error.message });
+    return [];
+  }
   if (!response.ok) {
     console.warn("GitHub refused the pull request query", { status: response.status });
-    return;
+    return [];
   }
   const answer = await response.json<GitHubAnswer>();
   if (answer.errors?.length) console.warn("GitHub couldn't read some pull requests", { errors: answer.errors.length, first: answer.errors[0]!.message });
@@ -57,10 +77,5 @@ export async function syncPullRequests(env: AppEnv) {
   });
   const changed = await setPrStates(env, states);
   console.log("Pull requests read from GitHub", { asked: prs.length, read: states.length, changed: changed.length });
-  if (!changed.length) return;
-  for (const { channel, ts, task } of await tasksWithPrs(env, changed)) {
-    await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) }).catch((error: Error) => {
-      console.warn("Could not redraw a card after its pull requests changed", { ts, error: error.message });
-    });
-  }
+  return changed;
 }

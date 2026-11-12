@@ -133,15 +133,14 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
     task.notes && `Extra notes <${task.notes.url}|here>`,
     task.export && `Full history <${task.export.url}|here>`,
   ].filter(Boolean);
-  // A subtask's card says whose it is first; a task's says how its subtasks stand, under its status.
-  const subtasks = subtasksLine(task);
-  // Three blocks, each a few lines: whose subtask it is and its pages; the work (its status, subtasks,
-  // pull requests and people); and who tracked it. Lines in a block sit closer than the blocks do, so
-  // the card reads in those three parts. A block with nothing in it is left out.
+  // Three blocks, each a few lines: what goes with it (whose subtask it is, its pages, how its subtasks
+  // and pull requests stand); the work (its status and people); and who tracked it. Lines in a block sit
+  // closer than the blocks do, so the card reads in those three parts. A block with nothing in it is
+  // left out.
   const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && blockedLine(task)).text;
   const card: SlackBlock[] = [
-    [task.parent && parentLine(task.parent), links.length && links.join("  ·  ")],
-    [status, subtasks, prsLine(task), people || "_Unassigned_"],
+    [task.parent && parentLine(task.parent), links.length && links.join("  ·  "), subtasksLine(task), prsLine(task)],
+    [status, people || "_Unassigned_"],
     [`${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
   ]
     .map((lines) => lines.filter(Boolean))

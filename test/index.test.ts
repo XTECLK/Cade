@@ -88,9 +88,12 @@ const allBlocks = (args) => [...(args.blocks ?? []), ...(args.attachments?.[0]?.
 // A section's text, or a context block's first element's.
 const blockText = (block) => block.text?.text ?? block.elements?.[0]?.text;
 
-// A task card's small text is in up to three blocks, a few lines each: whose subtask it is and its
-// pages; the work (its status, subtasks, pull requests and people, in that order); and who tracked it.
+// A task card's small text is in up to three blocks, a few lines each: what goes with it (whose
+// subtask it is, its pages, its subtasks' and pull requests' counts); the work (its status and people);
+// and who tracked it.
 const workLines = (args) => blockText(allBlocks(args).at(-2)).split("\n");
+// The card's pull requests line, wherever it is.
+const prsLineOf = (args) => allBlocks(args).flatMap((block) => (blockText(block) ?? "").split("\n")).find((line) => line.startsWith("Pull requests"));
 // The work block's first line: the status, blocked mark, due date and the like.
 const statusLine = (args) => workLines(args)[0];
 // Who works on it, then who tracked it: the last line of the work block, and the last block.
@@ -1125,7 +1128,7 @@ test("the sync reads where open tasks' GitHub pull requests stand, saves it, and
   assert.deepEqual((await savedTask()).prStates, { [PR]: "MERGED" });
   const cards = calls.filter((call) => call.method === "chat.update");
   assert.deepEqual(cards.map((call) => call.args.ts), ["100.1"]);
-  assert.equal(workLines(cards[0]!.args)[1], "Pull requests: 2 open  ·  1 merged");
+  assert.equal(prsLineOf(cards[0]!.args), "Pull requests: 2 open  ·  1 merged");
 
   // A merged one isn't asked again; one that hasn't changed redraws nothing.
   calls.length = 0;
@@ -1625,7 +1628,9 @@ test("@Cade pr add links pull requests, counted on one line of the card, and rea
   assert.deepEqual((await savedTask()).prs, [PR, MR]);
   // Not read from GitHub yet, so open: counted in the work block, after the status, before the people.
   assert.equal(blocks.at(-2).type, "context");
-  assert.deepEqual(workLines(calls[0].args), [":memo: To do  ·  Due 31/10/2026", "Pull requests: 2 open  ·  0 merged", "_Unassigned_"]);
+  // Its count is in the first block; the work block is the status and people.
+  assert.equal(blockText(allBlocks(calls[0].args).at(-3)), "Pull requests: 2 open  ·  0 merged");
+  assert.deepEqual(workLines(calls[0].args), [":memo: To do  ·  Due 31/10/2026", "_Unassigned_"]);
   assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
   assert.equal(calls[1].args.name, "white_check_mark");
 });
@@ -1660,7 +1665,7 @@ test("@Cade pr remove unlinks pull requests", async (t) => {
   let calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.deepEqual((await savedTask()).prs, [MR]);
-  assert.equal(workLines(calls[0].args)[1], "Pull requests: 1 open  ·  0 merged");
+  assert.equal(prsLineOf(calls[0].args), "Pull requests: 1 open  ·  0 merged");
   assert.deepEqual(calls.map((call) => call.method), ["chat.update", "reactions.add"]);
   assert.equal(calls[1].args.name, "white_check_mark");
 
@@ -6207,14 +6212,14 @@ test("a subtask's card has its Subtask of line and its page links in one block, 
   assert.equal(first!.elements[0]!.text, ":arrow_right_hook: Subtask of *Fix login*\nExtra notes <https://cade.example/n/1|here>  ·  Full history <https://cade.example/t/1|here>");
 });
 
-test("a task's card is in three parts: its pages, its work (status, subtasks, PR counts, people), and who tracked it", async () => {
+test("a task's card is in three parts: its pages and subtasks' and PRs' counts, its work (status and people), and who tracked it", async () => {
   const { taskMessage } = await import("../src/tasks.ts");
   const task = { ...storedTask({ owners: ["UREX"] }).task, prs: [PR, MR, PR3], prStates: { [MR]: "MERGED" as const, [PR3]: "CLOSED" as const }, notes: { url: "https://cade.example/n/1" }, subtaskCounts: { open: 1, closed: 2 } };
   const blocks = taskMessage(task).attachments![0]!.blocks as { elements: { text: string }[] }[];
   assert.deepEqual(blocks.map((block) => block.elements[0]!.text.split("\n")), [
-    ["Extra notes <https://cade.example/n/1|here>"],
     // A closed one is neither open nor merged.
-    [":memo: To do  ·  Due 31/10/2026", "Subtasks: 1 open  ·  2 closed", "Pull requests: 1 open  ·  1 merged", "Owner <@UREX>"],
+    ["Extra notes <https://cade.example/n/1|here>", "Subtasks: 1 open  ·  2 closed", "Pull requests: 1 open  ·  1 merged"],
+    [":memo: To do  ·  Due 31/10/2026", "Owner <@UREX>"],
     ["Tracked by <@UCREATOR>"],
   ]);
 });
@@ -6235,7 +6240,7 @@ test("/cade resync all redraws every card in the channel, Done ones and subtasks
 test("/cade resync reads its tasks' GitHub pull requests again, all in one request, and draws the cards with them", async (t) => {
   const withToken = { ...env, GITHUB_TOKEN: "ghp_test" };
   const tasks = () => [historyTask("1700000000.000100", { title: "Main", prs: [PR, MR] }), historyTask("1700000000.000300", { title: "Finished", status: "DONE", prs: [PR4] })];
-  const prLine = (calls, ts) => workLines(calls.find((call) => call.method === "chat.update" && call.args.ts === ts).args).find((line) => line.startsWith("Pull requests"));
+  const prLine = (calls, ts) => prsLineOf(calls.find((call) => call.method === "chat.update" && call.args.ts === ts).args);
 
   // Several links: one request for every link's pull requests (the GitLab one isn't GitHub's).
   let calls = mockSlack(t, { stored: tasks() });

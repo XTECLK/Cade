@@ -1722,7 +1722,7 @@ test("@Cade pr add with no reviewer asks whoever sent it, privately, to assign o
     await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
     assert.ok(calls.some((call) => call.method === "reactions.add" && call.args.name === "white_check_mark"), status);
     assert.ok(!calls.some((call) => call.method === "chat.postMessage"), status);
-    assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral").map((call) => [call.args.user, call.args.text]), asked ? [["UACTOR", "No one is reviewing this yet. Assign a reviewer, so they're asked."]] : [], status);
+    assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral").map((call) => [call.args.user, call.args.text]), asked ? [["UACTOR", "No one is reviewing this yet. Add a reviewer with Edit…, so they're asked."]] : [], status);
   }
 });
 
@@ -1864,7 +1864,7 @@ test("OK on a note with nothing to suggest asks for review as linking would: the
   for (const [label, record, told, thread, privately] of [
     ["reviewers, In review", linked(storedTask({ reviewers: ["URIA", "UREX"], status: "IN_REVIEW" })), ["UREX"], ["<@URIA>, could you review this?"], []],
     ["all mentioned", linked(storedTask({ reviewers: ["UREX"], status: "IN_REVIEW" })), ["UREX"], [], []],
-    ["no reviewer, In review", linked(storedTask({ status: "IN_REVIEW" })), [], [], ["No one is reviewing this yet. Assign a reviewer, so they're asked."]],
+    ["no reviewer, In review", linked(storedTask({ status: "IN_REVIEW" })), [], [], ["No one is reviewing this yet. Add a reviewer with Edit…, so they're asked."]],
     ["reviewers, In progress", linked(storedTask({ reviewers: ["URIA"], status: "IN_PROGRESS" })), [], [], []],
   ] as const) {
     const calls = mockSlack(t, { stored: [record] });
@@ -2308,7 +2308,7 @@ test("Link on an older PR question, on a task In review with no reviewer, asks w
   recordResponses(t);
   await send("/slack/interactions", suggestionClick("pr:suggest-link", [PR]));
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
-  assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args.text), ["No one is reviewing this yet. Assign a reviewer, so they're asked."]);
+  assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args.text), ["No one is reviewing this yet. Add a reviewer with Edit…, so they're asked."]);
 });
 
 test("other typed statuses get only the ✅", async (t) => {
@@ -4569,10 +4569,10 @@ async function answerPrivately(t, question, actionId, environment = env) {
   return responses;
 }
 
-test("moving a task to In review with no reviewer, or In testing with no tester, asks whoever moved it to assign one, with Edit and Ignore", async (t) => {
+test("moving a task to In review with no reviewer, or In testing with no tester, suggests whoever moved it assign one, with Edit… and Reject", async (t) => {
   for (const [status, record, note] of [
-    ["review", storedTask(), "No one is reviewing this yet. Assign a reviewer, so they're asked."],
-    ["testing", storedTask(), "No one is testing this yet. Assign a tester, so they're asked."],
+    ["review", storedTask(), "No one is reviewing this yet. Add a reviewer with Edit…, so they're asked."],
+    ["testing", storedTask(), "No one is testing this yet. Add a tester with Edit…, so they're asked."],
     // Someone is there, or the stage waits on no one.
     ["review", storedTask({ reviewers: ["UMIA"] }), undefined],
     ["testing", storedTask({ testers: ["UTOM"] }), undefined],
@@ -4584,25 +4584,24 @@ test("moving a task to In review with no reviewer, or In testing with no tester,
     assert.equal(asked?.text, note, `${status} ${JSON.stringify(record.task.people)}`);
     if (!asked) continue;
     assert.deepEqual([asked.user, asked.thread_ts], ["UACTOR", "100.1"]);
-    const [edit, ignore] = asked.blocks[1].elements;
-    assert.deepEqual([edit.text.text, ignore.text.text], ["Edit", "Ignore"]);
-    assert.deepEqual(JSON.parse(edit.value), { channel: "CDEV", ts: "100.1" });
+    // A suggestion with nothing to accept: the same buttons, but Accept.
+    assert.deepEqual(suggestionButtons(asked).map((button) => [button.action_id, button.text.text]), [["ai-suggest:edit", "Edit…"], ["ai-suggest:reject", "Reject"]]);
+    assert.equal(JSON.parse(suggestionButtons(asked)[0].value).changes && Object.keys(JSON.parse(suggestionButtons(asked)[0].value).changes).length, 0);
   }
 });
 
-test("Edit on the assign-someone note opens the task's Edit form, which removes the note once saved; Ignore removes it", async (t) => {
-  const record = withStatus("IN_REVIEW");
-  const calls = mockSlack(t, { stored: [record] });
+test("Edit… on the assign-someone suggestion opens the task's Edit form as it stands, which removes it once saved; Reject removes it", async (t) => {
+  const calls = mockSlack(t, { stored: [withStatus("IN_PROGRESS")] });
+  await send("/slack/events", threadEvent("<@UBOT> status review"));
+  const question = ephemeral(calls);
   const sent = recordResponses(t);
-  const click = (action_id, value) =>
-    interaction({ type: "block_actions", trigger_id: "T1", user: { id: "UACTOR" }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, response_url: RESPONSE_URL, actions: [{ action_id, value }] });
-  await send("/slack/interactions", click("status:nobody-edit", JSON.stringify({ channel: "CDEV", ts: "100.1" })));
-  const { view, trigger_id } = calls.find((call) => call.method === "views.open").args;
-  assert.equal(trigger_id, "T1");
+  await send("/slack/interactions", answerSuggestion(question, 0));
+  const { view } = calls.find((call) => call.method === "views.open").args;
   assert.equal(view.callback_id, "task:edit");
   assert.deepEqual(JSON.parse(view.private_metadata), { channel: "CDEV", ts: "100.1", details: true, responseUrl: RESPONSE_URL });
+  assert.deepEqual(view.blocks.find((block) => block.block_id === "reviewer").element.initial_users, undefined);
 
-  await send("/slack/interactions", click("status:nobody-ignore", "{}"));
+  await send("/slack/interactions", answerSuggestion(question, 1));
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 

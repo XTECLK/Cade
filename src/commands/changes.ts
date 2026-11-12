@@ -10,7 +10,9 @@ import type { Change, Changes, Role, Status, Task } from "../types.ts";
 type Where = { channel: string; ts: string };
 // `from`: the status a suggestion was made at; `told`: who its message mentioned; `source`: "mcp" for an AI agent;
 // `quiet`: a subtask's main task isn't told it closed, as whoever closes several tells it once.
-type ChangeOptions = { from?: Status; told?: string[]; source?: string; quiet?: boolean };
+// `saw`: whoever made the change saw who's missing from the roles already, in the Edit form or the
+// suggestion they accepted, so isn't asked to assign someone (see afterStatusChange).
+type ChangeOptions = { from?: Status; told?: string[]; source?: string; quiet?: boolean; saw?: boolean };
 
 // Suggestions work in three steps:
 //   1. detecting what a message asks to change, with AI (ai-suggest.ts),
@@ -59,7 +61,7 @@ export async function applyChanges(env: AppEnv, where: Where, changes: Changes, 
 // subtasks are open: the rest is saved, and whoever made the change is warned
 // (see warnOpenSubtasks), unless it came from an AI agent, which is refused
 // before. Telling the thread is left to the caller.
-export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: Changes, user: string, { from, told: mentioned = [], source, quiet }: ChangeOptions = {}): Promise<Change | null> {
+export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: Changes, user: string, { from, told: mentioned = [], source, quiet, saw }: ChangeOptions = {}): Promise<Change | null> {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
@@ -116,7 +118,7 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
 
   const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.blocked);
   if (changed) await saveTask(env, channel, ts, task);
-  if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source);
+  if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source, saw);
   if (change.status && !quiet) await tellMainTask(env, channel, ts, change.status, user);
   if (held && source !== "mcp") await warnOpenSubtasks(env, { channel, ts }, held, user, { saved: changed });
   return changed ? change : null;

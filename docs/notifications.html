@@ -152,7 +152,7 @@
         <h3><code>@Cade pr add &lt;link&gt;</code>, on a task In review with no reviewer</h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Private</dt><dd>No one is reviewing this yet. Assign a reviewer, so they're asked. <span class="btns"><span class="go">Edit</span><span>Ignore</span></span></dd>
+          <dt>Private</dt><dd>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked. <span class="btns"><span>Edit…</span><span>Reject</span></span></dd>
           <dt>Saved</dt><dd>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review this?</span></dd>
         </dl>
         <p>Before In review, the ✅ is all: moving it to In review asks the same. A reviewer picker posted before still works.</p>
@@ -166,7 +166,7 @@
           <dt>Clicked</dt><dd>Either button turns the note into what else your message means, if anything:<br>Should I update the task? From your message:<br>Reviewers: @mia (Add)<br>Status: In progress → In review <span class="btns"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></span><br><span class="if-note">Unlink also takes the PR off: the thread hears @ann unlinked web/12.</span></dd>
           <dt>Accepted</dt><dd>The usual change message and requests, as for any change: <br>@ann assigned @mia as reviewer.<br>@ann set the status to In review.</dd>
         </dl>
-        <p>Cade links it straight away and asks no one yet. With nothing else to suggest, <b>OK</b> asks for review as linking would: while the task is In review, its reviewers (not those your message mentioned), or, with none yet, you privately, with <b>Edit</b> and <b>Ignore</b>. Otherwise what your message means is suggested, as if the PR had been linked before it, and notifies as any change does once you accept it. People your message mentioned aren't asked again. <b>Unlink</b> is for a link you only pasted to point at; once the note is gone, the card's Pull requests button takes one out. A PR merged or closed since stays.</p>
+        <p>Cade links it straight away and asks no one yet. With nothing else to suggest, <b>OK</b> asks for review as linking would: while the task is In review, its reviewers (not those your message mentioned), or, with none yet, you privately, with <b>Edit…</b> and <b>Reject</b>, a suggestion with nothing to accept. Otherwise what your message means is suggested, as if the PR had been linked before it, and notifies as any change does once you accept it. People your message mentioned aren't asked again. <b>Unlink</b> is for a link you only pasted to point at; once the note is gone, the card's Pull requests button takes one out. A PR merged or closed since stays.</p>
       </article>
 
       <article class="entry">
@@ -223,7 +223,7 @@
       <article class="entry">
         <h3>In review with no reviewer, or In testing with no tester</h3>
         <dl class="flow">
-          <dt>Private</dt><dd>No one is reviewing this yet. Assign a reviewer, so they're asked. <span class="btns"><span class="go">Edit</span><span>Ignore</span></span></dd>
+          <dt>Private</dt><dd>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked. <span class="btns"><span>Edit…</span><span>Reject</span></span></dd>
           <dt>Edit</dt><dd>The task's Edit form. Saving it assigns them, asks them as any assignment does, and removes the note.</dd>
         </dl>
         <p>Only whoever moved the task sees it: with <code>@Cade status</code>, standup or <code>@Cade pr add</code>. A suggestion that moves it there says it under the suggestion instead, <i>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked.</i>, so accepting it asks nothing more; nor does saving the Edit form, which shows the roles. Not for a change made through an AI agent: the agent asks the person.</p>

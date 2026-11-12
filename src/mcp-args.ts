@@ -5,7 +5,7 @@ export type GetTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
   // Only these fields, to keep the result small; task_id is always there. Default: all
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "releases" | "subtasks")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "subtasks")[];
 };
 
 export type GetThreadHistoryArgs = {
@@ -41,31 +41,6 @@ export type GetTasksArgs = {
   fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
   // How many tasks to return, most urgent first. Default 20
   limit?: number;
-};
-
-export type GetReleasesArgs = {
-  // Default PENDING_APPROVAL
-  status?: "PENDING_APPROVAL" | "APPROVED" | "NOT_APPROVED" | "all";
-  // Only this task's releases
-  task_id?: string;
-  // Only this project's tasks, by the name get_projects gives
-  project?: string;
-  // How many releases to return, oldest first. Default 20
-  limit?: number;
-};
-
-export type UpdateReleaseArgs = {
-  // The release's number, as get_releases gives it
-  release_id: number;
-  // Pull requests to add to and remove from the release, as links. Added ones must be linked to the task already (update_task prs.add) and not in another release; a release keeps at least one
-  prs?: {
-    // Pull requests to add to the release, as links
-    add?: string[];
-    // Pull requests to take out of the release, as links; they go back to pending
-    remove?: string[];
-  };
-  // What the release completes, replacing the earlier note
-  note?: string;
 };
 
 export type GetChannelsArgs = {
@@ -174,7 +149,7 @@ export type UpdateTaskArgs = {
   blocked_reason?: string;
   // The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one
   summary?: string;
-  // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; one already sent to the client for approval can't be unlinked here. Cade can't see repositories, so check a pull request with your own tools first
+  // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first
   prs?: {
     // Pull requests to link to the task, as links
     add?: string[];
@@ -221,8 +196,6 @@ export interface ToolArgs {
   get_thread_history: GetThreadHistoryArgs;
   get_task_history: GetTaskHistoryArgs;
   get_tasks: GetTasksArgs;
-  get_releases: GetReleasesArgs;
-  update_release: UpdateReleaseArgs;
   get_channels: GetChannelsArgs;
   get_channel_threads: GetChannelThreadsArgs;
   create_task: CreateTaskArgs;

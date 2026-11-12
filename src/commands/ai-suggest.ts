@@ -5,9 +5,9 @@ import { callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLa
 import { PRIORITIES, ROLES, STATUSES, loadTask, prLink } from "../tasks.ts";
 import { applyChanges } from "./changes.ts";
 import { editForm } from "./edit.ts";
-import { pullRequestsIn } from "./pr.ts";
+import { nobodyLine, nobodyText } from "./status.ts";
 import type { Allowed } from "../ai.ts";
-import type { Changes, Handler, Role } from "../types.ts";
+import type { Changes, Handler, Role, Status } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { PlainMessage, StoredTask } from "../types.ts";
 import { SUGGESTION, readPayload, type Suggestion } from "../payloads.ts";
@@ -56,10 +56,11 @@ function turnOffOffer(rejects: number) {
 // Reject drops it. Applying it tells the thread as any change does (see
 // changes.ts).
 
-// Reads the message for `about` (the task its thread is about; see
-// threadTask in suggest.ts) and, if it asks for changes, asks whoever wrote
-// it. Throws if the model fails, for suggest.ts to fall back on pull request links alone.
-export async function suggestWithAi(env: AppEnv, message: PlainMessage, { target, task }: About) {
+// Reads with AI what the message asks to change on `about`'s task (with the pull requests the message
+// just linked, `linked`, linked already; see suggestWork in suggest.ts), with the people it mentions as
+// reviewers of them, or null. Throws if the model fails, for suggest.ts to fall back on the reviewers
+// alone.
+export async function changesFromAi(env: AppEnv, message: PlainMessage, { task }: About, linked: string[] = []) {
   const handOffs = suggesting(env, "hand-offs", message.channel) || suggesting(env, "started", message.channel);
   const allowed: Allowed = {
     roles: handOffs ? (Object.keys(ROLES) as Role[]) : [],
@@ -69,67 +70,79 @@ export async function suggestWithAi(env: AppEnv, message: PlainMessage, { target
     details: suggesting(env, "details", message.channel) && !task.incident,
     // Blocked and unblocked are progress on a task, so they follow the same setting as its status.
     blocked: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
-    prs: suggesting(env, "pr-links", message.channel),
   };
-  // The links come from the text, and the model says which are meant to be linked, and which linked ones no longer belong.
-  const pullRequests = pullRequestsIn(message.text);
-  const read = allowed.roles!.length || allowed.status || allowed.details || allowed.blocked || allowed.prs;
-  const changes = withPullRequests(env, message, task, read ? await readChanges(env, { message, task, today: today(env), allowed, pullRequests }) : null, { decided: read });
-  if (changes) await askToChange(env, message, { target, task }, changes);
+  // Pull requests aren't suggested: those pasted are linked already (see linkPasted in pr.ts).
+  const read = allowed.roles!.length || allowed.status || allowed.details || allowed.blocked;
+  return withReviewers(message, task, read ? await readChanges(env, { message, task, today: today(env), allowed }) : null, linked);
 }
 
-// `changes` with the people the message mentions added as reviewers of the pull requests it links,
-// unless pr-links is off. Links come from the text, not the model: when the model has decided
-// (`decided`), `changes.prs` is its answer, checked; otherwise, with AI off or failed, every link in
-// the message that isn't linked yet is added. Shared with the fallback in suggest.ts. Null when there's
-// nothing to change.
-export function withPullRequests(env: AppEnv, message: PlainMessage, task: StoredTask, changes: Changes | null, { decided = false as boolean | number } = {}): Changes | null {
-  if (!suggesting(env, "pr-links", message.channel)) return changes;
-  const prs = decided ? changes?.prs : { add: pullRequestsIn(message.text).filter((url) => !task.prs.includes(url)) };
-  if (!prs?.add?.length && !prs?.remove?.length) return changes;
-  const merged = { ...changes, prs };
-  const reviewers = prs.add?.length ? message.mentions.filter((id) => !task.people.reviewer.includes(id)) : [];
-  if (reviewers.length) {
-    const current = changes?.people?.reviewer ?? { add: [], remove: [] };
-    merged.people = {
+// `changes` with the people the message mentions added as reviewers, when it linked pull requests
+// (`linked`): pasting a link and mentioning someone asks them to review it. Shared with the fallback in
+// suggest.ts. Null when there's nothing to change.
+export function withReviewers(message: PlainMessage, task: StoredTask, changes: Changes | null, linked: string[]): Changes | null {
+  const reviewers = linked.length ? message.mentions.filter((id) => !task.people.reviewer.includes(id)) : [];
+  if (!reviewers.length) return changes;
+  const current = changes?.people?.reviewer;
+  return {
+    ...changes,
+    people: {
       ...changes?.people,
       reviewer: {
-        add: [...new Set([...current.add!, ...reviewers])],
-        remove: current.remove!.filter((id: string) => !reviewers.includes(id)),
+        add: [...new Set([...(current?.add ?? []), ...reviewers])],
+        remove: (current?.remove ?? []).filter((id) => !reviewers.includes(id)),
       },
-    };
-  }
-  return merged;
+    },
+  };
 }
 
-// Asks whoever wrote `message`, privately, whether to make `changes` (as
-// changes.ts takes them) to `task`, with a summary and Accept, Edit… and
-// Reject.
+// Asks whoever wrote `message`, privately, whether to make `changes` (as changes.ts takes them) to
+// `task`, with a summary and Accept, Edit… and Reject.
 export async function askToChange(env: AppEnv, message: PlainMessage, { target, task }: About, changes: Changes) {
-  const question = "Should I update the task? From your message:";
-  // Whoever the message mentioned was notified by it, so applying it
-  // doesn't notify them again (see applyChanges).
-  const value = JSON.stringify({ ...target, changes, from: task.status, told: message.mentions });
   await callSlack(env, "chat.postEphemeral", {
     channel: message.channel,
     thread_ts: message.threadTs,
     user: message.user,
-    text: question,
+    ...suggestionMessage(target, task, changes, { from: task.status, told: message.mentions }),
+  });
+}
+
+// A private suggestion for the task at `target`. With `changes`: the question, their summary from
+// `task`, and Accept, Edit… and Reject, which carry the status it was suggested at, `from`, and who the
+// message mentioned, `told`, who were notified by it, so applying it doesn't notify them again (see
+// applyChanges). Under the summary, the role they'd leave with no one at the stage they move it to, if
+// any (see nobodyLine). With none, only the role with no one, `missing`, the task having reached its
+// stage (see askForPerson in status.ts): nothing to accept, so only Edit…, the task's Edit form, and
+// Reject. Also what the note that a pasted pull request was linked turns into, once clicked (see pr.ts).
+export function suggestionMessage(
+  target: Origin,
+  task: StoredTask,
+  changes: Changes | null,
+  { from, told, missing }: { from?: Status; told?: string[]; missing?: Role },
+) {
+  const question = "Should I update the task? From your message:";
+  const value = JSON.stringify({ ...target, changes: changes ?? {}, from, told });
+  const role = changes ? nobodyLine(task, changes) : missing;
+  const nobody = role ? nobodyText(role) : null;
+  const edit = { type: "button", action_id: EDIT_ACTION, text: plainText("Edit…"), value };
+  const reject = { type: "button", action_id: REJECT_ACTION, text: plainText("Reject"), value: "{}" };
+  return {
+    text: changes ? question : nobody!,
     blocks: [
-      { type: "section", text: mrkdwn(question) },
-      { type: "section", text: mrkdwn(summary(task, changes)) },
+      ...(changes
+        ? [
+            { type: "section", text: mrkdwn(question) },
+            { type: "section", text: mrkdwn(summary(task, changes)) },
+            ...(nobody ? [{ type: "context", elements: [mrkdwn(nobody)] }] : []),
+          ]
+        : [{ type: "section", text: mrkdwn(nobody!) }]),
       {
         type: "actions",
-        elements: [
-          { type: "button", action_id: ACCEPT_ACTION, text: plainText("Accept"), style: "primary", value },
-          { type: "button", action_id: EDIT_ACTION, text: plainText("Edit…"), value },
-          { type: "button", action_id: REJECT_ACTION, text: plainText("Reject"), value: "{}" },
-        ],
+        elements: changes ? [{ type: "button", action_id: ACCEPT_ACTION, text: plainText("Accept"), style: "primary", value }, edit, reject] : [edit, reject],
       },
       // Where to turn these off, as there's no button for it here (see suggestionsRow in home.ts).
       { type: "context", elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Settings → Suggestions.")] },
     ],
-  });
+  };
 }
 
 // What would change, a line each: people added and removed per role,
@@ -166,7 +179,7 @@ export default {
           // saving takes a few seconds, and may fail.
           await dismiss(payload.response_url);
           await resetRejects(context.env, payload.user.id);
-          await applyChanges(context.env, target, changes, payload.user.id, { from, told });
+          await applyChanges(context.env, target, changes, payload.user.id, { from, told, saw: true });
         })(),
       );
     },

@@ -1,6 +1,6 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.ts";
-import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.ts";
-import { applyChanges, prsAfter } from "./changes.ts";
+import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, pickerDate } from "../tasks.ts";
+import { applyChanges } from "./changes.ts";
 import { statusOption } from "./status.ts";
 import type { Handler } from "../types.ts";
 import type { Changes, Context, Priority, Role, SlackPayload, Status, StoredTask } from "../types.ts";
@@ -19,7 +19,8 @@ const BLOCKED_OPTION = {
 };
 
 // The Edit form: everything on a task in one place, its owners,
-// reviewers and testers, status, priority and due date, and pull requests.
+// reviewers and testers, status, priority and due date. Pull requests have a form of their own (see
+// prs.ts); a form opened before that still sends its box, which is ignored.
 // An incident's priority and due date never change, so its form leaves them
 // out. The task card's Edit button opens it as the task stands (see menu.ts),
 // and a suggestion's Edit filled in with what was suggested (see
@@ -134,20 +135,6 @@ export function editForm(
           ...(blockedReason && { initial_value: blockedReason }),
         },
       },
-      {
-        type: "input",
-        block_id: "prs",
-        // Saving with none unlinks them all.
-        optional: true,
-        label: plainText("Pull requests, one link per line"),
-        element: {
-          type: "plain_text_input",
-          action_id: "value",
-          multiline: true,
-          placeholder: plainText("https://github.com/acme/web/pull/12"),
-          initial_value: prsAfter(task, changes).join("\n") || undefined,
-        },
-      },
     ],
   };
 }
@@ -157,12 +144,6 @@ export function editForm(
 function saveEdit(payload: SlackPayload, context: Context) {
   const { channel, ts, details, responseUrl, told } = readPayload<EditForm>(EDIT_FORM, payload.view.private_metadata, "Edit form");
   const { values } = payload.view.state;
-  const lines = (values.prs?.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
-  const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
-  const wrong = lines.find((line, i) => !urls[i]);
-  if (wrong) {
-    return { response_action: "errors", errors: { prs: `That doesn't look like a pull request link: ${wrong}`.slice(0, 150) } };
-  }
   context.waitUntil(
     (async () => {
       const { env } = context;
@@ -186,9 +167,7 @@ function saveEdit(payload: SlackPayload, context: Context) {
       changes.blocked = (values.blocked?.value.selected_options ?? []).length > 0
         ? { on: true, reason: values.blocked_reason?.value.value ?? "" }
         : { on: false };
-      const wanted = [...new Set(urls)] as string[];
-      changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
-      await applyChanges(env, { channel, ts }, changes, payload.user.id, { told });
+      await applyChanges(env, { channel, ts }, changes, payload.user.id, { told, saw: true });
     })(),
   );
   return CLOSE_ALL;

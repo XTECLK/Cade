@@ -11,13 +11,13 @@ import {
   prLink,
   readApprover,
   saveTask,
-  unsentPrs,
   waitsForSubtasks,
 } from "../tasks.ts";
 import { tellMainTask, warnOpenSubtasks } from "./subtask.ts";
+import { suggestionMessage } from "./ai-suggest.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
-import type { Context, PlainMessage, SlackBlock, SlackPayload, Status, StoredTask, Task } from "../types.ts";
+import type { Changes, Context, PlainMessage, Role, SlackBlock, SlackPayload, Status, StoredTask, Task } from "../types.ts";
 import { TASK_APPROVAL, TASK_BUTTON, TASK_FORM, readPayload, type TaskApproval, type TaskForm, type TaskRef } from "../payloads.ts";
 
 // Where a task is: its channel and its root message.
@@ -27,6 +27,29 @@ const APPROVE_ACTION = "status:approve";
 const REJECT_ACTION = "status:reject";
 const ASK_ACTION = "status:ask";
 const REVIEW_VIEW = "status:review";
+
+// The role each stage waits on: reviewers review a task In review, testers test it In testing.
+const WAITS_ON: Partial<Record<Status, Role>> = { IN_REVIEW: "reviewer", IN_TESTING: "tester" };
+
+// That no one is in the role the task waits on, and how to fix it: the suggestion's Edit… (see
+// suggestionMessage in ai-suggest.ts).
+const NOBODY: Record<Role, string> = {
+  owner: "No one is working on this yet.",
+  reviewer: "No one is reviewing this yet.",
+  tester: "No one is testing this yet.",
+};
+export const nobodyText = (role: Role) => `${NOBODY[role]} Add a ${role} with Edit…, so they're asked.`;
+
+// The role a suggestion moving the task to In review or In testing leaves with no one, none suggested
+// either, or null: its message says so (see suggestionMessage in ai-suggest.ts), so accepting it asks
+// nothing more (see afterStatusChange).
+export function nobodyLine(task: Pick<Task, "people">, changes: Changes) {
+  const role = changes.status && WAITS_ON[changes.status];
+  if (!role) return null;
+  const { add = [], remove = [] } = changes.people?.[role] ?? {};
+  const after = [...task.people[role].filter((id) => !remove.includes(id)), ...add];
+  return after.length ? null : role;
+}
 
 // `@Cade status in progress` (or `IN_PROGRESS`, `in-progress`, `wip`) in a
 // task thread sets the task's status, and Cade reacts ✅ to the message.
@@ -166,12 +189,28 @@ export function setStatusFields(task: StoredTask, status: Status) {
 }
 
 // What follows saving a status change `{ from, to }` made by `user`: Client
-// review asks whoever moved it, privately, who approves it (see askApprover). Not when
+// review asks whoever moved it, privately, who approves it (see askApprover); In review with no
+// reviewer, or In testing with no tester, asks them to assign one (see askForPerson), unless they
+// `saw` who's missing already: in the Edit form, which shows the roles, or in the suggestion they
+// accepted (see nobodyLine). Not when
 // `source` is "mcp": the change was made by an AI agent, and the person isn't looking at
 // Slack, so the private prompt would only be missed; the agent asks them, and then asks the approver
 // with requestApproval.
-export async function afterStatusChange(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string, source?: string) {
-  if (to === "CLIENT_REVIEW" && source !== "mcp") await askApprover(env, channel, ts, user);
+export async function afterStatusChange(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string, source?: string, saw?: boolean) {
+  if (source === "mcp") return;
+  if (to === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
+  const role = WAITS_ON[to];
+  if (role && !saw) await askForPerson(env, channel, ts, role, user);
+}
+
+// A task that reached In review or In testing with no one in the role it waits on would sit there, as
+// no one is asked. So whoever moved it gets a suggestion to assign someone, privately: the same message
+// as any suggestion, with nothing to accept, so only Edit…, the task's Edit form (saving it asks them,
+// as any assignment does), and Reject.
+export async function askForPerson(env: AppEnv, channel: string, ts: string, role: Role, user: string) {
+  const task = await loadTask(env, channel, ts);
+  if (!task || task.people[role].length) return;
+  await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user, ...suggestionMessage({ channel, ts }, task, null, { from: task.status, missing: role }) });
 }
 
 // Saves the new status, made by `user`; a subtask's main task hears it closed or reopened.
@@ -274,17 +313,13 @@ export async function requestApproval(env: AppEnv, channel: string, ts: string, 
   return null;
 }
 
-// The request with the task's linked pull requests (only those not sent
-// with `@Cade release`, if some were), and the approver's Approve and Not
+// The request with the task's linked pull requests, and the approver's Approve and Not
 // approve buttons, mentioning them so they are notified. The buttons carry
 // the request, PRs included, to keep it when they are replaced, and who may
 // click them.
 function reviewPrompt(text: string, channel: string, ts: string, task: StoredTask, approver: string) {
   const request = `<@${approver}>, could you take a look and approve it, or let us know what needs to change?`;
-  const remaining = task.releases?.length ? unsentPrs(task) : null;
-  const prs = remaining ?? task.prs;
-  const label = remaining ? "Remaining PRs" : "PRs";
-  const announced = prs.length ? `${text}\n*${label}:* ${prs.map(prLink).join(", ")}` : text;
+  const announced = task.prs.length ? `${text}\n*PRs:* ${task.prs.map(prLink).join(", ")}` : text;
   const value = JSON.stringify({ channel, ts, text: announced, approver });
   return {
     // The mention is in the notification text too.

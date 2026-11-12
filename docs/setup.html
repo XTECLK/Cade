@@ -134,6 +134,16 @@ cd cade-deploy</code></pre>
     </div>
   </div>
 </section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Optional</div>
+    <h2>Pull requests open, merged or closed</h2>
+    <p class="lede">With a GitHub token, Cade reads every 15 minutes whether each GitHub pull request linked to an open task is open, merged or closed, and the task's card counts them: <i>Pull requests: 2 open · 1 merged</i>. Without one, every pull request counts as open. Make a fine-grained token with read-only access to <b>Pull requests</b> on the repositories your tasks link to (every organisation they're in), then, in your deploy repo:</p>
+    <pre><code>npm run wrangler -- secret put GITHUB_TOKEN</code></pre>
+    <p class="lede">It asks for the token, hidden. The next run of the cron reads them.</p>
+  </div>
+</section>
 </main>
 
 <footer>

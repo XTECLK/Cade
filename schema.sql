@@ -1,4 +1,4 @@
--- Made by `npm run schema` from migrations/ (up to 0030_prompts.sql): don't edit it by hand.
+-- Made by `npm run schema` from migrations/ (up to 0031_pull_requests.sql): don't edit it by hand.
 -- The database as the migrations leave it, for reference only: a change to the database is a new
 -- file in migrations/, then `npm run schema` to bring this up to date (a test fails until then).
 
@@ -60,21 +60,12 @@ CREATE TABLE prompts (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE releases (
-  id INTEGER PRIMARY KEY,
-  task_id INTEGER NOT NULL REFERENCES tasks (id),
-  prs TEXT NOT NULL DEFAULT '[]',
-  -- What the release completes, as the team described it.
-  note TEXT NOT NULL,
-  -- PENDING_APPROVAL, APPROVED or NOT_APPROVED.
-  status TEXT NOT NULL,
-  sent_by TEXT NOT NULL,
-  sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  -- Who approved or turned it down in the requirement thread, and when.
-  decided_by TEXT,
-  decided_at TEXT
-, approver TEXT, message_ts TEXT);
-CREATE INDEX releases_by_task ON releases (task_id);
+CREATE TABLE pull_requests (
+  url TEXT PRIMARY KEY,
+  -- OPEN (drafts too), MERGED or CLOSED (without merging).
+  state TEXT NOT NULL CHECK (state IN ('OPEN', 'MERGED', 'CLOSED')),
+  synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE task_notes (
   channel TEXT NOT NULL,

@@ -99,8 +99,8 @@
 <section id="thread" class="alt">
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
-    <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. A task's card has an <b>Edit</b> button, one form with everything: owners, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out). Next to it, <b>Subtasks</b> lists the task's subtasks, open first, each linking to its thread, with <b>Add subtask</b> under the list, for a part of the task or an issue found while testing it: a task of its own, with its own card and thread, that has the task's priority, which follows the task's, and starts with its due date and people (subtasks go one level deep, so a subtask's card has no Subtasks button). A subtask with no owner of its own shows the task's owner. A subtask of an incident is an incident too, Urgent and due Immediate. The ⋯ menu has <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; and <b>Archive</b>, as <code>@Cade archive</code>. A task's card counts its subtasks, as <i>Subtasks: 2 open · 3 closed</i>, and the summary canvas and the Home tab list them under it: on My Tasks, a task of yours shows all its open subtasks, and a subtask of yours brings its task along, with only yours under it. Unassigned lists only tasks, not subtasks. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <h2>People, status and PRs</h2>
+    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. A task's card has an <b>Edit</b> button, one form with everything but its pull requests: owners, reviewers, testers, status, priority and due date (an incident's priority and due date never change, so its form leaves them out). Next to it, <b>Subtasks</b> lists the task's subtasks, open first, each linking to its thread, with <b>Add subtask</b> under the list, for a part of the task or an issue found while testing it: a task of its own, with its own card and thread, that has the task's priority, which follows the task's, and starts with its due date and people (subtasks go one level deep, so a subtask's card has no Subtasks button). A subtask with no owner of its own shows the task's owner. A subtask of an incident is an incident too, Urgent and due Immediate. <b>Pull requests</b> opens the task's pull requests: the open ones in a box, one link a line, to add or take out, and the merged and closed ones listed under it, which stay with the task. The card counts them, as <i>Pull requests: 2 open · 1 merged</i>. The ⋯ menu has <b>Archive</b>, as <code>@Cade archive</code>. A task's card counts its subtasks, as <i>Subtasks: 2 open · 3 closed</i>, and the summary canvas and the Home tab list them under it: on My Tasks, a task of yours shows all its open subtasks, and a subtask of yours brings its task along, with only yours under it. Unassigned lists only tasks, not subtasks. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -131,18 +131,8 @@
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code> <code>@Cade pr remove &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and shown on the card as <code>repo#number</code>. Linking asks its reviewers to review it; with no reviewer yet, Cade asks who should review, with a people picker.</p>
+        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and counted on the card. Linking asks its reviewers to review it while the task is In review; with no reviewer yet, Cade suggests, only to you, assigning one, with <b>Edit</b> and <b>Ignore</b>. A link pasted into the thread is linked without the command (see <a href="proactive.html#words">plain words</a>). With a GitHub token set, Cade reads every 15 minutes whether each GitHub pull request is open, merged or closed (see <a href="setup.html">setup</a>); without one, or for GitLab and Bitbucket, they count as open.</p>
         <div class="example"><b>Example:</b> <code>@Cade pr add https://github.com/acme/booking-web/pull/131</code></div>
-      </article>
-
-      <article class="entry">
-        <h3><code>@Cade release</code> <code>@Cade deliver</code></h3>
-        <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Sends some of the task's PRs to the client before the whole task is done. A private <b>Choose PRs</b> button opens a form that lists the ones not sent yet and asks what they complete and who approves them. The approver gets them in the task's thread with <b>Approve</b> and <b>Not approve</b>, which only they can click. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
-        <ul>
-          <li>The task thread hears the decision, mentioning the owners.</li>
-        </ul>
-        <div class="example"><b>Example:</b> send PR #128 as “Deposit checkout flow (20% default)”.</div>
       </article>
 
     </div>
@@ -263,7 +253,7 @@
       <tbody>
         <tr><td>A task's status, people, PRs, priority and due date</td><td>The team</td><td>The task thread, or its card's Edit button</td></tr>
         <tr><td>An incident's priority and due date</td><td>Nobody</td><td>Always Urgent, due Immediate</td></tr>
-        <tr><td>Accepting work in Client review, and partial releases</td><td>Whoever is picked to approve: the client, or whoever handles them</td><td>Approve / Not approve in the task thread</td></tr>
+        <tr><td>Accepting work in Client review</td><td>Whoever is picked to approve: the client, or whoever handles them</td><td>Approve / Not approve in the task thread</td></tr>
       </tbody>
     </table>
   </div>

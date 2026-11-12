@@ -5,13 +5,13 @@
 // of it in one place in schema.sql.
 
 import type { AppEnv } from "./env.ts";
-import type { Priority, Release, ReleaseStatus, Role, Status, StoredTask, Task } from "./types.ts";
+import type { PrState, Priority, Role, Status, StoredTask, Task } from "./types.ts";
 
 // Only the DB binding is used here, so callers (and tests) can pass any env
 // that has one.
 type DbEnv = Pick<AppEnv, "DB">;
 
-export type { Release, ReleaseStatus, Role, Task };
+export type { Role, Task };
 
 export interface MessageRow {
   channel: string;
@@ -63,33 +63,20 @@ interface ListedTaskRow extends TaskRow {
   parent_owners: string | null;
   open_subtasks: number;
   closed_subtasks: number;
+  // JSON: { [url]: state } for those of its pull requests read from GitHub.
+  pr_states: string | null;
 }
 
 // A subtask counted on its parent's card: posted, and neither deleted nor archived.
 const COUNTED = "c.parent_id = t.id AND c.ts IS NOT NULL AND c.deleted_at IS NULL AND c.archived_at IS NULL";
 
-// Tasks as they are read: each with its parent's ts, title and link (for a subtask), and how many of
-// its own subtasks are open and closed (Done), which its card shows. Conditions name the task `t`.
+// Tasks as they are read: each with its parent's ts, title and link (for a subtask), how many of
+// its own subtasks are open and closed (Done), and where its pull requests stand, which its card shows. Conditions name the task `t`.
 const TASK_SELECT = `SELECT t.*, p.ts AS parent_ts, p.title AS parent_title, p.link AS parent_link, p.developers AS parent_owners,
   (SELECT COUNT(*) FROM tasks c WHERE ${COUNTED} AND c.status != 'DONE') AS open_subtasks,
-  (SELECT COUNT(*) FROM tasks c WHERE ${COUNTED} AND c.status = 'DONE') AS closed_subtasks
+  (SELECT COUNT(*) FROM tasks c WHERE ${COUNTED} AND c.status = 'DONE') AS closed_subtasks,
+  (SELECT json_group_object(pr.url, pr.state) FROM pull_requests pr WHERE pr.url IN (SELECT value FROM json_each(t.prs))) AS pr_states
   FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id`;
-
-interface ReleaseRow {
-  id: number;
-  task_id: number;
-  prs: string;
-  note: string;
-  status: ReleaseStatus;
-  sent_by: string;
-  sent_at: string;
-  decided_by: string | null;
-  decided_at: string | null;
-  approver: string | null;
-  message_ts: string | null;
-}
-
-type ReleaseWithTaskRow = ReleaseRow & { task_channel: string; task_ts: string; task_title: string };
 
 interface MessageDbRow {
   user_id: string | null;
@@ -115,14 +102,14 @@ interface NotesRow {
 export const POST_ATTEMPTS = 5;
 
 // Returns the task whose root message is `ts`, or null if there is none or
-// it was deleted. It comes with its releases, which its message shows.
+// it was deleted.
 export async function getTask(env: DbEnv, channel: string, ts: string) {
   const row = await env.DB.prepare(
     `${TASK_SELECT} WHERE t.channel = ? AND t.ts = ? AND t.deleted_at IS NULL AND t.archived_at IS NULL`,
   )
     .bind(channel, ts)
     .first<ListedTaskRow>();
-  return row ? { ...taskFromRow(row), releases: await releasesOf(env, row.id) } : null;
+  return row ? taskFromRow(row) : null;
 }
 
 // The subtasks of the task whose root message is `ts`, Done or not, as { ts, task }, oldest first.
@@ -144,58 +131,6 @@ export async function taskTitleOf(env: DbEnv, channel: string, ts: string) {
     .bind(channel, ts)
     .first<Pick<TaskRow, "title">>();
   return row ? row.title : null;
-}
-
-// The task's releases that aren't NOT_APPROVED, oldest first, as
-// { id, prs, note, status, sentBy, sentAt, decidedBy, decidedAt }.
-async function releasesOf(env: DbEnv, taskId: number): Promise<Release[]> {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM releases WHERE task_id = ? AND status != 'NOT_APPROVED' ORDER BY id",
-  )
-    .bind(taskId)
-    .all<ReleaseRow>();
-  return results.map((row) => ({
-    id: row.id,
-    prs: JSON.parse(row.prs),
-    note: row.note,
-    status: row.status,
-    sentBy: row.sent_by,
-    sentAt: row.sent_at,
-    decidedBy: row.decided_by,
-    decidedAt: row.decided_at,
-    approver: row.approver,
-    messageTs: row.message_ts,
-  }));
-}
-
-// Stores a release of the task whose root message is `ts`, and returns its
-// id. `release` is { prs, note, status, sentBy, decidedBy? }.
-export async function insertRelease(
-  env: DbEnv,
-  channel: string,
-  ts: string,
-  release: { prs: string[]; note: string; status: ReleaseStatus; sentBy: string; decidedBy?: string | null },
-) {
-  const { id } = (await env.DB.prepare(
-    `INSERT INTO releases (task_id, prs, note, status, sent_by, decided_by)
-     SELECT id, ?, ?, ?, ?, ? FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL AND archived_at IS NULL
-     RETURNING id`,
-  )
-    .bind(JSON.stringify(release.prs), release.note, release.status, release.sentBy, release.decidedBy ?? null, channel, ts)
-    .first<{ id: number }>())!;
-  return id;
-}
-
-// Records the client's decision on a release waiting for one: APPROVED or
-// NOT_APPROVED. Returns false if it was decided already, by another click.
-export async function decideRelease(env: DbEnv, id: number, status: ReleaseStatus, user: string) {
-  const row = await env.DB.prepare(
-    `UPDATE releases SET status = ?, decided_by = ?, decided_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND status = 'PENDING_APPROVAL' RETURNING id`,
-  )
-    .bind(status, user, id)
-    .first();
-  return Boolean(row);
 }
 
 // Makes the posted task at `ts` a subtask of the one at `parentTs`, in the same channel, or, with
@@ -555,6 +490,7 @@ function taskFromRow(row: ListedTaskRow): StoredTask {
       ? { ts: row.parent_ts, title: row.parent_title ?? "", link: row.parent_link ?? undefined, owner: JSON.parse(row.parent_owners ?? "[]") }
       : undefined,
     subtaskCounts: { open: row.open_subtasks, closed: row.closed_subtasks },
+    prStates: JSON.parse(row.pr_states ?? "{}"),
   };
 }
 
@@ -773,79 +709,52 @@ export async function addProject(env: DbEnv, channel: string, name: string, user
   await env.DB.prepare("INSERT INTO projects (channel, name, created_by) VALUES (?, ?, ?)").bind(channel, name, user).run();
 }
 
-// The releases of many tasks (`keys`: [{ channel, ts }]) as a Map from "channel:ts" to their
-// releases, as getTask gives them (those not NOT_APPROVED); a task with none is absent. D1 takes few
-// values per query, so it asks in chunks.
-export async function releasesOfTasks(env: DbEnv, keys: TaskKey[]) {
-  const found = new Map<string, Release[]>();
-  for (let i = 0; i < keys.length; i += 40) {
-    const chunk = keys.slice(i, i + 40);
-    const { results } = await env.DB.prepare(
-      `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts FROM releases r JOIN tasks t ON t.id = r.task_id
-       WHERE r.status != 'NOT_APPROVED' AND (${chunk.map(() => "(t.channel = ? AND t.ts = ?)").join(" OR ")}) ORDER BY r.id`,
-    )
-      .bind(...chunk.flatMap(({ channel, ts }) => [channel, ts]))
-      .all<ReleaseWithTaskRow>();
-    for (const row of results) {
-      const key = `${row.task_channel}:${row.task_ts}`;
-      found.set(key, [...(found.get(key) ?? []), releaseFromRow(row)]);
-    }
-  }
-  return found;
-}
+// ---- Pull requests' states (see github.ts) ----
 
-// The releases with one of `statuses` (PENDING_APPROVAL, APPROVED, NOT_APPROVED) of the posted tasks
-// not deleted or archived, oldest first, as { channel, ts, title, release }.
-export async function releasesWithStatus(env: DbEnv, statuses: ReleaseStatus[]) {
+// The GitHub pull requests of open tasks (posted, not Done, deleted or archived) to read: not merged,
+// which is for good. Those never read come first, then those read longest ago, at most `limit`.
+export async function prsToSync(env: DbEnv, limit: number) {
   const { results } = await env.DB.prepare(
-    `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts, t.title AS task_title FROM releases r JOIN tasks t ON t.id = r.task_id
-     WHERE t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL AND r.status IN (${statuses.map(() => "?").join(", ")})
-     ORDER BY r.id`,
+    `SELECT j.value AS url FROM tasks t, json_each(t.prs) j LEFT JOIN pull_requests pr ON pr.url = j.value
+     WHERE t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL AND t.status != 'DONE'
+       AND j.value LIKE 'https://github.com/%' AND (pr.state IS NULL OR pr.state != 'MERGED')
+     GROUP BY j.value ORDER BY MIN(pr.synced_at IS NOT NULL), MIN(pr.synced_at) LIMIT ?`,
   )
-    .bind(...statuses)
-    .all<ReleaseWithTaskRow>();
-  return results.map((row) => ({ channel: row.task_channel, ts: row.task_ts, title: row.task_title, release: releaseFromRow(row) }));
+    .bind(limit)
+    .all<{ url: string }>();
+  return results.map((row) => row.url);
 }
 
-function releaseFromRow(row: ReleaseRow): Release {
-  return {
-    approver: row.approver,
-    messageTs: row.message_ts,
-    id: row.id,
-    prs: JSON.parse(row.prs),
-    note: row.note,
-    status: row.status,
-    sentBy: row.sent_by,
-    sentAt: row.sent_at,
-    decidedBy: row.decided_by,
-    decidedAt: row.decided_at,
-  };
+// Saves where pull requests stand, and returns the URLs whose state changed (one not saved before counts).
+export async function setPrStates(env: DbEnv, states: { url: string; state: PrState }[]) {
+  if (!states.length) return [];
+  const urls = JSON.stringify(states.map(({ url }) => url));
+  const { results } = await env.DB.prepare("SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))")
+    .bind(urls)
+    .all<{ url: string; state: PrState }>();
+  const before = new Map(results.map((row) => [row.url, row.state]));
+  // D1 takes 100 values in a statement, two a row.
+  for (let from = 0; from < states.length; from += 40) {
+    const chunk = states.slice(from, from + 40);
+    await env.DB.prepare(
+      `INSERT INTO pull_requests (url, state) VALUES ${chunk.map(() => "(?, ?)").join(", ")}
+       ON CONFLICT (url) DO UPDATE SET state = excluded.state, synced_at = CURRENT_TIMESTAMP`,
+    )
+      .bind(...chunk.flatMap(({ url, state }) => [url, state]))
+      .run();
+  }
+  return states.filter(({ url, state }) => before.get(url) !== state).map(({ url }) => url);
 }
 
-// Remembers where a release's request was posted and who approves it.
-export async function setReleaseMessage(env: DbEnv, id: number, messageTs: string, approver: string | null) {
-  await env.DB.prepare("UPDATE releases SET message_ts = ?, approver = ? WHERE id = ?").bind(messageTs, approver, id).run();
-}
-
-// The release with `id` and the task it belongs to, as { channel, ts, title, release }, or null (also
-// when the task was deleted or archived).
-export async function releaseById(env: DbEnv, id: number) {
-  const row = await env.DB.prepare(
-    `SELECT r.*, t.channel AS task_channel, t.ts AS task_ts, t.title AS task_title FROM releases r JOIN tasks t ON t.id = r.task_id
-     WHERE r.id = ? AND t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL`,
+// The posted tasks, not deleted or archived, that link one of `urls`, as { channel, ts, task }.
+export async function tasksWithPrs(env: DbEnv, urls: string[]) {
+  const { results } = await env.DB.prepare(
+    `${TASK_SELECT} WHERE t.ts IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+       AND EXISTS (SELECT 1 FROM json_each(t.prs) j WHERE j.value IN (SELECT value FROM json_each(?)))`,
   )
-    .bind(id)
-    .first<ReleaseWithTaskRow>();
-  return row ? { channel: row.task_channel, ts: row.task_ts, title: row.task_title, release: releaseFromRow(row) } : null;
-}
-
-// Changes the PRs and note of a release still waiting for approval; false if it is not any more
-// (it was decided meanwhile).
-export async function changeRelease(env: DbEnv, id: number, prs: string[], note: string) {
-  const row = await env.DB.prepare("UPDATE releases SET prs = ?, note = ? WHERE id = ? AND status = 'PENDING_APPROVAL' RETURNING id")
-    .bind(JSON.stringify(prs), note, id)
-    .first();
-  return Boolean(row);
+    .bind(JSON.stringify(urls))
+    .all<ListedTaskRow>();
+  return results.map((row) => ({ channel: row.channel, ts: row.ts!, task: taskFromRow(row) }));
 }
 
 // The deployment's prompts, which `npm run prompts` saves (see scripts/prompts.ts); the Worker only reads

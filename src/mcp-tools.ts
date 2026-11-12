@@ -29,7 +29,6 @@ export const MAX_NAMES = 50; // people whose names a result carries
 export const MAX_TITLE = 150;
 export const MAX_SUMMARY = 8000;
 export const MAX_MESSAGE = 3000;
-export const MAX_RELEASE_NOTE = 300;
 export const MAX_PREVIEW = 300; // the start of a thread's first message
 
 // How many entries a list can hold.
@@ -48,11 +47,8 @@ const ASSIGNEE_PATTERN = "^(me|[UW][A-Z0-9]{2,})$";
 // A task's status in get_tasks: also open (everything not done) and all.
 const TASK_STATUS_FILTER = ["open", "all", ...STATUS_NAMES];
 
-// Releases and pull requests.
-const RELEASE_STATUSES = ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"];
-const RELEASE_STATUS_FILTER = [...RELEASE_STATUSES, "all"];
-const SENT_RELEASE_STATUSES = ["PENDING_APPROVAL", "APPROVED"]; // NOT_APPROVED ones are not kept
-const PR_STATES = ["PENDING", "PENDING_APPROVAL", "APPROVED"];
+// Where a pull request stands on GitHub (see github.ts).
+const PR_STATES = ["OPEN", "MERGED", "CLOSED"];
 
 // Whether a session has the latest tool set.
 const SESSION_STATUSES = ["CURRENT", "OUTDATED", "UNKNOWN"];
@@ -176,18 +172,9 @@ const PR_ITEM = {
     properties: {
         url: str("The pull request's address"),
         label: str("repo/number"),
-        state: choice("PENDING: not sent to the client yet; PENDING_APPROVAL: sent, waiting for the approver; APPROVED. A Done task's are all APPROVED", PR_STATES),
-        release: {
-            type: ["object", "null"],
-            description: "The release it was sent with, or null while pending",
-            properties: {
-                release_id: int("The release's number"),
-                note: str("What the release completes"),
-                status: choice("PENDING_APPROVAL: waiting for the approver; APPROVED", SENT_RELEASE_STATUSES),
-            },
-        },
+        state: choice("Where it stands on GitHub, as Cade last read it: OPEN (drafts too, and any Cade can't read, such as GitLab's), MERGED, or CLOSED without merging", PR_STATES),
     },
-    required: ["url", "label", "state", "release"],
+    required: ["url", "label", "state"],
 };
 
 // A property map: what get_tasks can include for each task, besides its task_id and the base fields.
@@ -197,24 +184,8 @@ export const EXTRA_FIELDS = {
     notes: str("The notes people wrote, or empty"),
     notes_link: str("A link to the notes page, or empty"),
     created_by: str("Who raised it: a Slack user ID, show the name, not the ID"),
-    prs: list("The pull requests linked to the task, each with its state and the release it was sent with", PR_ITEM),
+    prs: list("The pull requests linked to the task, each with where it stands", PR_ITEM),
     completed_at: str("When it was marked Done, or empty (YYYY-MM-DD HH:MM, UTC)"),
-};
-
-const RELEASE_ITEM = {
-    type: "object",
-    description: "A partial release: pull requests sent to the client for approval before the whole task is done",
-    properties: {
-        release_id: int("The release's number"),
-        prs: strings("The pull requests' addresses"),
-        note: str("What the release completes"),
-        status: choice("PENDING_APPROVAL: waiting for the approver; APPROVED; NOT_APPROVED: turned down, its PRs are pending again", RELEASE_STATUSES),
-        sent_by: str("Who sent the release: a Slack user ID, show the name, not the ID"),
-        sent_at: str("When it was sent (YYYY-MM-DD HH:MM, UTC)"),
-        decided_by: str("Who decided it, or empty while waiting: a Slack user ID, show the name, not the ID"),
-        decided_at: str("When it was decided, or empty (YYYY-MM-DD HH:MM, UTC)"),
-    },
-    required: ["release_id", "prs", "note", "status", "sent_by", "sent_at", "decided_by", "decided_at"],
 };
 
 const TASK_ITEM = {
@@ -242,7 +213,7 @@ const TASK_ITEM = {
 
 export const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
 // get_task can also give where the task came from.
-export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "releases", "subtasks"];
+export const TASK_VIEW_FIELDS = [...TASK_FIELDS, "original_thread", "original_thread_state", "subtasks"];
 
 // ── Annotations ──────────────────────────────────────────────────────────────────────────────
 
@@ -292,8 +263,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 notes: str("The notes people wrote, or empty"),
                 original_thread_state: choice("found: original_thread names it; none: made from no other thread; unknown: no messages kept yet", ORIGINAL_THREAD_STATES),
                 original_thread: THREAD,
-                prs: list("The pull requests linked to the task, each with where it is and the release it was sent with", PR_ITEM),
-                releases: list("The partial releases sent to the client for approval, oldest first (those not approved are not kept): which PRs, what they complete, who sent them and who approved", RELEASE_ITEM),
+                prs: list("The pull requests linked to the task, each with where it stands", PR_ITEM),
                 subtasks: list("The task's subtasks (parts of it, or issues found while testing it), oldest first, Done ones too, each with its own thread for get_task_history", SUBTASK_ITEM),
             },
         },
@@ -374,76 +344,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 required: ["task_id"],
                 description: "Every field, or just those asked for in fields"
             }),
-        }),
-    },
-    {
-        name: "get_releases",
-        title: "List releases",
-        annotations: READS,
-        description:
-            "Lists the partial releases of tasks: pull requests sent to the client for approval before the whole task is done. Approving or turning one down is the approver's click in Slack, not a tool.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                status: choice("Default PENDING_APPROVAL", RELEASE_STATUS_FILTER),
-                task_id: str("Only this task's releases"),
-                project: str("Only this project's tasks, by the name get_projects gives"),
-                limit: int(`How many releases to return, oldest first. Default ${DEFAULT_TASKS}`, {
-                    minimum: 1,
-                    maximum: MAX_TASKS
-                }),
-            },
-        },
-        outputSchema: outputWithNames({
-            total: int("How many match and you can see"),
-            releases: list("The releases that match, oldest first", {
-                type: "object",
-                description: "A release, with its task",
-                properties: {
-                    ...RELEASE_ITEM.properties,
-                    task_id: str("The task's ID, for the other tools"),
-                    title: str("The task's title"),
-                    project: str("The project's name"),
-                    prs: list("The release's pull requests", {
-                        type: "object",
-                        description: "A pull request in the release",
-                        properties: {url: str("The pull request's address"), label: str("repo/number")},
-                        required: ["url", "label"]
-                    }),
-                },
-                required: [...RELEASE_ITEM.required, "task_id", "title", "project"],
-            }),
-        }),
-    },
-    {
-        name: "update_release",
-        title: "Change a release",
-        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
-        description:
-            "Changes a release still waiting for approval: its pull requests and what it completes. Cade updates the approver's request and the task's card, and tells the thread. It never approves or turns a release down: that is the approver's click in Slack. " +
-            "Preview: the release, and its pull requests and note as they are now and as they will be. " +
-            "Call this only with changes the person has seen and approved.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                release_id: int("The release's number, as get_releases gives it", {minimum: 1}),
-                prs: {
-                    type: "object",
-                    description: "Pull requests to add to and remove from the release, as links. Added ones must be linked to the task already (update_task prs.add) and not in another release; a release keeps at least one",
-                    properties: {
-                        add: strings("Pull requests to add to the release, as links"),
-                        remove: strings("Pull requests to take out of the release, as links; they go back to pending")
-                    },
-                },
-                note: str("What the release completes, replacing the earlier note", {maxLength: MAX_RELEASE_NOTE}),
-            },
-            required: ["release_id"],
-        },
-        outputSchema: outputWithNames({
-            release_id: int("The release's number"),
-            task_id: str("The task's ID, for the other tools"),
-            changed: bool("Whether the release changed"),
-            release: {...RELEASE_ITEM, description: "The release as it is now"},
         }),
     },
     {
@@ -702,7 +602,7 @@ export const TOOL_DEFS: ToolDef[] = [
         description:
             "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. " +
             "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
-            "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
+            "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
             "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
@@ -717,7 +617,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 summary: str(`The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most ${MAX_SUMMARY} characters. Replaces any earlier one`),
                 prs: {
                     type: "object",
-                    description: "Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; one already sent to the client for approval can't be unlinked here. Cade can't see repositories, so check a pull request with your own tools first",
+                    description: "Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first",
                     properties: {
                         add: strings("Pull requests to link to the task, as links"),
                         remove: strings("Pull requests to unlink from the task, as links")

@@ -10,8 +10,8 @@ import configure from "./configure.ts";
 import menu from "./menu.ts";
 import move from "./move.ts";
 import pr from "./pr.ts";
+import prs from "./prs.ts";
 import project from "./project.ts";
-import release from "./release.ts";
 import resync from "./resync.ts";
 import retry from "./retry.ts";
 import standup from "./standup.ts";
@@ -54,7 +54,7 @@ import type { Handler, Intent, PayloadHandler } from "../types.ts";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.ts for the shape of `command`.
-const handlers: Handler[] = [track, incident, assign, unassign, status, priority, due, pr, release, subtask, archive, remove, replace, move, resync, retry, standup];
+const handlers: Handler[] = [track, incident, assign, unassign, status, priority, due, pr, subtask, archive, remove, replace, move, resync, retry, standup];
 
 export const commands: Record<string, Handler> = Object.fromEntries(
   handlers.flatMap((handler) =>
@@ -80,9 +80,9 @@ function adminsOnly(handlers: Record<string, PayloadHandler> = {}): Record<strin
 }
 const guarded = (handler: Handler): Handler => (handler.admin ? { ...handler, actions: adminsOnly(handler.actions), views: adminsOnly(handler.views) } : handler);
 
-// The Home tab's Refresh button, the task card's menu, its Edit form, and suggestions from people's own words only answer
-// clicks and messages, so they aren't commands.
-const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, suggest, aiSuggest].map(guarded);
+// The Home tab's Refresh button, the task card's menu, its Edit and Pull requests forms, and suggestions from people's
+// own words only answer clicks and messages, so they aren't commands.
+const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, prs, suggest, aiSuggest].map(guarded);
 
 export const views: Record<string, PayloadHandler> = Object.assign(
   {},

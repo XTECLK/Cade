@@ -5,26 +5,25 @@ import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
-import { subtasksOf, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, promptByName, promptHashes, prompts, putSummary, putTask, changeRelease, releaseById, releasesOfTasks, releasesWithStatus, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
+import { subtasksOf, deleteMcpToken, getNotes, mcpTokenUser, notesOf, putMcpToken, promptByName, promptHashes, prompts, putSummary, putTask, taskTitleOf, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
-import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_RELEASE_NOTE, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
-import { callSlack, escapeSlack, linkedMessage, linkedThread, mentions, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
+import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
+import { callSlack, escapeSlack, linkedMessage, linkedThread, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
 import { nameMap } from "./export.ts";
 import { requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
-import { releaseRequest } from "./commands/release.ts";
-import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, prLink, statusName, taskMessage, shownPeople, unsentPrs, waitsForSubtasks } from "./tasks.ts";
+import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, taskMessage, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
 import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
-import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetReleasesArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateReleaseArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
+import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTasksArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { PromptRow } from "./db.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
-import type { Changes, Priority, Release, ReleaseStatus, Role, SlackMessage, Status, StoredTask, Task } from "./types.ts";
+import type { Changes, Priority, Role, SlackMessage, Status, StoredTask, Task } from "./types.ts";
 
 // What a tool gives: its text, or its text and its data (structuredContent).
 type ToolResult = string | { text: string; data: Record<string, unknown> };
@@ -124,7 +123,7 @@ function apiKeyOf(request: Request) {
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 // The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
 // made from the same inputSchema they are checked against before it is called (see callTool).
-const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_releases: getReleases, update_release: updateRelease, get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool };
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
   // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
@@ -534,36 +533,13 @@ function taskData(env: AppEnv, channel: string, ts: string, task: Task, link: st
 // A subtask's line naming its parent, for a tool's text, or none for a task that isn't one.
 const parentLines = (parent: ReturnType<typeof taskData>["parent"], indent: string) => (parent ? [`${indent}Subtask of "${parent.title}" (task ID ${parent.task_id}).`] : []);
 
-// A release as data, with its time as YYYY-MM-DD HH:MM in UTC.
-const releaseData = (release: Release) => ({
-  release_id: release.id,
-  prs: release.prs,
-  note: release.note,
-  status: release.status,
-  sent_by: release.sentBy ?? "",
-  sent_at: release.sentAt ? release.sentAt.slice(0, 16).replace("T", " ") : "",
-  decided_by: release.decidedBy ?? "",
-  decided_at: release.decidedAt ? release.decidedAt.slice(0, 16).replace("T", " ") : "",
-});
-
-// A task's pull requests with where each is, and its releases, as data: a PR is pending until it is
-// sent to the client with a release, then pending_approval, then approved (all are, once the task is
-// Done). `releases` are the task's, not counting those turned down.
-function prData(task: Task, releases: Release[] = task.releases ?? []) {
-  const sentWith = new Map<string, Release>();
-  for (const release of releases) for (const url of release.prs) sentWith.set(url, release);
+// A task's pull requests with where each stands on GitHub (see github.ts), as data.
+function prData(task: Task) {
   const prs = task.prs!.map((url) => {
     const pr = parsePullRequest(url);
-    const release = sentWith.get(url);
-    const approved = release?.status === "APPROVED";
-    return {
-      url,
-      label: pr ? `${pr.repo}/${pr.number}` : url,
-      state: task.status === "DONE" || approved ? "APPROVED" : release ? "PENDING_APPROVAL" : "PENDING",
-      release: release ? { release_id: release.id, note: release.note, status: release.status } : null,
-    };
+    return { url, label: pr ? `${pr.repo}/${pr.number}` : url, state: prState(task, url) };
   });
-  return { prs, releases: releases.map(releaseData) };
+  return { prs };
 }
 
 // One task: its details, summary and notes, without its threads, or only the `fields` asked
@@ -611,10 +587,9 @@ async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
     lines.push("", "Summary of the issue" + (notes.summary && notes.summaryBy ? ` (written by ${notes.summaryBy})` : "") + ":", notes.summary || "(none yet)");
   }
   if (want("notes")) lines.push("", "Notes written by people:", notes.body || "(none)");
-  if (want("prs", "releases")) {
-    const { prs, releases } = prData(task);
-    lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.toLowerCase().replace("_", " ")}): ${pr.url}`) : ["(none linked)"]));
-    for (const release of releases) lines.push(`Release ${release.release_id} (${release.status.toLowerCase().replace("_", " ")}), sent by ${release.sent_by}${release.decided_by ? `, decided by ${release.decided_by}` : ""}: ${release.note} [${release.prs.length} PR${release.prs.length === 1 ? "" : "s"}]`);
+  if (want("prs")) {
+    const { prs } = prData(task);
+    lines.push("", "Pull requests:", ...(prs.length ? prs.map((pr) => `- ${pr.label} (${pr.state.toLowerCase()}): ${pr.url}`) : ["(none linked)"]));
   }
   if (want("original_thread", "original_thread_state")) {
     lines.push(
@@ -651,39 +626,6 @@ const MOVED_FROM = /^Moved from <@[UW][A-Z0-9]+>'s <([^|>]+)\|message>/;
 function sourceThreadOf(messages: { text?: string }[]) {
   const found = messages.map((message) => MOVED_FROM.exec(message.text ?? "")).find(Boolean);
   return found ? { ...linkedThread(found[1]!)!, link: found[1]!.replace(/&amp;/g, "&") } : null;
-}
-
-// The releases (PRs sent to the client for approval) of the tasks `user` can read, oldest first.
-async function getReleases(env: AppEnv, user: string, { status, task_id: taskId, project, limit }: GetReleasesArgs) {
-  const wanted = status ?? "PENDING_APPROVAL";
-  const statuses: ReleaseStatus[] | null = wanted === "all" ? ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"] : ["PENDING_APPROVAL", "APPROVED", "NOT_APPROVED"].includes(wanted) ? [wanted] : null;
-  if (!statuses) throw new ToolError("status is PENDING_APPROVAL, APPROVED, NOT_APPROVED or all.");
-  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_TASKS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_TASKS}.`);
-  const only = taskId === undefined ? null : taskRef({ task_id: taskId });
-  const channel = project === undefined ? null : projectChannel(env, project);
-  const found = (await releasesWithStatus(env, statuses)).filter((row) => (!only || (row.channel === only.channel && row.ts === only.ts)) && (!channel || row.channel === channel));
-  const readable = new Map<string, boolean>();
-  const visible: typeof found = [];
-  for (const row of found) {
-    if (!readable.has(row.channel)) readable.set(row.channel, (await readableName(env, row.channel, user)) !== null);
-    if (readable.get(row.channel)) visible.push(row);
-  }
-  const shown = visible.slice(0, limit ?? DEFAULT_TASKS);
-  const releases = shown.map(({ channel: c, ts, title, release }) => {
-    const project = projects(env).find((pair) => pair.channel === c)?.name ?? c;
-    return {
-      ...releaseData(release),
-      prs: release.prs.map((url) => ({ url, label: (({ repo, number }: { repo?: string; number?: string } = {}) => (repo ? `${repo}/${number}` : url))(parsePullRequest(url) ?? {}) })),
-      task_id: `${c}:${ts}`,
-      title,
-      project,
-    };
-  });
-  const label = wanted.toLowerCase().replace("_", " ");
-  if (!releases.length) return { text: `There are no releases ${wanted === "all" ? "" : `${label} `}to show.`.replace("  ", " "), data: { total: 0, releases: [] } };
-  const lines = releases.map((r, i) => `${i + 1}. ${r.project}: ${r.title} (${r.task_id}) — ${r.status.toLowerCase().replace("_", " ")}, sent by ${r.sent_by}${r.decided_by ? `, decided by ${r.decided_by}` : ""}\n   ${r.note}\n   PRs: ${r.prs.map((pr) => `${pr.label} ${pr.url}`).join(", ")}`);
-  const more = visible.length > shown.length ? `\n…and ${visible.length - shown.length} more; raise limit (up to ${MAX_TASKS}).` : "";
-  return { text: [`${visible.length} release${visible.length === 1 ? "" : "s"}, oldest first:`, ...lines].join("\n") + more, data: { total: visible.length, releases } };
 }
 
 // The channels Cade is in that `user` is in too, project channels first.
@@ -961,8 +903,6 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
   // The notes pages are read only when summary, notes or the like are asked for.
   const wantsNotes = (fields ?? []).some((field) => ["summary", "summary_by", "notes", "notes_link"].includes(field));
   const pages = wantsNotes ? await notesOf(env, entries.map(({ channel, ts }) => ({ channel, ts }))) : new Map();
-  // Releases are read only when the pull requests are asked for.
-  const releases = (fields ?? []).includes("prs") ? await releasesOfTasks(env, entries.map(({ channel, ts }) => ({ channel, ts }))) : new Map<string, Release[]>();
   let section: string | undefined;
   for (const [n, { entry }] of sorted.entries()) {
     const { channel, ts, task } = entry;
@@ -982,7 +922,7 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
       notes: page?.body ?? "",
       notes_link: task.notes?.url ?? "",
       created_by: task.createdBy ?? "",
-      prs: fields?.includes("prs") ? prData(task, releases.get(`${channel}:${ts}`) ?? []).prs : [],
+      prs: fields?.includes("prs") ? prData(task).prs : [],
       completed_at: task.completedAt ? task.completedAt.slice(0, 16).replace("T", " ") : "",
     };
     // Only the fields asked for, or the base ones.
@@ -1285,54 +1225,6 @@ function prLinksOf(list: unknown, name: string): string[] {
   }))];
 }
 
-// Changes the PRs, or what it completes, of a release waiting for approval, and tells its thread. It
-// is never decided here: that is the approver's click (see release.ts).
-async function updateRelease(env: AppEnv, user: string, { release_id: id, prs, note }: UpdateReleaseArgs) {
-  if (!Number.isInteger(id) || id < 1) throw new ToolError("release_id is the number get_releases gives each release.");
-  const found = await releaseById(env, id);
-  if (!found) throw new ToolError("There is no such release, or its task is gone. get_releases lists them.");
-  const { channel, ts, release } = found;
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't change its release for you.");
-  if (release.status !== "PENDING_APPROVAL") throw new ToolError(`That release is already ${release.status === "APPROVED" ? "approved" : "decided"}; only one waiting for approval can be changed.`);
-  if (!release.messageTs || !release.approver) throw new ToolError("I don't have that release's request message, so I can't change it. Change it in the task's thread in Slack.");
-
-  const task = (await loadTask(env, channel, ts))!;
-  const add = prLinksOf(prs?.add, "prs.add");
-  const remove = prLinksOf(prs?.remove, "prs.remove");
-  if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");
-  const elsewhere = new Set(task.releases!.filter((other) => other.id !== id).flatMap((other) => other.prs));
-  const unlinked = add.filter((url) => !task.prs!.includes(url));
-  if (unlinked.length) throw new ToolError(`${unlinked.join(", ")} ${unlinked.length === 1 ? "isn't" : "aren't"} linked to the task yet. Link ${unlinked.length === 1 ? "it" : "them"} first with update_task (prs.add).`);
-  const taken = add.filter((url) => elsewhere.has(url));
-  if (taken.length) throw new ToolError(`${taken.join(", ")} ${taken.length === 1 ? "is" : "are"} in another release already.`);
-  const missing = remove.filter((url) => !release.prs.includes(url));
-  if (missing.length) throw new ToolError(`${missing.join(", ")} ${missing.length === 1 ? "isn't" : "aren't"} in this release.`);
-  let text = release.note;
-  if (note !== undefined) {
-    text = String(note).trim();
-    if (!text) throw new ToolError("The note is empty.");
-    if (text.length > MAX_RELEASE_NOTE) throw new ToolError(`The note is ${text.length} characters; keep it to ${MAX_RELEASE_NOTE} or fewer.`);
-  }
-  const next = [...release.prs.filter((url) => !remove.includes(url)), ...add.filter((url) => !release.prs.includes(url))];
-  if (!next.length) throw new ToolError("A release needs at least one pull request. To take it back, tell the person to settle it in the task's thread.");
-
-  const taskId = `${channel}:${ts}`;
-  const unchanged = next.length === release.prs.length && next.every((url) => release.prs.includes(url)) && text === release.note;
-  const updated = { ...release, prs: next, note: text };
-  if (!unchanged) {
-    if (!(await changeRelease(env, id, next, text))) throw new ToolError("That release was decided just now, so it can't be changed.");
-    task.releases = task.releases!.map((other) => (other.id === id ? updated : other));
-    await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
-    // The request the approver sees, with its buttons; and a reply, since mentions in an edit notify no one.
-    await callSlack(env, "chat.update", { channel, ts: release.messageTs, ...releaseRequest({ channel, ts, id, approver: release.approver!, sentBy: release.sentBy, prs: next, note: text }) });
-    const reply = `${mentions([...new Set([release.approver, release.sentBy])])}: <@${user}> changed this release. It now has ${next.map(prLink).join(", ")}.\n*Completes:* ${escapeSlack(text)}`;
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(reply) });
-    console.log("Release changed", { channel, ts, id, by: user, prs: next.length });
-  }
-  const data = { release_id: id, task_id: taskId, changed: !unchanged, release: releaseData(updated) };
-  return { text: unchanged ? "The release already has those PRs and that note." : `Done. The release now has ${next.length} PR${next.length === 1 ? "" : "s"}; the approver's request and the thread are updated.`, data };
-}
-
 // Changes a task's fields for the person, and tells its thread.
 async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   const { channel, ts } = taskRef(args);
@@ -1379,9 +1271,9 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     const add = links("add");
     const remove = links("remove");
     if (add.some((url) => remove.includes(url))) throw new ToolError("prs: the same pull request is in add and remove.");
-    // One sent to the client is part of a release; whether it stands is theirs and the team's to settle in Slack.
-    const sent = remove.filter((url) => !unsentPrs(task).includes(url) && task.prs!.includes(url));
-    if (sent.length) throw new ToolError(`${sent.join(", ")} ${sent.length === 1 ? "was" : "were"} sent to the client for approval, so I can't unlink ${sent.length === 1 ? "it" : "them"}. Tell the person to settle it in the task's thread.`);
+    // Merged and closed ones stay with the task, as the card's Pull requests form keeps them (see prs.ts).
+    const settled = remove.filter((url) => task.prs.includes(url) && prState(task, url) !== "OPEN");
+    if (settled.length) throw new ToolError(`${settled.join(", ")} ${settled.length === 1 ? "is" : "are"} merged or closed, and stay${settled.length === 1 ? "s" : ""} linked: only open pull requests can be unlinked.`);
     changes.prs = { add, remove };
   }
   let summary: string | undefined;

@@ -1,5 +1,5 @@
 import { escapeSlack, mentions } from "./slack.ts";
-import { PRIORITIES, STATUSES, prLink, unsentPrs } from "./tasks.ts";
+import { PRIORITIES, STATUSES, openPrs, prLink } from "./tasks.ts";
 import type { Change, Priority, Role, Status, Task } from "./types.ts";
 
 // Who was told already, by the message a suggestion came from (see above).
@@ -57,6 +57,12 @@ export function toAsk(people: string[], user: string, told: Told = {}) {
 
 export function linked(user: string, urls: string[]) {
   return `<@${user}> linked ${urls.map(prLink).join(", ")}.`;
+}
+
+// Pull requests pasted into a task's thread, linked by Cade, not by whoever pasted them (see linkPasted
+// in commands/pr.ts).
+export function autoLinked(urls: string[]) {
+  return `Auto-linked ${urls.map(prLink).join(", ")}.`;
 }
 
 export function unlinked(user: string, urls: string[]) {
@@ -157,7 +163,7 @@ export function changeRequests({ user, told, task, people, prs, status }: Pick<C
   ];
 }
 
-// "pick this up and review web/12": what `asks`, as { role, prs }, ask of one person.
+// "pick this up and review this": what `asks`, as { role, prs }, ask of one person.
 function askedTo(asks: Ask[]) {
   const parts = (["owner", "reviewer", "tester"] as Role[]).flatMap((role) => asks.filter((one) => one.role === role).map((one) => ASKS[role](one.prs)));
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
@@ -183,23 +189,24 @@ export function changeMessage(change: Change) {
 const STAGE: Record<Role, Status[]> = { owner: ["TODO", "IN_PROGRESS"], reviewer: ["IN_REVIEW"], tester: ["IN_TESTING"] };
 
 // What `role` has to do on `task` now: null when there's nothing, else the PRs a reviewer
-// reviews (those not yet sent for approval; none listed when the task has no PRs at all), or
-// an empty list for the other roles. Once every PR is sent for approval there's nothing left
-// to review.
+// reviews (those still open; none listed when the task has no PRs at all), or an empty list for the
+// other roles. Once every PR is merged or closed there's nothing left to review.
 // A request of one person: their role, and the PRs a reviewer reviews.
 type Ask = { role: Role; prs: string[] };
 
 export function onTheirPlate(task: Task, role: Role): string[] | null {
   if (!STAGE[role]?.includes(task.status)) return null;
   if (role !== "reviewer") return [];
-  const pending = unsentPrs(task);
+  const pending = openPrs(task);
   return task.prs!.length && !pending.length ? null : pending;
 }
 
 // What each role is asked to do; reviewers are asked about pull requests.
+// Reviewers are asked to review "this", as testers are asked to test it: the pull requests are on the
+// task's card and its Pull requests button, so the request doesn't repeat them.
 const ASKS: Record<Role, (prs: string[]) => string> = {
   owner: () => "pick this up",
-  reviewer: (prs) => (prs.length ? `review ${prs.map(prLink).join(", ")}` : "review this"),
+  reviewer: () => "review this",
   tester: () => "give this a test",
 };
 

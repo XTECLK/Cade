@@ -6,6 +6,7 @@ import { publishHome } from "./home.ts";
 import { findIntent, intentsOn, plainMessage } from "./intents.ts";
 import { handleMcp } from "./mcp.ts";
 import { retryUnposted } from "./retry.ts";
+import { PR_SYNC_MINUTES, syncPullRequests } from "./github.ts";
 import { rotateThreads } from "./rotate.ts";
 import { withSettings } from "./settings.ts";
 import { BadEnvelope, checkSlashCommand, readEvent, readInteraction } from "./envelopes.ts";
@@ -84,6 +85,7 @@ export default {
     const minute = new Date(controller.scheduledTime).getUTCMinutes();
     if (minute % 5 === 0) ctx.waitUntil(retryUnposted(env));
     if (minute === 0) ctx.waitUntil(rotateThreads(env, controller.scheduledTime));
+    if (minute % PR_SYNC_MINUTES === 0) ctx.waitUntil(syncPullRequests(env));
   },
 } satisfies ExportedHandler<AppEnv>;
 

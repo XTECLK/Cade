@@ -7,7 +7,7 @@ export const ABOUT = [
   `A team turns Slack conversations into tasks and incidents, assigns people, and follows them through statuses to Done.`,
   `A task belongs to a project (a pair of Slack channels) and has a title, status, priority, due date, people (owner, reviewer and tester), pull requests, a summary and notes.`,
   `Through this server a person's own AI agent can create tasks, create incidents and summarize a task.`,
-  `It can also read tasks and threads, change a task, post in a task's thread or any other, see who has room for more work, and change a release (pull requests sent to the client for approval).`,
+  `It can also read tasks and threads, change a task, post in a task's thread or any other, and see who has room for more work.`,
   `These tools are building blocks: any other agent or tool can use them to implement a team's own workflows, such as generating an executive summary, which Cade doesn't do itself.`,
   `Some workflows come as prompts a person can pick, such as summarizing a task or writing an executive summary.`,
 ];

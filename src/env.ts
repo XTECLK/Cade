@@ -20,6 +20,9 @@ export interface AppEnv extends Env {
   SUMMARY_CANVAS?: string;
   // Days after which an open task's thread gets a new root (see rotate.ts), or "" for never.
   THREAD_ROTATION_DAYS?: string;
+  // A GitHub token that can read the repositories' pull requests, for the cron to read whether each
+  // is open, merged or closed (see github.ts). Without it, every pull request counts as open.
+  GITHUB_TOKEN?: string;
 }
 
 export type FeatureSecret = "NEW_TASK_DETECTION" | "AI_AGENT_SUMMARY" | "SUMMARY_CANVAS";

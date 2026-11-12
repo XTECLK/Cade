@@ -48,26 +48,20 @@ export type TaskRef = { channel: string; ts: string };
 export const SUGGESTIONS_BUTTON = object({ on: { type: "boolean" } });
 export type SuggestionsButton = { on: boolean };
 
-// A button about a task: Ask for approval (status.ts), Send PRs for approval (release.ts), the move
-// picker's Move (move.ts).
+// A button about a task: Ask for approval (status.ts), the move picker's Move (move.ts).
 export const TASK_BUTTON = object(TASK_REF);
 
 // A button about a message, for starting a task from it or moving it (move.ts).
 export const MESSAGE_BUTTON = object({ ...TASK_REF, title: text }, ["channel", "ts"]);
 export type MessageButton = TaskRef & { title?: string };
 
-// A form about a task, with the private message to remove once it's sent (status.ts, release.ts).
+// A form about a task, with the private message to remove once it's sent (status.ts).
 export const TASK_FORM = object({ ...TASK_REF, responseUrl: text }, ["channel", "ts"]);
 export type TaskForm = TaskRef & { responseUrl?: string };
 
 // Approve and Not approve on a task in Client review (status.ts).
 export const TASK_APPROVAL = object({ ...TASK_REF, text: text, approver: { type: ["string", "null"] } }, ["channel", "ts"]);
 export type TaskApproval = TaskRef & { text?: string; approver?: string | null };
-
-// Approve and Not approve on a release (release.ts). Buttons from before an approver was picked have
-// none, and anyone may click them.
-export const RELEASE_APPROVAL = object({ ...TASK_REF, id: { type: "integer" }, approver: { type: ["string", "null"] } }, ["channel", "ts", "id"]);
-export type ReleaseApproval = TaskRef & { id: number; approver?: string | null };
 
 // Delete on `/cade remove`'s question (delete.ts).
 export const DELETE_BUTTON = object({ ...TASK_REF, kind: { type: "string", enum: ["task", "message", "thread"] } });
@@ -96,6 +90,12 @@ export type Suggestion = TaskRef & { changes: Changes; from?: Status; told?: str
 // the reviewers it suggested.
 export const PR_SUGGESTION = object({ ...TASK_REF, urls: texts, mentioned: texts, reviewers: texts }, ["channel", "ts"]);
 export type PrSuggestion = TaskRef & { urls?: string[]; mentioned?: string[]; reviewers?: string[] };
+
+// OK and Unlink on the private note that pull requests pasted into a task's thread were linked (pr.ts):
+// the task, the PRs that message linked, and what else it means, to ask about once clicked, as a
+// suggestion carries it.
+export const PR_LINKED = object({ ...TASK_REF, urls: texts, changes: CHANGES, from: text, told: texts }, ["channel", "ts", "urls"]);
+export type PrLinked = TaskRef & { urls: string[]; changes?: Changes; from?: Status; told?: string[] };
 
 // The reviewer picker's block_id (pr.ts): the PRs it asks about. It may have been cut short to fit,
 // and then it isn't read.

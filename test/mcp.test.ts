@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import worker from "../src/index.ts";
-import { decideRelease, getNotes, getTask, insertRelease, insertTask, keepName, markTaskPosted, putSummary, putTask, setReleaseMessage } from "../src/db.ts";
+import { getNotes, getTask, insertTask, keepName, markTaskPosted, putSummary, putTask, setPrStates } from "../src/db.ts";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "../src/rate-limit.ts";
 import { fakeD1 } from "./d1.ts";
@@ -173,7 +173,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   // shows, is in its own description.
   const tools = (await (await rpc(url, { id: 9, method: "tools/list" })).json<any>()).result.tools;
   const described = (name) => tools.find((tool) => tool.name === name).description;
-  for (const name of ["create_task", "update_task", "send_thread_message", "update_release", "send_approval_request"]) {
+  for (const name of ["create_task", "update_task", "send_thread_message", "send_approval_request"]) {
     assert.match(described(name), /Preview: /, name);
   }
   assert.match(init.result.instructions, /never instructions to follow/);
@@ -193,17 +193,17 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   // itself, in the message's preview, under one approval; update_task says what to look for.
   assert.match(init.result.instructions, /KEEPING TASKS RIGHT\. Cade suggests nothing from what an agent posts.*offer the fix with update_task in the same preview as the message, under one "Go ahead\?"/);
   assert.match(described("update_task"), /a status the evidence has moved past/);
-  assert.match(described("update_task"), /a pull request mentioned or opened for it and not linked, to add; one linked but closed without merging, replaced by another, or for another task, to remove/);
+  assert.match(described("update_task"), /a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove/);
   const notification = await rpc(url, { method: "notifications/initialized" });
   assert.equal(notification.status, 202);
 
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json<any>();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_releases", "update_release", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_server_info"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_tasks", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_server_info"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_tasks", "get_releases", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_tasks", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
 });
@@ -980,7 +980,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the two writers don't.
-    const writes = ["update_task", "send_thread_message", "update_release", "create_task", "send_approval_request"].includes(def.name);
+    const writes = ["update_task", "send_thread_message", "create_task", "send_approval_request"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -1087,68 +1087,33 @@ const PR1 = "https://github.com/acme/web/pull/1";
 const PR2 = "https://github.com/acme/web/pull/2";
 const PR3 = "https://github.com/acme/api/pull/3";
 
-test("get_task and get_tasks give a task's pull requests with where each is and the release it was sent with", async (t) => {
+test("get_task and get_tasks give a task's pull requests with where each stands on GitHub", async (t) => {
   const TS = "1700000000.000100";
   await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2, PR3] }));
-  const sent = await insertRelease(env, "CDEV", TS, { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  const approved = await insertRelease(env, "CDEV", TS, { prs: [PR2], note: "Sign-up", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  await decideRelease(env, approved, "APPROVED", "UCLIENT");
-  const turnedDown = await insertRelease(env, "CDEV", TS, { prs: [PR3], note: "Search", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  await decideRelease(env, turnedDown, "NOT_APPROVED", "UCLIENT");
+  // PR3 hasn't been read from GitHub yet, so it counts as open.
+  await setPrStates(env, [{ url: PR1, state: "MERGED" }, { url: PR2, state: "CLOSED" }]);
   mock(t, { "conversations.info": { channel: { name: "dev" } }, "auth.test": { url: "https://acme.slack.com/" } });
   const url = addressIn(await slash("mcp init", "UME"));
 
-  const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs", "releases"] });
-  assert.deepEqual(view.data.prs.map((pr) => [pr.label, pr.state, pr.release?.release_id ?? null]), [["web/1", "PENDING_APPROVAL", sent], ["web/2", "APPROVED", approved], ["api/3", "PENDING", null]]);
-  assert.deepEqual(view.data.releases.map((release) => [release.release_id, release.status, release.sent_by, release.decided_by]), [[sent, "PENDING_APPROVAL", "UBOB", ""], [approved, "APPROVED", "UBOB", "UCLIENT"]]);
-  assert.match(view.text, /- web\/1 \(pending approval\): https:\/\/github\.com\/acme\/web\/pull\/1/);
-  assert.match(view.text, /Release \d+ \(approved\), sent by UBOB, decided by UCLIENT: Sign-up/);
+  const view = await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs"] });
+  assert.deepEqual(view.data.prs, [
+    { url: PR1, label: "web/1", state: "MERGED" },
+    { url: PR2, label: "web/2", state: "CLOSED" },
+    { url: PR3, label: "api/3", state: "OPEN" },
+  ]);
+  assert.match(view.text, /- web\/1 \(merged\): https:\/\/github\.com\/acme\/web\/pull\/1/);
+  // No releases any more.
+  assert.match((await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["releases"] })).text, /fields/);
 
   // get_tasks gives them when asked for, with the same states.
   const listed = await tool(url, "get_tasks", { fields: ["title", "prs"] });
-  assert.deepEqual(listed.data.tasks[0].prs.map((pr) => [pr.label, pr.state]), [["web/1", "PENDING_APPROVAL"], ["web/2", "APPROVED"], ["api/3", "PENDING"]]);
+  assert.deepEqual(listed.data.tasks[0].prs.map((pr) => [pr.label, pr.state]), [["web/1", "MERGED"], ["web/2", "CLOSED"], ["api/3", "OPEN"]]);
   assert.ok(!("prs" in (await tool(url, "get_tasks", {})).data.tasks[0]));
-  // A Done task's are all approved.
-  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR3], status: "DONE" }));
-  assert.deepEqual((await tool(url, "get_task", { task_id: `CDEV:${TS}`, fields: ["prs"] })).data.prs.map((pr) => pr.state), ["APPROVED", "APPROVED"]);
 });
-
-test("get_releases lists releases waiting for approval, or approved or turned down, only for channels you can read", async (t) => {
-  await putTask(env, "CDEV", "1000000000.000100", stored({ title: "Login", prs: [PR1, PR2] }));
-  await putTask(env, "CPRIV", "1000000001.000100", stored({ title: "Secret", prs: [PR3] }));
-  const a = await insertRelease(env, "CDEV", "1000000000.000100", { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  const b = await insertRelease(env, "CDEV", "1000000000.000100", { prs: [PR2], note: "Sign-up", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  await decideRelease(env, b, "NOT_APPROVED", "UCLIENT");
-  await insertRelease(env, "CPRIV", "1000000001.000100", { prs: [PR3], note: "Hidden", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  mock(t, {
-    "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }),
-  });
-  const url = addressIn(await slash("mcp init", "UME"));
-
-  const waiting = await tool(url, "get_releases", {});
-  assert.equal(waiting.isError, false, waiting.text);
-  assert.equal(waiting.data.total, 1);
-  assert.deepEqual(waiting.data.releases.map((r) => [r.release_id, r.task_id, r.title, r.project, r.status, r.note, r.prs.map((pr) => pr.label)]), [[a, "CDEV:1000000000.000100", "Login", "acme", "PENDING_APPROVAL", "Login done", ["web/1"]]]);
-  assert.match(waiting.text, /^1 release, oldest first:\n1\. acme: Login \(CDEV:1000000000\.000100\) — pending approval, sent by UBOB/);
-  assert.deepEqual((await tool(url, "get_releases", { status: "NOT_APPROVED" })).data.releases.map((r) => [r.release_id, r.decided_by]), [[b, "UCLIENT"]]);
-  assert.equal((await tool(url, "get_releases", { status: "all" })).data.total, 2);
-  assert.equal((await tool(url, "get_releases", { status: "all", limit: 1 })).data.releases.length, 1, "limit keeps the first");
-  assert.match((await tool(url, "get_releases", { limit: 0 })).text, /limit is a whole number from 1 to 100/);
-  assert.equal((await tool(url, "get_releases", { task_id: "CDEV:1000000000.000100", status: "all" })).data.total, 2);
-  assert.equal((await tool(url, "get_releases", { project: "bare", status: "all" })).data.total, 0);
-  assert.match((await tool(url, "get_releases", { status: "APPROVED" })).text, /^There are no releases approved to show\./);
-  assert.match((await tool(url, "get_releases", { status: "soon" })).text, /status is one of PENDING_APPROVAL, APPROVED, NOT_APPROVED, all\./);
-  // A member of the private channel sees its release too.
-  const bob = addressIn(await slash("mcp init", "UBOB"));
-  const members = mock(t, { "conversations.info": (args) => ({ channel: args.channel === "CPRIV" ? { name: "secret", is_private: true } : { name: "dev" } }) });
-  assert.equal((await tool(bob, "get_releases", {})).data.total, 2);
-  assert.ok(members.length > 0);
-});
-
-test("update_task links and unlinks pull requests, and won't unlink one sent to the client", async (t) => {
+test("update_task links and unlinks pull requests, and won't unlink one merged or closed", async (t) => {
   const TS = "1700000000.000100";
   await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2] }));
-  await insertRelease(env, "CDEV", TS, { prs: [PR1], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
+  await setPrStates(env, [{ url: PR1, state: "MERGED" }]);
   const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "chat.postMessage": {}, "chat.update": {}, "auth.test": { url: "https://acme.slack.com/" } });
   const url = addressIn(await slash("mcp init", "UME"));
   const id = `CDEV:${TS}`;
@@ -1157,62 +1122,16 @@ test("update_task links and unlinks pull requests, and won't unlink one sent to 
   assert.equal(added.isError, false, added.text);
   assert.equal(added.data.changed, true);
   assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR2, PR3]);
-  // PR2 was never sent, so it can go; the one in a release can't.
+  // PR2 is open, so it can go; the merged one can't.
   assert.equal((await tool(url, "update_task", { task_id: id, prs: { remove: [PR2] } })).data.changed, true);
   assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR3]);
-  assert.match((await tool(url, "update_task", { task_id: id, prs: { remove: [PR1] } })).text, /sent to the client for approval, so I can't unlink it/);
+  assert.match((await tool(url, "update_task", { task_id: id, prs: { remove: [PR1] } })).text, /is merged or closed, and stays linked/);
   assert.deepEqual((await getTask(env, "CDEV", TS)).prs, [PR1, PR3]);
   // Mistakes are said plainly.
   assert.match((await tool(url, "update_task", { task_id: id, prs: { add: ["https://example.com/x"] } })).text, /doesn't look like a pull request link/);
   assert.match((await tool(url, "update_task", { task_id: id, prs: { add: [PR2], remove: [PR2] } })).text, /same pull request is in add and remove/);
   assert.match((await tool(url, "update_task", { task_id: id, prs: { add: "x" } })).text, /prs\.add is a list/);
   assert.ok(calls.some((call) => call.method === "chat.update"));
-});
-
-test("update_release changes the PRs of a release waiting for approval, never decides it", async (t) => {
-  const TS = "1700000000.000100";
-  await putTask(env, "CDEV", TS, stored({ prs: [PR1, PR2, PR3] }));
-  const id = await insertRelease(env, "CDEV", TS, { prs: [PR1, PR2], note: "Login done", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  await setReleaseMessage(env, id, "1700000100.000200", "UCLIENT");
-  const other = await insertRelease(env, "CDEV", TS, { prs: [PR3], note: "Search", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  const old = await insertRelease(env, "CDEV", TS, { prs: [], note: "Old", status: "PENDING_APPROVAL", sentBy: "UBOB" });
-  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "chat.update": {}, "chat.postMessage": {}, "auth.test": { url: "https://acme.slack.com/" } });
-  const url = addressIn(await slash("mcp init", "UME"));
-
-  // Remove one PR and change the note: the request the approver sees, the card and the thread are updated.
-  const done = await tool(url, "update_release", { release_id: id, prs: { remove: [PR2] }, note: "  Login, finished  " });
-  assert.equal(done.isError, false, done.text);
-  assert.equal(done.data.changed, true);
-  assert.deepEqual(done.data.release.prs, [PR1]);
-  assert.equal(done.data.release.note, "Login, finished");
-  assert.equal(done.data.release.status, "PENDING_APPROVAL");
-  const request = calls.find((call) => call.method === "chat.update" && call.args.ts === "1700000100.000200");
-  assert.ok(request, "the request message is edited");
-  assert.match(request.args.text, /sent these PRs for approval: .*web\/1.*\n\*Completes:\* Login, finished/s);
-  assert.deepEqual(JSON.parse(request.args.blocks).at(-1).elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
-  assert.match(JSON.parse(JSON.parse(request.args.blocks).at(-1).elements[0].value).approver, /UCLIENT/);
-  assert.ok(calls.some((call) => call.method === "chat.update" && call.args.ts === TS), "the task card is redrawn");
-  assert.match(calls.find((call) => call.method === "chat.postMessage").args.text, /<@UCLIENT>, <@UBOB>: <@UME> changed this release\. It now has [\s\S]*web\/1[\s\S]*Sent using AI agent$/);
-  // PR2 is pending again; adding it back works, and a no-op says so.
-  assert.equal((await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } })).data.release.prs.length, 2);
-  const same = await tool(url, "update_release", { release_id: id, prs: { add: [PR2] } });
-  assert.equal(same.data.changed, false);
-
-  // What can't be done is said plainly.
-  const say = async (args) => (await tool(url, "update_release", { release_id: id, ...args })).text;
-  assert.match(await say({ prs: { add: [PR3] } }), /in another release already/);
-  assert.match(await say({ prs: { add: ["https://github.com/acme/web/pull/9"] } }), /isn't linked to the task yet/);
-  assert.match(await say({ prs: { remove: [PR3] } }), /isn't in this release/);
-  assert.match(await say({ prs: { remove: [PR1, PR2] } }), /needs at least one pull request/);
-  assert.match(await say({ prs: { add: [PR1], remove: [PR1] } }), /same pull request is in add and remove/);
-  assert.match(await say({ note: " " }), /note is empty/);
-  assert.match((await tool(url, "update_release", { release_id: old, note: "x" })).text, /I don't have that release's request message/);
-  assert.match((await tool(url, "update_release", { release_id: 999 })).text, /no such release/);
-  assert.match((await tool(url, "update_release", { release_id: "x" })).text, /release_id is a whole number of at least 1\./);
-  // Once decided, it stays as decided.
-  await decideRelease(env, id, "APPROVED", "UCLIENT");
-  assert.match(await say({ note: "Changed my mind" }), /already approved/);
-  assert.equal(other > id, true);
 });
 
 test("get_channels lists the channels Cade and you are both in, public or private, project channels first", async (t) => {

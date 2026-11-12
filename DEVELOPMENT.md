@@ -40,7 +40,7 @@ npm run deploy      # puts your change on your Worker, and applies new migration
 The code is TypeScript, with no build step of its own: wrangler bundles `src/` when it deploys, and Node runs
 the tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is what checks them, and `npm run check`
 runs it before the tests. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
-it), and imports name the `.ts` file. The shapes the modules share (a task, a release, a command, Slack's payloads,
+it), and imports name the `.ts` file. The shapes the modules share (a task, a command, Slack's payloads,
 a handler) are in `src/types.ts`; D1's rows are in `src/db.ts`; the Worker's bindings and settings in `src/env.ts`.
 After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
 
@@ -155,7 +155,7 @@ it, what it needs (a thread, a mention), an `order`, and what to do;
 
 | Order | Intent | In | Signals |
 | --- | --- | --- | --- |
-| 20 | `work` | `suggest.ts` | pull request links (linked, with the people mentioned as reviewers), hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read with AI; pasted links by their text |
+| 20 | `work` | `suggest.ts` | pull request links, linked at once from the text (`linkPasted` in `pr.ts`), with the people mentioned suggested as reviewers; hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read with AI |
 | 50 | `new-thread` | `move.ts` | a message posted on its own in a dev channel, not in a thread |
 
 Each only asks the writer, privately, before changing anything, since a
@@ -185,18 +185,14 @@ first, then renders it to the root message in the dev channel
 (`taskMessage`). A row's `kind` is `task` or `incident`, and `parent_id` makes
 it a subtask of another task in the same channel (one level deep, see
 `commands/subtask.ts`): a task is read with its parent's title and link and
-its subtasks' open and closed counts (`TASK_SELECT` in `db.ts`), which its
+its subtasks' open and closed counts and where its pull requests stand (`TASK_SELECT` in `db.ts`), which its
 card shows, and saving a subtask redraws its parent's card. Slack is only written to, never read back: the task lists are a query of
 open tasks. An incident is a task of `kind` `incident`: always urgent
-and due immediately. A task's PRs sent to the client with `@Cade release`
-are rows of `releases`, one per release, with its PRs and what it
-completes; a task is loaded with them (`getTask`), and its message shows
-which PRs shipped with which release. Deleted tasks keep their rows, with
+and due immediately. A task's pull requests are links in its `prs`; where each
+GitHub one stands (open, merged or closed) is a row of `pull_requests`, which the cron
+fills in every 15 minutes with the deployment's `GITHUB_TOKEN` (`github.ts`), redrawing the cards
+that changed. One not read yet, or not on GitHub, counts as open. Deleted tasks keep their rows, with
 `deleted_at` set.
-
-The `requirements` table, and tasks' `source_channel`, `source_thread_ts`
-and `source_link`, are left from when a group could have a client channel,
-and are no longer read.
 
 The database isn't named in `wrangler.toml`, so nothing account-specific is
 committed: the first `wrangler deploy` creates one for the Worker, named
@@ -211,9 +207,10 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.ts` | Turns a message or slash command into a command |
 | `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
-| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
+| `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `login`, `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, `prs` (the Pull requests button), and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
 | `src/db.ts` | Reading and writing tasks in D1 |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
+| `src/github.ts` | The cron's job: reading whether tasks' GitHub pull requests are open, merged or closed |
 | `src/tasks.ts` | The task message: layout, saving, pins |
 | `src/channels.ts` | `PROJECTS`: each group's dev channel |
 | `src/intents.ts` | Recognising intents in plain messages |
@@ -262,8 +259,8 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   counted in `mcp_calls`); over it, the call is refused with how many seconds to wait.
 - **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
   above) and `outputSchema`. A result is text and `structuredContent` matching the schema, so IDs chain into the next
-  call. The tools read tasks, threads, people, projects, availability and releases, and write
-  tasks, task messages, releases, approval requests and task summaries. Work that is a team's own, such as an
+  call. The tools read tasks, threads, people, projects and availability, and write
+  tasks, task messages, approval requests and task summaries. Work that is a team's own, such as an
   executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
   [docs/workflows.html](docs/workflows.html).
 - **Prompts.** Workflows come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in their agent

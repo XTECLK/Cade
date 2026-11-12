@@ -6,7 +6,8 @@ export type Status = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "IN_TESTING" | "CLIE
 // Who works on a task: the owner does the work, whatever it is.
 export type Role = "owner" | "reviewer" | "tester";
 export type People = Record<Role, string[]>;
-export type ReleaseStatus = "PENDING_APPROVAL" | "APPROVED" | "NOT_APPROVED";
+// Where a pull request stands on GitHub (see github.ts): OPEN, drafts too, MERGED, or CLOSED without merging.
+export type PrState = "OPEN" | "MERGED" | "CLOSED";
 
 // A task, as stored (see taskFromRow in db.ts). Fields a new task may not
 // have yet are optional.
@@ -31,8 +32,9 @@ export interface Task {
   link?: string;
   notes?: { url: string };
   export?: { url: string };
-  // Its releases, which its card shows: given by getTask, not stored with it.
-  releases?: Release[];
+  // Where its pull requests stand, by URL, which its card counts: given when it is read, not stored
+  // with it. One not in it hasn't been read from GitHub, and counts as open (see prState in tasks.ts).
+  prStates?: Record<string, PrState>;
   // The task it is a subtask of, in the same channel: its root message, title and link. Set when a
   // subtask is made, and kept for good (see insertTask in db.ts).
   parent?: Parent;
@@ -53,23 +55,8 @@ export interface Parent {
 // A task as loaded from the database: it always has its pull requests.
 export type StoredTask = Task & { prs: string[] };
 
-// A set of a task's pull requests sent to the client for approval (see
-// release.ts).
-export interface Release {
-  id: number;
-  prs: string[];
-  note: string;
-  status: ReleaseStatus;
-  sentBy: string;
-  sentAt: string;
-  decidedBy: string | null;
-  decidedAt: string | null;
-  approver: string | null;
-  messageTs: string | null;
-}
-
 // Slack's Block Kit is large and loose; blocks are built as plain objects. The one field read
-// back is a section's text (see review in commands/release.ts).
+// back is a section's text (see review in commands/status.ts).
 export type SlackBlock = { text?: { type?: string; text?: string; emoji?: boolean }; [key: string]: unknown };
 
 // A message body Cade posts or answers with.

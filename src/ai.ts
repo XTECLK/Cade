@@ -7,7 +7,6 @@ export interface Allowed {
   roles?: Role[];
   status?: boolean;
   details?: boolean;
-  prs?: boolean;
   blocked?: boolean;
   // False when the author may not be added to a role.
   author?: boolean;
@@ -19,14 +18,14 @@ type Read = {
   task: Task;
   today: { date: string; weekday: string };
   allowed: Allowed;
-  pullRequests?: string[];
 };
 
 // Reading what a message in a task's thread asks to change, with a model on
 // Workers AI: who should develop, review or test it, and its status,
 // priority and due date, and whether it is blocked. It needs the Workers AI binding `AI` (see
-// wrangler.toml); without it, or if the model fails, only pull request links are suggested (see
-// suggest.ts). Suggestions as a whole are turned off with `taskChangeDetection`.
+// wrangler.toml); without it, or if the model fails, only who a message linking a pull request
+// mentions is suggested, as reviewer (see suggest.ts). Pull request links aren't the model's: they are
+// linked from the text (see linkPasted in commands/pr.ts). Suggestions as a whole are turned off with `taskChangeDetection`.
 //
 // The model only proposes: everything it returns is checked against the
 // message and the task here (see checkChanges), and nothing changes until
@@ -76,18 +75,10 @@ const SCHEMA = {
     status: { type: "string", enum: ["", ...Object.keys(STATUSES)] },
     priority: { type: "string", enum: ["", ...Object.keys(PRIORITIES)] },
     dueDate: { type: "string", description: "YYYY-MM-DD, \"clear\" to remove it, or \"\"" },
-    prs: {
-      type: "object",
-      properties: {
-        add: { type: "array", items: { type: "string" } },
-        remove: { type: "array", items: { type: "string" } },
-      },
-      required: ["add", "remove"],
-    },
     blocked: { type: "string", enum: ["", "block", "unblock"] },
     blockedReason: { type: "string", description: "Why it is blocked, in a short phrase, when blocked is \"block\"; otherwise \"\"" },
   },
-  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "prs", "blocked", "blockedReason"],
+  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "blocked", "blockedReason"],
 };
 
 const INSTRUCTIONS = `You read one Slack message posted in the thread of a task, usually a software one, and say what it asks to change on the task. Reply with JSON only.
@@ -125,10 +116,7 @@ Examples (author UA):
 - "started on subtask 1", task hasSubtasks and TODO → status IN_PROGRESS.
 - "started on subtask 2", task hasSubtasks and already IN_PROGRESS → nothing.
 - "thanks <@UB>, cc <@UC>" → nothing.
-- "PR is up: <link>" → prs add that link.
 - "see <link> for how they did it" → nothing (a reference).
-- "closed <linked 42>, new PR <link 43>" → prs remove 42, add 43.
-- "<linked 42> is abandoned" → prs remove 42.
 - "blocked on the payment API keys", task not blocked → blocked block, blockedReason "waiting on the payment API keys".
 - "keys arrived, unblocked", task blocked → blocked unblock.
 - "we're still blocked", task already blocked → nothing.
@@ -145,7 +133,6 @@ Examples (author UA):
 - "needed by next Friday" → dueDate that date from "nextWeekDays".
 - ":rocket: :tada:" → nothing.
 
-prs: "pullRequests.inMessage" are the pull request links found in the message by code, and "pullRequests.linked" those already on the task. Never write any other address. "add": the ones in the message that the message wants linked to this task, which is the usual reason to paste one. Leave a link out when it is only mentioned for reference ("see how they did it in <link>") or is about another task. "remove": the ones in "linked" that the message says no longer belong: closed, abandoned, replaced or linked by mistake ("closed this one, new PR is <link>", "wrong PR, unlink it"). A link in "linked" that the message merely mentions stays. Both empty when it says nothing about them.
 blocked: the task's "blocked" says whether it is blocked now. Answer "block" (only when it isn't) when the message says the work can't go on because of something it waits for or that is in the way ("blocked on the API keys", "waiting for the client's design", "can't continue until staging is fixed"), with blockedReason as a short phrase of what blocks it, in the message's words, under 100 characters. Answer "unblock" (only when it is) when the message says that is over ("unblocked", "keys arrived, carrying on", "no longer waiting on design"). Otherwise "" and an empty blockedReason. A question ("are we blocked?"), a risk ("might get blocked"), a plan, or a task that blocks something else ("this blocks the release") changes nothing. A blocked task keeps its status.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
@@ -154,7 +141,7 @@ Leave anything the message doesn't clearly ask for empty. Most messages change n
 // changes (see checkChanges), or null if it changes nothing. Throws when the
 // model can't be reached or answers with something that isn't JSON, so
 // whoever asked can fall back. `today` is { date: "YYYY-MM-DD", weekday }.
-export async function readChanges(env: AppEnv, { message, task, today, allowed, pullRequests = [] }: Read) {
+export async function readChanges(env: AppEnv, { message, task, today, allowed }: Read) {
   const model = aiModel(env)!;
   const input = {
     today: `${today.weekday} ${today.date}`,
@@ -180,7 +167,6 @@ export async function readChanges(env: AppEnv, { message, task, today, allowed, 
       blockedReason: task.blockedReason || "",
       people: task.people,
     },
-    pullRequests: { inMessage: pullRequests, linked: task.prs ?? [] },
     message: message.text,
   };
   const started = Date.now();
@@ -198,7 +184,7 @@ export async function readChanges(env: AppEnv, { message, task, today, allowed, 
   );
   const raw = answerOf(result);
   console.log("AI read a message", { model, ms: Date.now() - started });
-  return checkChanges(raw, { task, message, allowed: { ...allowed, author: SPEAKS_FOR_SELF.test(message.text) }, pullRequests });
+  return checkChanges(raw, { task, message, allowed: { ...allowed, author: SPEAKS_FOR_SELF.test(message.text) } });
 }
 
 // The next seven days after `date` (YYYY-MM-DD), as { Wednesday: "2026-10-28", … }.
@@ -235,7 +221,6 @@ function withTimeout<T>(promise: Promise<T>) {
 // so every field is unknown.
 type Proposed = { add?: unknown; remove?: unknown };
 type ModelAnswer = Partial<Record<Role, Proposed>> & {
-  prs?: Proposed;
   status?: unknown;
   priority?: unknown;
   dueDate?: unknown;
@@ -265,15 +250,8 @@ function answerOf(result: unknown): ModelAnswer | null {
 //   - a due date must be a real date (YYYY-MM-DD, or "clear"), and differ.
 // `allowed` says which kinds may change: { roles, status, details }, and
 // `roles` which roles; and `author`, false when the author may not be added.
-export function checkChanges(raw: ModelAnswer | null | undefined, { task, message, allowed, pullRequests = [] }: Omit<Read, "today">): Changes | null {
+export function checkChanges(raw: ModelAnswer | null | undefined, { task, message, allowed }: Omit<Read, "today">): Changes | null {
   const changes: Changes = {};
-  if (allowed.prs) {
-    // Only addresses code found in the message can be linked, and only those on the task unlinked.
-    const linked = task.prs ?? [];
-    const remove = unique(raw?.prs?.remove).filter((url) => linked.includes(url));
-    const add = unique(raw?.prs?.add).filter((url) => pullRequests.includes(url) && !linked.includes(url) && !remove.includes(url));
-    if (add.length || remove.length) changes.prs = { add, remove };
-  }
   const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...message.mentions]);
   for (const role of allowed.roles ?? []) {
     const current = task.people[role] ?? [];

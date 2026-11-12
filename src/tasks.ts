@@ -3,7 +3,7 @@ import { getTask, putTask, subtasksOf } from "./db.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
-import type { MessageBody, Parent, People, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
+import type { MessageBody, Parent, People, PrState, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
 
 // Tasks are stored in D1 (see db.ts). The root message in the tasks channel
 // is rendered from the stored task.
@@ -59,40 +59,25 @@ export const SUBTASK_PRIORITY = "A subtask has its task's priority, so change it
 export const INCIDENT_IS_FIXED =
   "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.";
 
-// The task's pull requests that are pending: not sent for approval, nor
-// approved.
-export function unsentPrs(task: Pick<Task, "prs" | "releases">) {
-  const sent = new Set((task.releases ?? []).flatMap((release) => release.prs));
-  return task.prs!.filter((url) => !sent.has(url));
+// Where the task's pull request `url` stands on GitHub (see github.ts). One not read yet, or not on
+// GitHub, counts as open.
+export function prState(task: Pick<Task, "prStates">, url: string): PrState {
+  return task.prStates?.[url] ?? "OPEN";
 }
 
-// The task's PRs for its card, a line each for those
-// approved, pending approval and pending, leaving out the empty ones:
-//   Approved: Login (cade/42, web/7) · Profile page (web/9)
-//   Pending approval: Search (web/11)
-//   Pending: web/12, web/13
-// A PR goes from pending to pending approval, once sent with `@Cade
-// release` (see release.ts) and recorded in the task's `releases`, to
-// approved by the client. Releases are named by what they complete; the
-// labels say where each PR is, so PRs have no emoji. Once the task is Done,
-// all of them are approved, with the PRs never sent as the rest of the
-// task.
-export function prLines(task: Task) {
-  const done = task.status === "DONE";
-  const releases = task.releases ?? [];
-  const group = (prs: string[], note: string) => `${escapeSlack(note.replace(/\s+/g, " "))} (${prs.map(prLink).join(", ")})`;
-  const groups = (status: string) =>
-    releases.filter((release) => done || release.status === status).map((release) => group(release.prs, release.note));
-  const approved = groups("APPROVED");
-  const unsent = unsentPrs(task);
-  if (done && unsent.length) approved.push(group(unsent, releases.length ? "The rest of the task" : "The task"));
-  const awaiting = done ? [] : groups("PENDING_APPROVAL");
-  const pending = done ? [] : unsent;
-  return [
-    approved.length && `*Approved:* ${approved.join("  ·  ")}`,
-    awaiting.length && `*Pending approval:* ${awaiting.join("  ·  ")}`,
-    pending.length && `*Pending:* ${pending.map(prLink).join(", ")}`,
-  ].filter(Boolean);
+// The task's pull requests still open: neither merged nor closed. Reviewers are asked about these, and
+// the Pull requests form lets people change only these (see prs.ts).
+export function openPrs(task: Pick<Task, "prs" | "prStates">) {
+  return (task.prs ?? []).filter((url) => prState(task, url) === "OPEN");
+}
+
+// The card's line about the task's pull requests, as the subtasks line counts its subtasks, or "" for a
+// task with none: "Pull requests: 2 open  ·  1 merged". The links are in the Pull requests form.
+export function prsLine(task: Pick<Task, "prs" | "prStates">) {
+  const prs = task.prs ?? [];
+  if (!prs.length) return "";
+  const merged = prs.filter((url) => prState(task, url) === "MERGED").length;
+  return `Pull requests: ${openPrs(task).length} open  ·  ${merged} merged`;
 }
 
 // Other words for each role, besides its name: `@Cade assign dev @rex`, as
@@ -135,8 +120,8 @@ export function peopleLine(task: Pick<Task, "people">, viewer?: string) {
 
 export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | null } = {}): MessageBody {
   // The title, led by its priority, then in small text a link to its notes
-  // page (once it has one) and to its thread's export, its status and due date, its linked pull
-  // requests (when it has any) by whether they're approved, and who works on
+  // page (once it has one) and to its thread's export, its status and due date, how many of its pull
+  // requests are open and merged (when it has any), and who works on
   // it and who tracked it. Under the title, its buttons and ⋯ menu; the rest sits in an
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
@@ -156,7 +141,7 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && blockedLine(task)).text;
   const card: SlackBlock[] = [
     [task.parent && parentLine(task.parent), links.length && links.join("  ·  ")],
-    [status, subtasks, ...(task.prs?.length ? prLines(task) : []), people || "_Unassigned_"],
+    [status, subtasks, prsLine(task), people || "_Unassigned_"],
     [`${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
   ]
     .map((lines) => lines.filter(Boolean))
@@ -209,24 +194,28 @@ export function waitsForSubtasks(task: Pick<Task, "subtaskCounts">, status: Stat
 // The buttons on a task's card, so people change it without typing a command in its thread (see
 // menu.ts). A section holds only one, so they sit in a row of their own under the title: Edit, one
 // form for everything and the change made most; Subtasks, on a task that isn't a subtask itself (they
-// go one level deep), listing them with Add subtask; then the ⋯ menu with the rest: Release, while it
-// has PRs not sent for approval, and Archive, when it's no longer needed (see archive.ts).
+// go one level deep), listing them with Add subtask; Pull requests, its pull requests by where they
+// stand, those open to change (see prs.ts); then the ⋯ menu with the rest: Archive, when it's no
+// longer needed (see archive.ts).
 export const TASK_EDIT_ACTION = "task:edit";
 export const TASK_SUBTASKS_ACTION = "task:subtasks";
+export const TASK_PRS_ACTION = "task:prs";
 export const TASK_MENU_ACTION = "task:menu";
 
 function taskActions(task: Task) {
   const button = (action_id: string, text: string) => ({ type: "button", action_id, text: plainText(text) });
-  const elements = [button(TASK_EDIT_ACTION, "Edit"), !task.parent && button(TASK_SUBTASKS_ACTION, "Subtasks"), taskMenu(task)];
+  const elements = [
+    button(TASK_EDIT_ACTION, "Edit"),
+    !task.parent && button(TASK_SUBTASKS_ACTION, "Subtasks"),
+    button(TASK_PRS_ACTION, "Pull requests"),
+    taskMenu(),
+  ];
   return { type: "actions", elements: elements.filter(Boolean) };
 }
 
-// The ⋯ menu: Archive is always there, so it is never empty.
-function taskMenu(task: Task) {
-  const choices = [
-    task.prs?.length && unsentPrs(task).length && ["release", "Release"],
-    ["archive", "Archive"],
-  ].filter(Boolean) as [string, string][];
+// The ⋯ menu: Archive.
+function taskMenu() {
+  const choices: [string, string][] = [["archive", "Archive"]];
   return {
     type: "overflow",
     action_id: TASK_MENU_ACTION,

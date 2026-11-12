@@ -7,6 +7,7 @@ import { getTask, insertTask, markTaskDeleted, markTaskPosted, putTask, setPrSta
 import { changeTask } from "../src/commands/changes.ts";
 import { editForm } from "../src/commands/edit.ts";
 import { changeLog, changeRequests } from "../src/notify.ts";
+import { fromRichText as fromRichTextOf, toRichText as toRichTextOf } from "../src/commands/ask.ts";
 import { formatDueDate } from "../src/tasks.ts";
 import { writeSummary } from "../src/summary.ts";
 import { todayIn } from "../src/commands/tasks.ts";
@@ -185,6 +186,16 @@ function mockSlack(t: TestContext, { stored = [], ...responses }: Replies = {}) 
   return calls;
 }
 
+// What a change asks of people isn't posted: whoever made it is offered it privately, as a draft to send
+// (see offerAsk in commands/ask.ts). The drafts offered among `calls`, each its text.
+function drafts(calls: Call[]): string[] {
+  return calls
+    .filter((call) => call.method === "chat.postEphemeral")
+    .flatMap((call) => (call.args.blocks ?? []).flatMap((block) => block.elements ?? []))
+    .filter((element) => element.action_id === "ask:send")
+    .map((element) => JSON.parse(element.value).text);
+}
+
 // The track form, submitted from `origin`: /cade task in the dev channel,
 // to begin with.
 const submission = (values: { title?: string; dueDate?: string; priority?: string }, origin: TrackForm = { channel: "CDEV" }) => ({
@@ -361,7 +372,7 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
 
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["chat.update", "reactions.add", "chat.postMessage"],
+    ["chat.update", "reactions.add", "chat.postEphemeral"],
   );
   const update = calls[0].args;
   assert.equal(update.ts, "100.1");
@@ -372,14 +383,78 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   const task = await savedTask();
   assert.deepEqual(task.people, { owner: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
   assert.equal(task.dueDate, "31/10/2026");
-  // The card shows who is on it, so the command gets a ✅ and they're asked.
+  // The card shows who is on it, so the command gets a ✅, and whoever sent it is offered to ask them,
+  // privately, in the thread: nothing is posted.
   assert.equal(calls[1].args.name, "white_check_mark");
-  assert.deepEqual(calls[2].args, {
-    channel: "CDEV",
-    thread_ts: "100.1",
-    // @alice was an owner already, so isn't asked again.
-    text: "<@UBOB>, could you pick this up?",
+  assert.equal(calls[2].args.channel, "CDEV");
+  assert.equal(calls[2].args.thread_ts, "100.1");
+  assert.equal(calls[2].args.user, "UACTOR");
+  // @alice was an owner already, so isn't asked again.
+  assert.deepEqual(drafts(calls), ["<@UBOB>, could you pick this up?"]);
+});
+
+test("the draft of what a change asks of people is sent, edited or left by whoever made it", async (t) => {
+  const offered = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
+  const offer = offered.find((call) => call.method === "chat.postEphemeral").args;
+  const buttons = offer.blocks.at(-1).elements;
+  assert.deepEqual(buttons.map((button) => button.text.text), ["Send", "Edit", "Not now"]);
+  const click = (button, user = "UACTOR") =>
+    interaction({ type: "block_actions", user: { id: user }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, trigger_id: "trigger", response_url: RESPONSE_URL, actions: [{ action_id: button.action_id, value: button.value }] });
+
+  // Send posts it in the task's thread, saying whose it is, and removes the draft.
+  let calls = mockSlack(t, { stored: [storedTask()] });
+  let sent = recordResponses(t);
+  await send("/slack/interactions", click(buttons[0]));
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.deepEqual([post.channel, post.thread_ts, post.text], ["CDEV", "100.1", "<@UACTOR> sent:\n<@UBOB>, could you pick this up?"]);
+  assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+
+  // Not now removes it and posts nothing.
+  calls = mockSlack(t, { stored: [storedTask()] });
+  sent = recordResponses(t);
+  await send("/slack/interactions", click(buttons[2]));
+  assert.deepEqual(calls, []);
+  assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+
+  // Edit opens it in a form, mentions as people, to change before it's sent.
+  calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/interactions", click(buttons[1]));
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.callback_id, "ask:edit");
+  assert.deepEqual(form.blocks[0].element.initial_value, {
+    type: "rich_text",
+    elements: [{ type: "rich_text_section", elements: [{ type: "user", user_id: "UBOB" }, { type: "text", text: ", could you pick this up?" }] }],
   });
+
+  // Sent, it posts what the form holds, and removes the draft.
+  const submit = (elements) =>
+    interaction({
+      type: "view_submission",
+      user: { id: "UACTOR" },
+      view: { callback_id: "ask:edit", private_metadata: form.private_metadata, state: { values: { message: { value: { rich_text_value: { type: "rich_text", elements } } } } } },
+    });
+  calls = mockSlack(t, { stored: [storedTask()] });
+  sent = recordResponses(t);
+  const response = await send(
+    "/slack/interactions",
+    submit([
+      { type: "rich_text_section", elements: [{ type: "user", user_id: "UBOB" }, { type: "text", text: " can you test it on " }, { type: "text", text: "staging", style: { bold: true } }, { type: "text", text: " <today> " }, { type: "emoji", name: "pray" }] },
+      { type: "rich_text_list", elements: [{ type: "rich_text_section", elements: [{ type: "link", url: "https://x.example", text: "the notes" }] }] },
+    ]),
+  );
+  assert.deepEqual(await response.json(), { response_action: "clear" });
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    "<@UACTOR> sent:\n<@UBOB> can you test it on *staging* &lt;today&gt; :pray:\n• <https://x.example|the notes>",
+  );
+  assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+
+  // An empty one isn't sent.
+  calls = mockSlack(t, { stored: [storedTask()] });
+  const empty = await send("/slack/interactions", submit([{ type: "rich_text_section", elements: [{ type: "text", text: "  " }] }]));
+  assert.deepEqual(await empty.json(), { response_action: "errors", errors: { message: "Write the message, or cancel." } });
+  assert.deepEqual(calls, []);
 });
 
 test("@Cade assign works for each role, in any word order", async (t) => {
@@ -395,7 +470,7 @@ test("@Cade assign works for each role, in any word order", async (t) => {
     await send("/slack/events", threadEvent(text));
     assert.deepEqual((await savedTask()).people[role], ["UBOB"], text);
     assert.equal(calls[1].args.name, "white_check_mark", text);
-    assert.equal(calls.find((call) => call.method === "chat.postMessage")?.args.text, reply, text);
+    assert.equal(drafts(calls)[0], reply, text);
   }
 });
 
@@ -425,14 +500,14 @@ test("people are asked only when there's something for them to do now", async (t
     const calls = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> assign ${role} <@UBOB>`));
     const label = `${role} on ${root.task.status} with ${root.task.prs.length} PRs`;
-    assert.equal(calls.find((call) => call.method === "chat.postMessage")?.args.text, asked ? ask(role) : undefined, label);
+    assert.equal(drafts(calls)[0], asked ? ask(role) : undefined, label);
 
     // Those removed are told only when they would have been asked.
     root.task.people[role] = ["UBOB"];
     const again = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> unassign ${role} <@UBOB>`));
     const note = `<@UBOB>, there's no need to ${{ owner: "work on", reviewer: "review", tester: "test" }[role]} this anymore.`;
-    assert.equal(again.find((call) => call.method === "chat.postMessage")?.args.text, asked ? note : undefined, label);
+    assert.equal(drafts(again)[0], asked ? note : undefined, label);
   }
 });
 
@@ -459,7 +534,7 @@ test("@Cade unassign with a role removes people from that role only", async (t) 
   assert.deepEqual(people.owner, ["UBOB"]);
   assert.deepEqual(people.reviewer, ["UALICE"]);
   assert.equal(calls[1].args.name, "white_check_mark");
-  assert.equal(calls[2].args.text, "<@UALICE>, there's no need to work on this anymore.");
+  assert.deepEqual(drafts(calls), ["<@UALICE>, there's no need to work on this anymore."]);
 });
 
 test("@Cade unassign without a role removes people from every role", async (t) => {
@@ -473,7 +548,7 @@ test("@Cade unassign without a role removes people from every role", async (t) =
     "Owner <@UBOB>",
   );
   assert.equal(calls[1].args.name, "white_check_mark");
-  assert.equal(calls[2].args.text, "<@UALICE>, there's no need to work on this anymore.");
+  assert.deepEqual(drafts(calls), ["<@UALICE>, there's no need to work on this anymore."]);
 });
 
 test("@Cade status updates the task's status", async (t) => {
@@ -919,7 +994,7 @@ test("Cade's messages never preview the messages they link to", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
 
   const posts = calls.filter((call) => ["chat.postMessage", "chat.update"].includes(call.method));
-  assert.ok(posts.length >= 4);
+  assert.ok(posts.length >= 3);
   for (const call of posts) {
     assert.deepEqual(call.previews, { links: "false", media: "false" }, call.method);
   }
@@ -947,7 +1022,7 @@ test("owners were called developers before, and dev and developer still mean own
     const calls = mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(`<@UBOT> assign ${word} <@UBOB>`));
     assert.deepEqual((await savedTask()).people.owner, ["UBOB"], word);
-    assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UBOB>, could you pick this up?", word);
+    assert.deepEqual(drafts(calls), ["<@UBOB>, could you pick this up?"], word);
   }
 });
 
@@ -1409,10 +1484,12 @@ test("a task card's menu on a task that's gone says so privately", async (t) => 
 
 // The approver clicking Approve or Not approve in the task's thread.
 // Moves the task at `channel`/100.1 to Client review as UACTOR, clicks the
-// private Ask for approval button and chooses `approver` in its form.
+// private Ask for approval button and chooses `approver` in its form, sending `message` (rich text
+// elements, the form's own once they're chosen by default).
 // Returns every Slack call, and in `calls.responses` what was sent to the
 // button's response_url.
-async function clientReview(t, responses, { channel = "CDEV", approver = "UCREATOR", environment = env } = {}) {
+const asApproverRequest = (approver) => [{ type: "rich_text_section", elements: [{ type: "user", user_id: approver }, { type: "text", text: ", could you take a look and approve it, or let us know what needs to change?" }] }];
+async function clientReview(t, responses, { channel = "CDEV", approver = "UCREATOR", environment = env, message = asApproverRequest(approver) } = {}) {
   const calls = mockSlack(t, responses);
   calls.responses = recordResponses(t);
   await send("/slack/events", threadEvent("<@UBOT> status client review", { channel }), {}, environment);
@@ -1442,7 +1519,7 @@ async function clientReview(t, responses, { channel = "CDEV", approver = "UCREAT
       view: {
         callback_id: form.callback_id,
         private_metadata: form.private_metadata,
-        state: { values: { approver: { value: { selected_user: approver } } } },
+        state: { values: { approver: { "status:approver": { selected_user: approver } }, message: { value: { rich_text_value: { type: "rich_text", elements: message } } } } },
       },
     }),
     {},
@@ -1450,6 +1527,42 @@ async function clientReview(t, responses, { channel = "CDEV", approver = "UCREAT
   );
   return calls;
 }
+
+test("the Ask for approval form shows the request, to change before it's sent, following who is chosen until it's changed", async (t) => {
+  const calls = await clientReview(t, { stored: [storedTask()] }, {
+    approver: "UCLIENT",
+    message: [{ type: "rich_text_section", elements: [{ type: "text", text: "Hi, the new login is on staging. Could you approve it by Friday?" }] }],
+  });
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["approver", "message", undefined]);
+  assert.equal(form.blocks[0].element.action_id, "status:approver");
+  assert.equal(form.blocks[0].dispatch_action, true);
+  assert.equal(fromRichTextOf(form.blocks[1].element.initial_value), "Could you take a look and approve it, or let us know what needs to change?");
+  // Their words are posted, the approver mentioned first, as they don't name them.
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.text, "<@UACTOR> sent:\n<@UCLIENT> Hi, the new login is on staging. Could you approve it by Friday?");
+  assert.equal(JSON.parse(post.blocks[1].elements[0].value).approver, "UCLIENT");
+
+  // Choosing someone puts them in the request; once it's changed, it's left alone.
+  const pick = (text, block = "message") =>
+    interaction({
+      type: "block_actions",
+      user: { id: "UACTOR" },
+      view: { id: "V1", hash: "h1", callback_id: "status:review", private_metadata: form.private_metadata, state: { values: { approver: { "status:approver": { selected_user: "UCLEO" } }, [block]: { value: { rich_text_value: toRichTextOf(text) } } } } },
+      actions: [{ action_id: "status:approver", block_id: "approver", selected_user: "UCLEO" }],
+    });
+  let picked = mockSlack(t, { stored: [withStatus("CLIENT_REVIEW")] });
+  await send("/slack/interactions", pick("<@UCLIENT>, could you take a look and approve it, or let us know what needs to change?"));
+  const update = picked.find((call) => call.method === "views.update").args;
+  assert.deepEqual([update.view_id, update.hash], ["V1", "h1"]);
+  assert.equal(update.view.blocks[0].element.initial_user, "UCLEO");
+  // A new block_id, or Slack would keep what the box held.
+  assert.equal(update.view.blocks[1].block_id, "message-UCLEO");
+  assert.equal(fromRichTextOf(update.view.blocks[1].element.initial_value), "<@UCLEO>, could you take a look and approve it, or let us know what needs to change?");
+  picked = mockSlack(t, { stored: [withStatus("CLIENT_REVIEW")] });
+  await send("/slack/interactions", pick("Please approve by Friday", "message-UCLIENT"));
+  assert.deepEqual(picked, []);
+});
 
 const reviewClick = (actionId) =>
   interaction({
@@ -1714,24 +1827,20 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA", "UREX"], status: "IN_REVIEW" })] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(calls[1].args.name, "white_check_mark");
-  assert.equal(
-    calls[2].args.text,
-    `<@URIA>, <@UREX>, could you review this?`,
-  );
-  assert.equal(calls[2].args.blocks, undefined, "no picker");
+  assert.deepEqual(drafts(calls), [`<@URIA>, <@UREX>, could you review this?`]);
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"), "nothing posted, and no picker");
 });
 
 test("linking a PR before In review asks no reviewer yet, and moving to In review asks them", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" })] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(calls[1].args.name, "white_check_mark");
-  assert.ok(!calls.some((call) => call.method === "chat.postMessage" && /could you review/.test(call.args.text)), "nobody is asked while it is In progress");
+  assert.deepEqual(drafts(calls), [], "nobody is asked while it is In progress");
 
   // Reaching In review asks the reviewers assigned earlier, about what is pending.
   const moved = mockSlack(t, { stored: [{ ...storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" }), task: { ...storedTask({ reviewers: ["URIA", "UREX"], status: "IN_PROGRESS" }).task, prs: [PR] } }] });
   await send("/slack/events", threadEvent("<@UBOT> status in review"));
-  const asked = moved.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text).join("\n");
-  assert.match(asked, /<@URIA>, <@UREX>, could you review this\?/);
+  assert.deepEqual(drafts(moved), ["<@URIA>, <@UREX>, could you review this?"]);
 });
 
 test("@Cade pr add with no reviewer asks whoever sent it, privately, to assign one, only while In review: no picker", async (t) => {
@@ -1744,7 +1853,7 @@ test("@Cade pr add with no reviewer asks whoever sent it, privately, to assign o
   }
 });
 
-test("choosing reviewers assigns them and asks them to review, in a new reply", async (t) => {
+test("choosing reviewers assigns them in a new reply, and offers to ask them to review", async (t) => {
   const root = storedTask({ status: "IN_REVIEW" });
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
@@ -1766,6 +1875,7 @@ test("choosing reviewers assigns them and asks them to review, in a new reply", 
     ["chat.update", "100.1"],
     ["chat.update", "100.8"],
     ["chat.postMessage", undefined],
+    ["chat.postEphemeral", undefined],
   ]);
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
   // The picker keeps what came before its question.
@@ -1775,8 +1885,10 @@ test("choosing reviewers assigns them and asks them to review, in a new reply", 
   assert.deepEqual(calls[2].args, {
     channel: "CDEV",
     thread_ts: "100.1",
-    text: `<@UCLICKER> assigned <@URIA> as reviewer.\n<@URIA>, could you review this?`,
+    text: `<@UCLICKER> assigned <@URIA> as reviewer.`,
   });
+  assert.equal(calls[3].args.user, "UCLICKER");
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
 });
 
 test("choosing reviewers on a picker with nothing before its question removes it", async (t) => {
@@ -1805,10 +1917,7 @@ test("assigning a reviewer once a PR is linked asks them to review it", async (t
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA>"));
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
-  assert.equal(
-    calls[2].args.text,
-    `<@URIA>, could you review this?`,
-  );
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
 });
 
 test("reviewers added before a PR are recorded, and asked nothing yet", async (t) => {
@@ -1879,7 +1988,8 @@ test("OK on a note with nothing to suggest asks for review as linking would: the
     record.task.prs = [PR];
     return record;
   };
-  for (const [label, record, told, thread, privately] of [
+  // `asked`: the draft offered to whoever pasted it (see drafts); `privately`: the other private messages.
+  for (const [label, record, told, asked, privately] of [
     ["reviewers, In review", linked(storedTask({ reviewers: ["URIA", "UREX"], status: "IN_REVIEW" })), ["UREX"], ["<@URIA>, could you review this?"], []],
     ["all mentioned", linked(storedTask({ reviewers: ["UREX"], status: "IN_REVIEW" })), ["UREX"], [], []],
     ["no reviewer, In review", linked(storedTask({ status: "IN_REVIEW" })), [], [], ["No one is reviewing this yet. Add a reviewer with Edit…, so they're asked."]],
@@ -1889,8 +1999,9 @@ test("OK on a note with nothing to suggest asks for review as linking would: the
     const sent = recordResponses(t);
     await send("/slack/interactions", ok({ channel: "CDEV", ts: "100.1", urls: [PR], told }));
     assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }], label);
-    assert.deepEqual(calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text), thread, label);
-    assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args.text), privately, label);
+    assert.deepEqual(calls.filter((call) => call.method === "chat.postMessage"), [], label);
+    assert.deepEqual(drafts(calls), asked, label);
+    assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral" && !drafts([call]).length).map((call) => call.args.text), privately, label);
   }
   // Unlink asks no one.
   const calls = mockSlack(t, { stored: [linked(storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" }))] });
@@ -1981,10 +2092,7 @@ test("a question posted with the old reviewer picker is still answered", async (
   assert.deepEqual(saved.prs, [PR]);
   assert.deepEqual(saved.people.reviewer, ["UREX", "UMIA"]);
   // UREX was mentioned in the message, so only UMIA is asked.
-  assert.equal(
-    linking.find((call) => call.method === "chat.postMessage").args.text,
-    `<@UMIA>, could you review this?`,
-  );
+  assert.deepEqual(drafts(linking), [`<@UMIA>, could you review this?`]);
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
@@ -2088,21 +2196,18 @@ test("@Cade pr add is a command, not a suggestion", async (t) => {
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
 });
 
-test("Link PRs links them, posts only what is new and removes the question", async (t) => {
+test("Link PRs links them, offers only what is new and removes the question", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" })] });
   const sent = recordResponses(t);
   const response = await send("/slack/interactions", suggestionClick("pr:suggest-link", [PR]));
   assert.equal(response.status, 200);
 
-  assert.deepEqual(calls.map((call) => call.method), ["chat.update", "chat.postMessage"]);
+  assert.deepEqual(calls.map((call) => call.method), ["chat.update", "chat.postEphemeral"]);
   assert.deepEqual((await savedTask()).prs, [PR]);
   assert.equal(calls[1].args.thread_ts, "100.1");
-  // No "linked" line: whoever clicked posted the link. The thread hears only
-  // that the reviewer the message didn't mention is asked.
-  assert.equal(
-    calls[1].args.text,
-    `<@URIA>, could you review this?`,
-  );
+  // No "linked" line: whoever clicked posted the link. They're offered only to ask the reviewer the
+  // message didn't mention.
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
@@ -2174,12 +2279,8 @@ test("Link and add reviewer asks only the reviewers the message did not mention"
 
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA", "UREX"]);
   assert.deepEqual((await savedTask()).prs, [PR]);
-  const post = calls.find((call) => call.method === "chat.postMessage").args;
   // UREX was mentioned in the message, so only URIA is asked.
-  assert.equal(
-    post.text,
-    `<@URIA>, could you review this?`,
-  );
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
   assert.equal(sent.length, 1);
 });
 
@@ -2344,20 +2445,19 @@ test("Client review lists the task's PRs for the client, and keeps them after a 
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
 
-  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.includes("says this is ready for review")).args;
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.startsWith("<@UACTOR> sent:")).args;
+  // Led by who sent it, as any message sent for someone is.
   const announced = [
-    "<@UACTOR> says this is ready for review.",
+    "<@UACTOR> sent:",
+    "<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
     `*PRs:* <${PR}|cade/42>, <${MR}|web-app/118>`,
   ].join("\n");
-  assert.equal(
-    review.blocks[0].text.text,
-    `${announced}\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?`,
-  );
+  assert.equal(review.blocks[0].text.text, announced);
   assert.deepEqual(
     review.blocks[1].elements.map((button) => button.action_id),
     ["status:approve", "status:reject"],
   );
-  // The buttons carry the PRs, so they stay when the buttons are replaced.
+  // The buttons carry the request and the PRs, so they stay when the buttons are replaced.
   assert.equal(JSON.parse(review.blocks[1].elements[0].value).text, announced);
 });
 
@@ -2366,7 +2466,7 @@ test("Client review on a task with no PRs shows no PRs line", async (t) => {
     stored: [withStatus("IN_TESTING")],
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.includes("says this is ready for review")).args;
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.startsWith("<@UACTOR> sent:")).args;
   assert.ok(!review.blocks[0].text.text.includes("*PRs:*"));
 });
 
@@ -2406,10 +2506,10 @@ test("the ready to review message doesn't link to the team's task", async (t) =>
     stored: [withStatus("IN_TESTING")],
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.includes("says this is ready for review")).args;
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.text?.startsWith("<@UACTOR> sent:")).args;
   assert.equal(
     review.text,
-    "<@UACTOR> says this is ready for review.\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
+    "<@UACTOR> sent:\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
   );
   assert.ok(!review.text.includes("slack.example/p100"));
   // No link to look up for it.
@@ -2441,7 +2541,7 @@ test("removed reviewers are told they no longer need to review", async (t) => {
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
-  assert.equal(calls.at(-1).args.text, "<@URIA>, there's no need to review this anymore.");
+  assert.deepEqual(drafts(calls), ["<@URIA>, there's no need to review this anymore."]);
 });
 
 test("assign-style words without a mention are left alone", async (t) => {
@@ -3045,7 +3145,7 @@ test("each change is stored, and the root message is rendered from the stored ta
   assert.deepEqual(calls.map((call) => call.method), [
     "chat.update",
     "reactions.add",
-    "chat.postMessage",
+    "chat.postEphemeral",
     "chat.update",
     "reactions.add",
   ]);
@@ -3356,7 +3456,7 @@ test("/cade standup -unassigned goes through tasks with no owner, one at a time,
   const { calls, later } = await tasksCommand(t, "standup -unassigned", "CDEV", {
     CDEV: [
       historyTask("100.1", { title: "Low", priority: "Low" }),
-      historyTask("100.2", { title: "Urgent", priority: "Urgent" }),
+      historyTask("100.2", { title: "Urgent", priority: "Urgent", link: "https://acme.slack.com/archives/CDEV/p1002" }),
       historyTask("100.3", { title: "Taken", owners: ["UBOB"] }),
     ],
   });
@@ -3374,10 +3474,12 @@ test("/cade standup -unassigned goes through tasks with no owner, one at a time,
   assert.deepEqual((await savedTask("CDEV", "100.2")).people.owner, ["UALICE"]);
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, "100.2");
-  assert.equal(
-    post.text,
-    "<@UACTOR> assigned <@UALICE> as owner.\n<@UALICE>, could you pick this up?",
-  );
+  assert.equal(post.text, "<@UACTOR> assigned <@UALICE> as owner.");
+  // Asking them is offered where the walk is, in the channel, linking the task's thread.
+  assert.deepEqual(drafts(calls), ["<@UALICE>, could you pick this up?"]);
+  const offer = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.deepEqual([offer.channel, offer.thread_ts, offer.user], ["CDEV", undefined, "UACTOR"]);
+  assert.match(offer.blocks[0].text.text, /^Send this in <https:\/\/acme\.slack\.com\/archives\/CDEV\/p1002\|the task's thread>\?/);
   // Assigned, it leaves the walk: the next one takes its place.
   const next = sent.at(-1);
   assert.equal(next.blocks[0].text.text, "*Unassigned acme tasks*  ·  1 of 1");
@@ -3986,7 +4088,7 @@ const taskWith = (status, people = {}) => {
   return record;
 };
 
-const ephemeral = (calls) => calls.find((call) => call.method === "chat.postEphemeral")?.args;
+const ephemeral = (calls) => calls.find((call) => call.method === "chat.postEphemeral" && !drafts([call]).length)?.args;
 // The private question about changes, not the note that a pasted PR was linked (see linkPasted).
 const suggestion = (calls) => calls.find((call) => call.method === "chat.postEphemeral" && call.args.text.startsWith("Should I update"))?.args;
 // That note.
@@ -4179,16 +4281,10 @@ test("Accept applies the suggestion and tells the thread who changed what", asyn
   assert.equal(saved.status, "IN_TESTING");
   const post = calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV").at(-1).args;
   assert.equal(post.thread_ts, "100.1");
-  assert.equal(
-    post.text,
-    [
-      // Tess was mentioned in the message, so is named and not asked again;
-      // moving to In testing asks the other testers.
-      "<@UACTOR> assigned <@UTESS> as tester.",
-      "<@UACTOR> set the status to :test_tube: In testing.",
-      "<@UTOM>, could you give this a test?",
-    ].join("\n"),
-  );
+  assert.equal(post.text, ["<@UACTOR> assigned <@UTESS> as tester.", "<@UACTOR> set the status to :test_tube: In testing."].join("\n"));
+  // Tess was mentioned in the message, so is named and not asked again; moving to In testing means
+  // asking the other testers, offered to whoever accepted it.
+  assert.deepEqual(drafts(calls), ["<@UTOM>, could you give this a test?"]);
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
@@ -4206,7 +4302,7 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
   ] as const) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent(text));
-    assert.equal(calls.find((call) => call.method === "chat.postMessage")?.args.text, reply, text);
+    assert.equal(drafts(calls)[0], reply, text);
   }
 
   // Accepting "started working on this" makes the writer an owner, and
@@ -4221,7 +4317,7 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
   // A tester who moves it to In testing isn't asked to test it.
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { testers: ["UACTOR", "UTOM"] })] });
   await send("/slack/events", threadEvent("<@UBOT> status in testing"));
-  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UTOM>, could you give this a test?");
+  assert.deepEqual(drafts(calls), ["<@UTOM>, could you give this a test?"]);
 });
 
 test("Edit… on a suggestion opens the task's Edit form, filled in with it", async (t) => {
@@ -4327,9 +4423,10 @@ test("choosing reviewers whose PR list didn't fit asks about all the task's PRs"
     }),
   );
   assert.equal(
-    calls.at(-1).args.text,
-    `<@UCLICKER> assigned <@URIA> as reviewer.\n<@URIA>, could you review this?`,
+    calls.findLast((call) => call.method === "chat.postMessage").args.text,
+    `<@UCLICKER> assigned <@URIA> as reviewer.`,
   );
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
 });
 
 test("deleting copes with a thread that's gone and replies it can't delete", async (t) => {
@@ -4631,7 +4728,7 @@ test("Client review asks the approver in the task's own thread", async (t) => {
   assert.equal((await savedTask()).status, "CLIENT_REVIEW");
   const form = calls.find((call) => call.method === "views.open").args.view;
   assert.equal(form.blocks[0].element.initial_user, undefined);
-  assert.equal(form.blocks[1].elements[0].text, "They approve it in this thread.");
+  assert.equal(form.blocks[2].elements[0].text, "Posted in the task's thread with Approve and Not approve, which only they can click.");
   // The request is posted in the task's thread.
   const ask = calls.at(-1).args;
   assert.equal(calls.at(-1).method, "chat.postMessage");
@@ -4639,7 +4736,7 @@ test("Client review asks the approver in the task's own thread", async (t) => {
   assert.equal(ask.thread_ts, "100.1");
   assert.equal(
     ask.blocks[0].text.text,
-    `<@UACTOR> says this is ready for review.\n*PRs:* <${PR}|cade/42>\n<@UPM>, could you take a look and approve it, or let us know what needs to change?`,
+    `<@UACTOR> sent:\n<@UPM>, could you take a look and approve it, or let us know what needs to change?\n*PRs:* <${PR}|cade/42>`,
   );
   const [approve] = ask.blocks[1].elements;
 
@@ -5301,8 +5398,7 @@ test("someone removed from several roles at once is told only for the roles they
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
-  const posts = calls.filter((call) => call.method === "chat.postMessage");
-  assert.deepEqual(posts.map((call) => call.args.text), ["<@UALICE>, there's no need to work on this anymore."]);
+  assert.deepEqual(drafts(calls), ["<@UALICE>, there's no need to work on this anymore."]);
 });
 
 test("people assigned in several roles are asked only for the one the task is at, and people asked alike share a note", async (t) => {
@@ -5329,10 +5425,8 @@ test("people assigned in several roles are asked only for the one the task is at
       },
     }),
   );
-  const post = calls.find((call) => call.method === "chat.postMessage").args.text;
-  const notes = post.split("\n").filter((line) => line.includes("could you"));
   // It is To do: owners are asked, and the reviewer waits for In review.
-  assert.deepEqual(notes, ["<@UBOB>, <@UREX>, could you pick this up?"]);
+  assert.deepEqual(drafts(calls), ["<@UBOB>, <@UREX>, could you pick this up?"]);
 });
 
 // ---- The update engine: what actually changed ----

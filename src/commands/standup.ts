@@ -1,6 +1,7 @@
 import { projects, findProject } from "../channels.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
-import { assigned, onTheirPlate, request } from "../notify.ts";
+import { assigned, changeLog, changeRequests, onTheirPlate, request } from "../notify.ts";
+import { offerAsk } from "./ask.ts";
 import { STATUSES, loadTask, saveTask } from "../tasks.ts";
 import { setStatus, statusOption } from "./status.ts";
 import { OPEN, byUrgency, groupTasks, line } from "./tasks.ts";
@@ -100,12 +101,15 @@ async function show(payload: SlackPayload, env: AppEnv, walk: Walk) {
 async function changeStatus(payload: SlackPayload, env: AppEnv) {
   const action = payload.actions[0];
   const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup status menu");
-  const said = await setStatus(env, channel, ts, action.selected_option.value as Status, payload.user.id);
-  if (said) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: said });
+  const change = await setStatus(env, channel, ts, action.selected_option.value as Status, payload.user.id);
+  if (change) {
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: changeLog(change).join("\n") });
+    await offerAsk(env, { channel, ts }, payload.user.id, changeRequests(change), here(payload, change.task.link));
+  }
   await show(payload, env, walk);
 }
 
-// A task's owner menu: assigns them, tells the task's thread and asks
+// A task's owner menu: assigns them, tells the task's thread, offers to ask
 // them to start, and shows the step again, where the task no longer is.
 async function assignOwner(payload: SlackPayload, env: AppEnv) {
   const action = payload.actions[0];
@@ -117,11 +121,17 @@ async function assignOwner(payload: SlackPayload, env: AppEnv) {
     await saveTask(env, channel, ts, task);
     const user = payload.user.id;
     // Picking yourself needs no request, nor does a task past To do and In progress.
-    const asked = owner !== user && onTheirPlate(task, "owner") && request([owner], "owner");
-    const text = [assigned(user, [owner], "owner"), asked].filter(Boolean).join("\n");
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+    const asked = owner !== user && onTheirPlate(task, "owner") ? [request([owner], "owner")] : [];
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: assigned(user, [owner], "owner") });
+    await offerAsk(env, { channel, ts }, user, asked, here(payload, task.link));
   }
   await show(payload, env, walk);
+}
+
+// Where the walk is, for offering what a change asks of people there rather than in the task's thread,
+// with `link`, the task's.
+function here(payload: SlackPayload, link: string | undefined) {
+  return { channel: payload.channel.id, threadTs: payload.container?.thread_ts, link };
 }
 
 // The walk's steps, read afresh: for a standup, { person, name, entries } per

@@ -440,23 +440,26 @@ export function chosenProject(values: ViewValues): string | undefined {
 }
 
 // The approval forms' picker for who approves or rejects: the client, or
-// whoever handles them.
-export function approverBlock(initialUser?: string | null) {
+// whoever handles them. With `actionId`, choosing someone is sent at once, as
+// that action, for the form to follow it.
+export function approverBlock(initialUser?: string | null, actionId?: string) {
   return {
     type: "input",
     block_id: "approver",
     label: plainText("Who approves"),
+    ...(actionId && { dispatch_action: true }),
     element: {
       type: "users_select",
-      action_id: "value",
+      action_id: actionId ?? "value",
       placeholder: plainText("Choose a person"),
       ...(initialUser && { initial_user: initialUser }),
     },
   };
 }
 
+// Whoever the picker holds, whichever its action.
 export function readApprover(values: ViewValues) {
-  return values.approver?.value?.selected_user ?? null;
+  return Object.values(values.approver ?? {})[0]?.selected_user ?? null;
 }
 
 // Whether `payload`'s Approve or Not approve click came from someone other

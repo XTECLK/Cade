@@ -1539,7 +1539,9 @@ test("a status change made through MCP shows no private prompt, and the thread s
 
   const moved = await tool(url, "update_task", { task_id: `CDEV:${TS}`, status: "CLIENT_REVIEW" });
   assert.match(moved.text, /^Done\./);
-  assert.match(moved.text, /It is in Client review now: ask the person who should approve it, then call send_approval_request/);
+  assert.match(moved.text, /It is in Client review now\. Ask the person who should approve it, and show them the request send_approval_request will post/);
+  // The request is given to offer them, for send_approval_request's message.
+  assert.equal(moved.data.suggested_message, "Could you take a look and approve it, or let us know what needs to change?");
   assert.equal((await getTask(env, "CDEV", TS)).status, "CLIENT_REVIEW");
   // Slack would ask the person, privately, who approves it; an AI agent asks them itself.
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), "no private prompt");
@@ -1552,6 +1554,27 @@ test("a status change made through MCP shows no private prompt, and the thread s
   // A change that isn't to Client review doesn't tell the agent to ask anyone.
   await putTask(env, "CDEV", "1700000001.000100", stored({ status: "TODO" }));
   assert.doesNotMatch((await tool(url, "update_task", { task_id: "CDEV:1700000001.000100", status: "IN_PROGRESS" })).text, /send_approval_request/);
+});
+
+test("update_task posts only the change: what it asks of people is given to the agent to offer, not sent", async (t) => {
+  const TS = "1700000000.000100";
+  await putTask(env, "CDEV", TS, stored({ status: "TODO" }));
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "users.info": WORKSPACE });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const assigned = await tool(url, "update_task", { task_id: `CDEV:${TS}`, owner: { add: ["UBOB"] } });
+  assert.equal(assigned.isError, false, assigned.text);
+  const posted = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text);
+  assert.deepEqual(posted, ["<@UME> assigned <@UBOB> as owner.\nSent using AI agent"]);
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), "no private draft: the person isn't looking at Slack");
+  // The agent gets the request, to ask the person about, with send_thread_message.
+  assert.equal(assigned.data.suggested_message, "<@UBOB>, could you pick this up?");
+  assert.match(assigned.text, /Nothing was sent to the people it names\. Ask the person whether to send this .*send_thread_message/);
+
+  // Nothing to ask: nothing suggested.
+  const moved = await tool(url, "update_task", { task_id: `CDEV:${TS}`, priority: "Low" });
+  assert.equal(moved.data.suggested_message, "");
+  assert.doesNotMatch(moved.text, /send_thread_message/);
 });
 
 test("send_approval_request asks the chosen person to approve a task in Client review, with buttons only they can click", async (t) => {
@@ -1574,7 +1597,7 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   // The request is in the task's thread, mentions the approver, lists the PRs, and its buttons name who may click them.
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, TS);
-  assert.match(post.text, /^<@UME> says this is ready for review\.\n[\s\S]*\nSent using AI agent$/);
+  assert.match(post.text, /^<@UME> sent:\n[\s\S]*\nSent using AI agent$/);
   assert.equal(JSON.parse(post.blocks).at(-1).block_id, "cade_agent_footer");
   assert.match(post.text, /cade\/42/);
   assert.match(post.text, /<@UCLIENT123>, could you take a look and approve it/);
@@ -1589,7 +1612,26 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "rex" })).text, /isn't a Slack user ID/);
   assert.match((await tool(url, "send_approval_request", { task_id: "CPRIV:1700000000.000100", approver: "UCLIENT123" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "send_approval_request", { task_id: "CDEV:999.9", approver: "UCLIENT123" })).text, /isn't a task Cade tracks/);
+  assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "  " })).text, /The message is empty/);
   assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1, "only the first call posted");
+
+  // In the person's words: the approver is mentioned first when the message doesn't, and <!here> is
+  // only text.
+  const worded = await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "Staging has it <!here>. Could you approve by Friday?" });
+  assert.equal(worded.isError, false, worded.text);
+  const request = calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text;
+  assert.match(request, /^<@UME> sent:\n<@UCLIENT123> Staging has it &lt;!here&gt;\. Could you approve by Friday\?\n\*PRs:\* .*\nSent using AI agent$/);
+  await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "Hi <@UCLIENT123>, please approve." });
+  assert.match(calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text, /^<@UME> sent:\nHi <@UCLIENT123>, please approve\.\n\*PRs:\* /);
+
+  // A long request is posted whole; its buttons, which hold 2000 characters, keep it cut short.
+  const long = `Please check "the flow" & approve.\n${"word ".repeat(560).trim()}`;
+  await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: long });
+  const last = calls.filter((call) => call.method === "chat.postMessage").at(-1).args;
+  assert.ok(last.text.includes(long.slice(-50)), "posted whole");
+  const value = JSON.parse(last.blocks).find((block) => block.type === "actions").elements[0].value;
+  assert.ok(value.length <= 2000, `${value.length} characters`);
+  assert.match(JSON.parse(value).text, /^<@UME> sent:\n<@UCLIENT123> Please check "the flow" &amp; approve\.\nword[\s\S]*…\n\*PRs:\* /);
 });
 
 test("a tool's arguments are checked against its inputSchema before it runs, saying what is wrong", async (t) => {

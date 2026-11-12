@@ -209,6 +209,12 @@ export function viaAgent(text: string) {
   return { text: `${text}\n${AGENT_FOOTER}`, blocks: [{ type: "section", text: mrkdwn(text) }, agentFooter()] };
 }
 
+// A message someone had Cade post for them, led by who it's from: the Send of a change's draft
+// (commands/ask.ts), and an AI agent's send_thread_message (mcp.ts).
+export function sentBy(user: string, text: string) {
+  return `<@${user}> sent:\n${text}`;
+}
+
 export function mentions(users: string[]) {
   return users.map((id) => `<@${id}>`).join(", ");
 }

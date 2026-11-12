@@ -82,7 +82,22 @@ export interface InputValue {
   selected_users?: string[];
   selected_conversation?: string | null;
   selected_channel?: string | null;
-  rich_text_value?: SlackBlock;
+  rich_text_value?: RichText;
+}
+
+// A rich text box's value, and what it holds: sections of text, people and links; lists, quotes and
+// code. Only what Cade reads (see fromRichText in commands/ask.ts).
+export interface RichText {
+  type: string;
+  text?: string;
+  style?: { bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean };
+  user_id?: string;
+  usergroup_id?: string;
+  channel_id?: string;
+  url?: string;
+  name?: string;
+  range?: string;
+  elements?: RichText[];
 }
 // Every Cade form names its input's action "value".
 export type ViewValues = Record<string, { value: InputValue; [actionId: string]: InputValue }>;
@@ -176,9 +191,12 @@ export type SlashCommand = Command & { triggerId: string; responseUrl: string };
 
 // An acknowledgement: a ✅ on the command, and `note`, if any, posted too
 // (see acknowledge in slack.ts).
+// `ask`: what the change asks of people, offered privately to whoever sent the command before it's
+// posted (see offerAsk in commands/ask.ts).
 export interface Acknowledgement {
   reaction: string;
   note?: unknown;
+  ask?: string[];
 }
 
 // What a command answers: plain text, a message body, an acknowledgement,

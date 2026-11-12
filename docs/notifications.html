@@ -34,8 +34,8 @@
     <h1>Who hears what.</h1>
     <p class="lede">
       When someone changes a task's people, pull requests or status from the card, a suggestion or the standup, Cade posts one message in the task's thread:
-      what changed, then what it means for the people it names. There's nothing to confirm, and one change is one
-      message, so everyone is notified once. A typed command, such as <code>@Cade assign</code> or <code>@Cade pr add</code>, gets a ✅ on your message instead of the change log; only the requests are posted.
+      what changed. What it means for the people it names, such as “@rex, could you pick this up?”, isn't posted for you: only you see it, as a draft
+      to <b>Send</b>, <b>Edit</b> first or leave with <b>Not now</b>, since you may know it isn't needed, or want to say it your own way. A typed command, such as <code>@Cade assign</code> or <code>@Cade pr add</code>, gets a ✅ on your message instead of the change log, and the same draft.
     </p>
     <div class="kinds">
       <div class="box">
@@ -43,11 +43,11 @@
         <p>A line per change, who made it and what it was: “@ann assigned @rex, @bob as owner.” The thread keeps a log of every change. Someone changing their own part reads as “@rex assigned themselves as owner.”, and isn't asked or told anything, since they made the change. When a change comes from a suggestion, the people its message mentioned were notified by it already: they're named rather than mentioned (“@ann assigned Tom as tester.”), and not asked again.</p>
       </div>
       <div class="box">
-        <h3>Then, what it means for them</h3>
-        <p>A line each: “@rex, @bob, could you pick this up?” or “@tom, there's no need to test this anymore.” One note for each person, not each change: someone added as owner and reviewer is asked “@rex, could you pick this up and review web/12 …”, and people asked the same share a note.</p>
+        <h3>Then, what it means for them, if you send it</h3>
+        <p>Offered to whoever made the change, privately, in the task's thread. <b>Send</b> posts it there, led by who it's from, “@ann sent:”, as your AI agent's messages are; <b>Edit</b> opens it in a form to change first, mentions and all; <b>Not now</b>, or leaving it, sends nothing. A line each: “@rex, @bob, could you pick this up?” or “@tom, there's no need to test this anymore.” One note for each person, not each change: someone added as owner and reviewer is asked “@rex, could you pick this up and review web/12 …”, and people asked the same share a note.</p>
       </div>
     </div>
-    <h3 class="rules-head">Only when there's something to do now</h3>
+    <h3 class="rules-head">Offered only when there's something to do now</h3>
     <ul class="rules">
       <li><b>Owners</b> are asked when they're assigned while the task is To do or In progress. Past that, their part is over.</li>
       <li><b>Reviewers</b> are asked when the task moves to In review, or when they're assigned while it's In review, or when a PR is linked while it's In review. They're asked about the open PRs, or to review it when there are none. Before In review they wait: the task moving there asks them.</li>
@@ -75,9 +75,10 @@
         <h3><code>@Cade assign owner @rex</code></h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up?</span></dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@rex, could you pick this up?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
+          <dt>Sent</dt><dd>@ann sent:<br><span class="note">@rex, could you pick this up?</span></dd>
         </dl>
-        <p>The task card shows who is on it, so a typed command gets a ✅ rather than a change log. A reviewer is asked to review it: “@mia, could you review this?”, the PRs being on the card. A tester is asked to “give this a test” once the task is In testing.</p>
+        <p>The task card shows who is on it, so a typed command gets a ✅ rather than a change log. Already started on it together? Click <b>Not now</b>. Want to add something? <b>Edit</b> it first. A reviewer is asked to review it: “@mia, could you review this?”, the PRs being on the card. A tester is asked to “give this a test” once the task is In testing.</p>
       </article>
 
       <article class="entry">
@@ -91,18 +92,20 @@
       <article class="entry">
         <h3>Task card's Edit button, or a role's button</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex, @bob as owner.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up?</span><br><span class="note">@mia, could you review this?</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex, @bob as owner.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@rex, @bob, could you pick this up?</span><br><span class="note">@mia, could you review this?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
-        <p>However many people, roles and fields you change, it's one message: a line per change, then what it means for them. Here @tom isn't told, as the task wasn't In testing.</p>
+        <p>However many people, roles and fields you change, it's one message, a line per change, and one draft of what it means for them. Here @tom isn't told, as the task wasn't In testing.</p>
       </article>
 
       <article class="entry">
         <h3>Said in your own words: “@tess can you test this?”</h3>
         <dl class="flow">
           <dt>Private</dt><dd>Should I update the task? From your message:<br>Testers: @tess (Add) · Status: In review → In testing <span class="btns"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></span><br><span class="if-note">with a line saying where to turn these off: Home tab → Settings → Suggestions</span></dd>
-          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test?</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@tom, could you give this a test?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
-        <p>As the Edit form, with the status change in the log. Moving to In testing asks every tester at once. The same summary, read with AI.</p>
+        <p>As the Edit form, with the status change in the log. Moving to In testing means asking every tester at once, but @tess, whom your message asked already. The same summary, read with AI.</p>
       </article>
 
       <article class="entry">
@@ -116,15 +119,17 @@
       <article class="entry">
         <h3><code>/cade standup -unassigned</code>, picking an owner</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up?</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex as owner.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@rex, could you pick this up?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
+        <p>The draft shows where the standup is, with a link to the task's thread.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade unassign owner @rex</code></h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@rex, there's no need to work on this anymore.</span></dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@rex, there's no need to work on this anymore.</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
         <p>Only if they'd have been asked: removing a tester before In testing gets just the ✅. Without a role, they're removed from every role.</p>
       </article>
@@ -143,7 +148,7 @@
         <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with reviewers</h3>
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
-          <dt>Thread</dt><dd><span class="note">@mia, could you review this?</span></dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@mia, could you review this?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
         <p>The task card counts it, so a ✅ on your message is the acknowledgement. <code>@Cade pr remove</code> gets only the ✅.</p>
       </article>
@@ -153,7 +158,7 @@
         <dl class="flow">
           <dt>Your message</dt><dd>✅</dd>
           <dt>Private</dt><dd>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked. <span class="btns"><span>Edit…</span><span>Reject</span></span></dd>
-          <dt>Saved</dt><dd>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review this?</span></dd>
+          <dt>Saved</dt><dd>@bob assigned @mia as reviewer.<br><span class="if-note">and the draft to @bob: </span><span class="note">@mia, could you review this?</span></dd>
         </dl>
         <p>Before In review, the ✅ is all: moving it to In review asks the same. A reviewer picker posted before still works.</p>
       </article>
@@ -166,13 +171,14 @@
           <dt>Clicked</dt><dd>Either button turns the note into what else your message means, if anything:<br>Should I update the task? From your message:<br>Reviewers: @mia (Add)<br>Status: In progress → In review <span class="btns"><span class="go">Accept</span><span>Edit…</span><span>Reject</span></span><br><span class="if-note">Unlink also takes the PR off: the thread hears @ann unlinked web/12.</span></dd>
           <dt>Accepted</dt><dd>The usual change message and requests, as for any change: <br>@ann assigned @mia as reviewer.<br>@ann set the status to In review.</dd>
         </dl>
-        <p>Cade links it straight away and asks no one yet. With nothing else to suggest, <b>OK</b> asks for review as linking would: while the task is In review, its reviewers (not those your message mentioned), or, with none yet, you privately, with <b>Edit…</b> and <b>Reject</b>, a suggestion with nothing to accept. Otherwise what your message means is suggested, as if the PR had been linked before it, and notifies as any change does once you accept it. People your message mentioned aren't asked again. <b>Unlink</b> is for a link you only pasted to point at; once the note is gone, the card's Pull requests button takes one out. A PR merged or closed since stays.</p>
+        <p>Cade links it straight away and asks no one yet. With nothing else to suggest, <b>OK</b> offers you the review request as linking would: while the task is In review, its reviewers (not those your message mentioned), or, with none yet, you privately, with <b>Edit…</b> and <b>Reject</b>, a suggestion with nothing to accept. Otherwise what your message means is suggested, as if the PR had been linked before it, and notifies as any change does once you accept it. People your message mentioned aren't asked again. <b>Unlink</b> is for a link you only pasted to point at; once the note is gone, the card's Pull requests button takes one out. A PR merged or closed since stays.</p>
       </article>
 
       <article class="entry">
         <h3>Task card's Pull requests button</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann linked web/12.<br>@ann unlinked web/11.<br>@ann assigned @rex as reviewer.<br><span class="note">@mia, could you review this?</span><br><span class="note">@rex, could you review this?</span></dd>
+          <dt>Thread</dt><dd>@ann linked web/12.<br>@ann unlinked web/11.<br>@ann assigned @rex as reviewer.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@mia, could you review this?</span><br><span class="note">@rex, could you review this?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
         <p>Reviewers already on the task are asked about the new PRs, while it is In review. The button lists them under Open, Merged and Closed; Edit, on Open, opens the box of open ones. Merged and closed PRs can't be taken out.</p>
       </article>
@@ -207,26 +213,38 @@
       <article class="entry">
         <h3>Moving to In testing, however it's done</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann set the status to In testing.<br><span class="note">@tom, could you give this a test?</span></dd>
+          <dt>Thread</dt><dd>@ann set the status to In testing.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@tom, could you give this a test?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
-        <p>The same from <code>@Cade status</code>, the task card's Edit, suggestions and standup. A status typed in the command, like <code>@Cade status testing</code>, gets a ✅ on your message, with only the testers' request posted.</p>
+        <p>The same from <code>@Cade status</code>, the task card's Edit, suggestions and standup. A status typed in the command, like <code>@Cade status testing</code>, gets a ✅ on your message, and the draft. Moving it late, when @tom is testing already? <b>Not now</b>.</p>
       </article>
 
       <article class="entry">
         <h3>Moving to In review, however it's done</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann set the status to In review.<br><span class="note">@mia, could you review this?</span></dd>
+          <dt>Thread</dt><dd>@ann set the status to In review.</dd>
+          <dt>Only you</dt><dd>Send this in the task's thread?<br><span class="note">@mia, could you review this?</span> <span class="btns"><span class="go">Send</span><span>Edit</span><span>Not now</span></span></dd>
         </dl>
-        <p>Every reviewer assigned earlier is asked, those just added too, about the PRs pending. With no PRs they're asked to review it, and when every PR is merged or closed there's nothing left to review, so no one is asked. Owners aren't asked again: it's past their part.</p>
+        <p>Every reviewer assigned earlier is in the draft, those just added too, about the PRs pending. With no PRs they're asked to review it, and when every PR is merged or closed there's nothing left to review, so no one is asked. Owners aren't asked again: it's past their part.</p>
       </article>
 
       <article class="entry">
         <h3>In review with no reviewer, or In testing with no tester</h3>
         <dl class="flow">
           <dt>Private</dt><dd>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked. <span class="btns"><span>Edit…</span><span>Reject</span></span></dd>
-          <dt>Edit</dt><dd>The task's Edit form. Saving it assigns them, asks them as any assignment does, and removes the note.</dd>
+          <dt>Edit</dt><dd>The task's Edit form. Saving it assigns them, offers to ask them as any assignment does, and removes the note.</dd>
         </dl>
         <p>Only whoever moved the task sees it: with <code>@Cade status</code>, standup or <code>@Cade pr add</code>. A suggestion that moves it there says it under the suggestion instead, <i>No one is reviewing this yet. Add a reviewer with Edit…, so they're asked.</i>, so accepting it asks nothing more; nor does saving the Edit form, which shows the roles. Not for a change made through an AI agent: the agent asks the person.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Moving to Client review</h3>
+        <dl class="flow">
+          <dt>Private</dt><dd>Who should approve this? Choose them, and I'll ask. <span class="btns"><span class="go">Ask for approval</span></span></dd>
+          <dt>Form</dt><dd>Who approves: @cleo<br>Message: <span class="note">@cleo, could you take a look and approve it, or let us know what needs to change?</span></dd>
+          <dt>Thread</dt><dd>@ann sent:<br><span class="note">@cleo, could you take a look and approve it, or let us know what needs to change?</span><br><b>PRs:</b> web/12 <span class="btns"><span class="go">Approve</span><span>Not approve</span></span></dd>
+        </dl>
+        <p>The form's message follows who you choose until you change it; then it's yours, sent as you wrote it. If it doesn't mention them, they're mentioned first, so they're notified. Only they can click the buttons.</p>
       </article>
 
       <article class="entry">
@@ -237,7 +255,7 @@
       </article>
 
     </div>
-    <p class="legend"><span class="note">Like this</span> is what a change means for the people it names, after the change log.</p>
+    <p class="legend"><span class="note">Like this</span> is what a change means for the people it names: a draft only whoever made the change sees, posted only if they send it.</p>
   </div>
 </section>
 
@@ -266,9 +284,11 @@
       <article class="entry">
         <h3>Changing a task</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test?</span><br><span class="if-note">Sent using AI agent</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="if-note">Sent using AI agent</span></dd>
+          <dt>Your agent</dt><dd>Should I also ask them in the thread? <span class="note">@tom, @tess, could you give this a test?</span></dd>
+          <dt>If you say yes</dt><dd>@ann sent:<br>@tom, @tess, could you give this a test?<br><span class="if-note">Sent using AI agent</span></dd>
         </dl>
-        <p>The same change log and requests as a change made in Slack, with the line under them. No private suggestion is shown, since you aren't looking at Slack.</p>
+        <p>The same change log as a change made in Slack, with the line under it. No private draft is shown, since you aren't looking at Slack: your agent is given it and asks you, to send as it is, in your words, or not at all.</p>
       </article>
 
       <article class="entry">
@@ -282,9 +302,9 @@
       <article class="entry">
         <h3>Asking the client to approve</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann says this is ready for review.<br><span class="if-note">Sent using AI agent</span><br><b>PRs:</b> web/12<br><span class="note">@cleo, could you take a look and approve it, or let us know what needs to change?</span> <span class="btns"><span class="go">Approve</span><span>Not approve</span></span></dd>
+          <dt>Thread</dt><dd>@ann sent:<br><span class="note">@cleo, could you take a look and approve it, or let us know what needs to change?</span><br><b>PRs:</b> web/12 <span class="btns"><span class="go">Approve</span><span>Not approve</span></span><br><span class="if-note">Sent using AI agent</span></dd>
         </dl>
-        <p>The same request, with the same buttons, as the one made in Slack. Only @cleo can click them.</p>
+        <p>The same request, with the same buttons, as the one made in Slack. Only @cleo can click them. When your agent moves a task to Client review, it shows you this request and asks who approves it: send it as it is, or in your own words (@cleo is mentioned first if your words don't).</p>
       </article>
 
     </div>

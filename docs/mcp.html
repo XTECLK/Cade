@@ -555,7 +555,7 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
+    <p>Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread; a changed summary is saved and the thread is told, with a link to the notes page. Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -568,7 +568,7 @@
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason</td></tr>
 <tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, &quot;- &quot; for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one</td></tr>
-<tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first</td></tr>
+<tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first</td></tr>
 <tr><td><code>prs.add</code></td><td>string[]</td><td></td><td>Pull requests to link to the task, as links</td></tr>
 <tr><td><code>prs.remove</code></td><td>string[]</td><td></td><td>Pull requests to unlink from the task, as links</td></tr>
 <tr><td><code>owner</code></td><td>object</td><td></td><td>Who to add to and remove from the task's owners</td></tr>
@@ -590,6 +590,8 @@
 <tr><td><code>changed</code></td><td>boolean</td><td>yes</td><td>Whether a field changed (and was posted in the thread)</td></tr>
 <tr><td><code>summary_saved</code></td><td>boolean</td><td>yes</td><td>Whether the summary was saved on the notes page</td></tr>
 <tr><td><code>notes_link</code></td><td>string</td><td>yes</td><td>A link to the notes page, or empty</td></tr>
+<tr><td><code>suggested_message</code></td><td>string</td><td>yes</td><td>What the change asks of the people it names, not sent: offer it to the person for send_thread_message, mentions as &lt;@ID&gt;. Moved to Client review, the request to the approver instead, for send_approval_request's message. Empty when there's nothing to ask</td></tr>
+<tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -598,7 +600,7 @@
 <section class="tool" id="send_approval_request">
   <div class="wrap">
     <h2><code>send_approval_request</code></h2>
-    <p>Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Preview: the task and who will be asked to approve it. Call this only with an approver the person has chosen and approved. Each call posts a new request.</p>
+    <p>Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. The request says &quot;Could you take a look and approve it, or let us know what needs to change?&quot; to them, unless the person words it their own way in message. Preview: the task, who will be asked to approve it, and the request as it will be posted. Call this only with an approver and request the person has chosen and approved. Each call posts a new request.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -606,6 +608,7 @@
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
 <tr><td><code>approver</code></td><td>string</td><td>yes</td><td>Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it</td></tr>
+<tr><td><code>message</code></td><td>string</td><td></td><td>The request in the person's own words, as plain text, in place of the usual one. Mention people as &lt;@U0123ABCD&gt;; the approver is mentioned first when the message doesn't. At most 3000 characters</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>

@@ -1,5 +1,6 @@
 import { assigned, autoLinked, onTheirPlate, request, toAsk } from "../notify.ts";
 import { acknowledged, applyChanges, changeTask } from "./changes.ts";
+import { offerAsk } from "./ask.ts";
 import { suggesting } from "../intents.ts";
 import { suggestionMessage } from "./ai-suggest.ts";
 import { askForPerson } from "./status.ts";
@@ -34,8 +35,8 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 // task, counted on its card; `@Cade pr remove <link> [<link> …]` unlinks them.
 // GitHub, GitLab and Bitbucket links are recognised.
 //
-// Linking reacts ✅ to the command and asks the task's reviewers to review it
-// in a message of its own while it is In review (see notify.ts); the status is left to the
+// Linking reacts ✅ to the command and offers whoever sent it to ask the task's reviewers to review
+// it while it is In review (see notify.ts and ask.ts); the status is left to the
 // suggestions. In review with no reviewer yet, whoever sent it is asked privately to assign one
 // (see askForPerson in status.ts), as moving it to In review would.
 //
@@ -178,7 +179,8 @@ async function afterNote(env: AppEnv, { channel, ts, changes, from, told }: PrLi
 }
 
 // OK on a note with nothing to suggest: the pull requests stay, so they're reviewed as any linked
-// while the task is In review would be. Its reviewers are asked in the thread, but not those the
+// while the task is In review would be. Whoever pasted them is offered to ask its reviewers (see
+// offerAsk), but not those the
 // message mentioned, who saw it, nor whoever pasted it; with no reviewer yet, whoever pasted it is
 // asked privately to assign one (see askForPerson in status.ts). Before In review, no one is: moving
 // there asks them. With something to suggest, accepting it notifies instead, so no one is asked twice.
@@ -187,7 +189,7 @@ async function askToReview(env: AppEnv, { channel, ts, urls, told = [] }: PrLink
   if (task?.status !== "IN_REVIEW" || !urls.some((url) => openPrs(task).includes(url))) return;
   if (!task.people.reviewer.length) return askForPerson(env, channel, ts, "reviewer", user);
   const reviewers = toAsk(task.people.reviewer, user, Object.fromEntries(told.map((id) => [id, null])));
-  if (reviewers.length) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: request(reviewers, "reviewer") });
+  if (reviewers.length) await offerAsk(env, { channel, ts }, user, [request(reviewers, "reviewer")]);
 }
 
 // Unlink on that note: takes off the pull requests the message linked that are still linked and open
@@ -212,8 +214,8 @@ export function pullRequestsIn(text: string | undefined): string[] {
 }
 
 // Applies the chosen suggestion of an earlier question, adding the reviewers and linking the pull
-// requests, and removes the private question. The thread only hears what's
-// new to it: a review request for reviewers the message didn't mention; with no reviewer at all,
+// requests, and removes the private question. Whoever clicked is offered what's new to the thread: a
+// review request for reviewers the message didn't mention (see offerAsk); with no reviewer at all,
 // while it is In review, whoever clicked is asked privately to assign one (see askForPerson).
 async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
   const { channel, ts, urls = [], mentioned = [], ...fields } = readPayload<PrSuggestion>(PR_SUGGESTION, payload.actions[0].value, "pull request suggestion");
@@ -222,7 +224,7 @@ async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
   const reviewers = picked ?? fields.reviewers ?? [];
   const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
-  let reply: string | null = null;
+  const lines: string[] = [];
   if (task) {
     const added = reviewers.filter((id: string) => !task.people.reviewer.includes(id));
     task.people.reviewer = [...task.people.reviewer, ...added];
@@ -230,21 +232,19 @@ async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
     // Linking saves the task; adding only reviewers needs its own save.
     if (!linked && added.length) await saveTask(env, channel, ts, task);
 
-    const lines: string[] = [];
     // Not those the message mentioned, nor whoever wrote it.
     const unasked = toAsk(task.people.reviewer, user, Object.fromEntries(mentioned.map((id: string) => [id, null])));
     // They are asked while it is In review; otherwise when it gets there.
     if (linked && unasked.length && onTheirPlate(task, "reviewer")) lines.push(request(unasked, "reviewer", linked.added));
-    if (lines.length) reply = lines.join("\n");
     if (linked && !task.people.reviewer.length && task.status === "IN_REVIEW") await askForPerson(env, channel, ts, "reviewer", user);
   }
-  if (reply) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: reply });
+  await offerAsk(env, { channel, ts }, user, lines);
   // An ephemeral message can only be changed through its response_url.
   await respondLater(payload.response_url, { delete_original: true });
 }
 
-// Assigns the chosen people as reviewers, and posts who did with the request
-// to review, as a new reply, since an edited message notifies no one. The
+// Assigns the chosen people as reviewers, posts who did as a new reply, since an edited message
+// notifies no one, and offers whoever chose them the request to review (see offerAsk). The
 // picker keeps what happened before its question, or goes if there was
 // nothing. It is a reply in the task's thread.
 async function chooseReviewers(payload: SlackPayload, env: AppEnv) {
@@ -275,9 +275,9 @@ async function chooseReviewers(payload: SlackPayload, env: AppEnv) {
   // Whoever picked themselves isn't asked.
   const others = chosen.filter((id) => id !== payload.user.id);
   // Asked while it is In review; otherwise when it gets there.
-  const asked = others.length && onTheirPlate(task, "reviewer") && request(others, "reviewer", urls);
-  const text = [assigned(payload.user.id, chosen, "reviewer"), asked].filter(Boolean).join("\n");
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+  const asked = others.length && onTheirPlate(task, "reviewer") ? [request(others, "reviewer", urls)] : [];
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: assigned(payload.user.id, chosen, "reviewer") });
+  await offerAsk(env, { channel, ts }, payload.user.id, asked);
 }
 
 // chat.update keeps a message's old blocks unless new ones are sent.

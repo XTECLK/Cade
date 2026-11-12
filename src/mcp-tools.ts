@@ -600,7 +600,8 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Update a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
-            "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread and asks the people it assigns to pick it up; a changed summary is saved and the thread is told, with a link to the notes page. " +
+            "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread; a changed summary is saved and the thread is told, with a link to the notes page. " +
+            "Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. " +
             "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
             "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
             "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. " +
@@ -617,7 +618,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 summary: str(`The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most ${MAX_SUMMARY} characters. Replaces any earlier one`),
                 prs: {
                     type: "object",
-                    description: "Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first",
+                    description: "Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first",
                     properties: {
                         add: strings("Pull requests to link to the task, as links"),
                         remove: strings("Pull requests to unlink from the task, as links")
@@ -639,11 +640,12 @@ export const TOOL_DEFS: ToolDef[] = [
             },
             required: ["task_id"],
         },
-        outputSchema: outputOf({
+        outputSchema: outputWithNames({
             task_id: str("The task's ID, for the other tools"),
             changed: bool("Whether a field changed (and was posted in the thread)"),
             summary_saved: bool("Whether the summary was saved on the notes page"),
             notes_link: str("A link to the notes page, or empty"),
+            suggested_message: str("What the change asks of the people it names, not sent: offer it to the person for send_thread_message, mentions as <@ID>. Moved to Client review, the request to the approver instead, for send_approval_request's message. Empty when there's nothing to ask"),
         }),
     },
     {
@@ -651,12 +653,13 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Ask someone to approve a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. Preview: the task and who will be asked to approve it. Call this only with an approver the person has chosen and approved. Each call posts a new request.",
+            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. The request says \"Could you take a look and approve it, or let us know what needs to change?\" to them, unless the person words it their own way in message. Preview: the task, who will be asked to approve it, and the request as it will be posted. Call this only with an approver and request the person has chosen and approved. Each call posts a new request.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
                 approver: str("Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it"),
+                message: str(`The request in the person's own words, as plain text, in place of the usual one. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. At most ${MAX_MESSAGE} characters`),
             },
             required: ["task_id", "approver"],
         },

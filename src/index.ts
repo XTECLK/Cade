@@ -1,3 +1,4 @@
+import { offerAsk } from "./commands/ask.ts";
 import { dispatch, dispatchSlash } from "./commands/dispatch.ts";
 import { parseMessage, parseSlashCommand } from "./commands/parse.ts";
 import { actions, intents, reactions, shortcuts, views } from "./commands/registry.ts";
@@ -142,6 +143,9 @@ async function handleEvent(body: string, request: Request, context: Context) {
             name: (reply as Acknowledgement).reaction,
           });
           if ((reply as Acknowledgement).note) await post((reply as Acknowledgement).note);
+          // What it asks of people is offered to whoever sent it first; a message's command always has its ts.
+          const ask = (reply as Acknowledgement).ask ?? [];
+          await offerAsk(context.env, { channel: command.channel, ts: command.threadTs ?? command.ts! }, command.user, ask);
           return;
         }
         await post(reply);

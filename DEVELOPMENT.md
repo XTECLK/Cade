@@ -209,6 +209,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/dispatch.ts` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
 | `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, `prs` (the Pull requests button), and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
+| `src/notify.ts`, `src/commands/ask.ts` | What a change posts in its thread, the change log, and what it asks of people, offered to whoever made it as a private draft to Send, Edit or leave (an AI agent gets it as `update_task`'s `suggested_message`, to ask the person) |
 | `src/db.ts` | Reading and writing tasks in D1 |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
 | `src/rotate.ts` | The cron's job, hourly: giving an open task a new thread before Slack's free plan hides the old one (`threadRotationDays`) |

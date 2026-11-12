@@ -149,7 +149,7 @@ export type UpdateTaskArgs = {
   blocked_reason?: string;
   // The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one
   summary?: string;
-  // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding asks the task's reviewers to review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first
+  // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first
   prs?: {
     // Pull requests to link to the task, as links
     add?: string[];
@@ -184,6 +184,8 @@ export type SendApprovalRequestArgs = {
   task_id: string;
   // Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it
   approver: string;
+  // The request in the person's own words, as plain text, in place of the usual one. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. At most 3000 characters
+  message?: string;
 };
 
 export type GetServerInfoArgs = {

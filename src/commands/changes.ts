@@ -1,4 +1,5 @@
-import { changeMessage, changeRequests } from "../notify.ts";
+import { changeLog, changeRequests } from "../notify.ts";
+import { offerAsk } from "./ask.ts";
 import { acknowledge, callSlack, viaAgent } from "../slack.ts";
 import { ROLES, cleanReason, loadTask, saveTask, waitsForSubtasks } from "../tasks.ts";
 import { afterStatusChange, setStatusFields } from "./status.ts";
@@ -19,11 +20,11 @@ type ChangeOptions = { from?: Status; told?: string[]; source?: string; quiet?: 
 //      or a pasted pull request link, then asking whoever wrote it,
 //      privately;
 //   2. once confirmed, applying the changes, here;
-//   3. telling the thread, as one message made from what actually changed:
-//      the change log, then what it means for the people it names (see
-//      notify.ts). A typed command shows its change on the task card, so it
-//      acknowledges with a ✅ and posts only the second part (see
-//      acknowledged).
+//   3. telling the thread what actually changed, the change log, and
+//      offering whoever made it what it means for the people it names,
+//      privately, to send or not (see notify.ts and ask.ts). A typed command
+//      shows its change on the task card, so it acknowledges with a ✅
+//      instead of the log (see acknowledged).
 // Changes are { people: { [role]: { add, remove } }, status, priority,
 // dueDate, prs: { add, remove }, blocked: { on, reason } }, each optional; pull requests are links.
 
@@ -33,22 +34,25 @@ export function prsAfter(task: Task, changes: Changes) {
   return [...task.prs!.filter((url) => !remove.includes(url)), ...add.filter((url) => !task.prs!.includes(url))];
 }
 
-// Applies `changes` to the task at `channel`/`ts` for `user`, and posts what
-// changed in its thread. Returns whether anything changed.
+// Applies `changes` to the task at `channel`/`ts` for `user`, posts what
+// changed in its thread, and offers `user` what it asks of people (see
+// offerAsk). Returns the change, or null when nothing changed.
 //
 // `told` lists who the message a suggestion came from mentioned: it
 // notified them already, so they aren't asked again; the change log still
 // mentions them. `source` is "mcp" for a change made through someone's AI agent,
 // by their MCP key: the thread says so, and no private prompt is shown to the
-// person (see afterStatusChange), since they are not looking at Slack. A change made in Slack
-// has no source.
+// person (see afterStatusChange), since they are not looking at Slack; the agent
+// is given the asks to offer them instead (see updateTask in mcp.ts). A change
+// made in Slack has no source.
 export async function applyChanges(env: AppEnv, where: Where, changes: Changes, user: string, options?: ChangeOptions) {
   const change = await changeTask(env, where, changes, user, options);
-  const text = change && changeMessage(change);
-  if (!text) return false;
-  const body = options?.source === "mcp" ? viaAgent(text) : { text };
-  await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, ...body });
-  return true;
+  if (!change) return null;
+  const text = changeLog(change).join("\n");
+  const agent = options?.source === "mcp";
+  await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, ...(agent ? viaAgent(text) : { text }) });
+  if (!agent) await offerAsk(env, where, user, changeRequests(change));
+  return change;
 }
 
 // Applies `changes` to the task at `channel`/`ts` for `user`, all to the one
@@ -125,8 +129,8 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
 }
 
 // The reply to a typed command that made `change` (see changeTask): a ✅ on
-// the command, and the requests the change means for people, if any.
+// the command, and the requests the change means for people, if any, to
+// offer whoever sent it (see offerAsk).
 export function acknowledged(change: Change | null) {
-  const notes = change ? changeRequests(change) : [];
-  return acknowledge(notes.join("\n") || undefined);
+  return { ...acknowledge(), ask: change ? changeRequests(change) : [] };
 }

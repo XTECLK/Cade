@@ -7,12 +7,12 @@ type Told = Record<string, null>;
 
 // What Cade says in a task's thread when its people, pull requests or
 // status change, in one place so they read alike. Each change is one
-// message: the record of what changed and who changed it, "<@ann> assigned
-// <@rex> as owner.", then on the next line what it means for those it
-// names, "<@rex>, could you pick this up?".
-// The record keeps a log of every change in the thread, and the record's
-// mention notifies them anyway, so the request comes with it, in the same
-// message, rather than as a ping of its own.
+// message, the record of what changed and who changed it, "<@ann> assigned
+// <@rex> as owner.", which keeps a log of every change in the thread, and its
+// mention notifies them. What it means for those it names, "<@rex>, could you
+// pick this up?", isn't posted with it: whoever made the change is offered it
+// privately, to send, edit or leave (see commands/ask.ts), as they may know
+// it's not needed, or want to say it their own way.
 //
 // Someone who assigns or removes themselves is named as "themselves", and
 // isn't asked or told anything: they made the change. Nor is anyone `told`
@@ -174,11 +174,6 @@ function grouped(pairs: [string, string][], note: (who: string, what: string) =>
   const byWhat = new Map<string, string[]>();
   for (const [id, what] of pairs) byWhat.set(what, [...(byWhat.get(what) ?? []), id]);
   return [...byWhat].map(([what, ids]) => note(mentions(ids), what));
-}
-
-// The thread's one message about a change: the log, then the requests.
-export function changeMessage(change: Change) {
-  return [...changeLog(change), ...changeRequests(change)].join("\n");
 }
 
 // ---- Requests ----

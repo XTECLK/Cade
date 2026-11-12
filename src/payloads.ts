@@ -63,6 +63,15 @@ export type TaskForm = TaskRef & { responseUrl?: string };
 export const TASK_APPROVAL = object({ ...TASK_REF, text: text, approver: { type: ["string", "null"] } }, ["channel", "ts"]);
 export type TaskApproval = TaskRef & { text?: string; approver?: string | null };
 
+// Send, Edit and Not now on the private draft of what a change asks of people (ask.ts): the task, and the
+// draft.
+export const ASK_BUTTON = object({ ...TASK_REF, text });
+export type AskButton = TaskRef & { text: string };
+
+// Its Edit form: the task, and the private draft to remove once it's sent.
+export const ASK_FORM = object({ ...TASK_REF, responseUrl: text }, ["channel", "ts"]);
+export type AskForm = TaskRef & { responseUrl?: string };
+
 // Delete on `/cade remove`'s question (delete.ts).
 export const DELETE_BUTTON = object({ ...TASK_REF, kind: { type: "string", enum: ["task", "message", "thread"] } });
 export type DeleteButton = TaskRef & { kind: "task" | "message" | "thread" };

@@ -1,6 +1,7 @@
 import { channelMembers, hashToken, isMember, newToken, readableName } from "./access.ts";
 import { projects } from "./channels.ts";
 import { applyChanges } from "./commands/changes.ts";
+import { changeRequests } from "./notify.ts";
 import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
@@ -10,9 +11,9 @@ import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
-import { callSlack, escapeSlack, linkedMessage, linkedThread, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
+import { callSlack, escapeSlack, linkedMessage, linkedThread, sentBy, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
 import { nameMap } from "./export.ts";
-import { requestApproval } from "./commands/status.ts";
+import { approvalRequest, requestApproval } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, taskMessage, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
@@ -341,7 +342,15 @@ async function requestApprovalTool(env: AppEnv, user: string, args: SendApproval
   const [approver] = userIds("approver", [args.approver]) as [string];
   await requireActiveUsers(env, [approver]);
   if (task.status !== "CLIENT_REVIEW") throw new ToolError(`This task is ${statusName(task.status)}, so there's nothing to approve. Move it to Client review with update_task first.`);
-  const problem = await requestApproval(env, channel, ts, approver, user);
+  // The request in the person's words, when they changed it: checked as any message an agent posts.
+  const message = args.message === undefined ? undefined : String(args.message).trim();
+  if (message !== undefined) {
+    if (!message) throw new ToolError("The message is empty: leave it out for the usual request.");
+    if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
+    refuseSecrets(message, "The message");
+    await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
+  }
+  const problem = await requestApproval(env, channel, ts, approver, user, message && plainMessage(message));
   if (problem) throw new ToolError(problem);
   console.log("Approval requested by MCP", { channel, ts, by: user, approver });
   return {
@@ -1142,7 +1151,7 @@ async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMess
   await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
   if (!task) await reachableThread(env, user, channel, ts);
   const body = plainMessage(message);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(`<@${user}> sent:\n${body}`) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(sentBy(user, body)) });
   console.log(task ? "Task message sent" : "Thread message sent", { channel, ts, by: user, characters: message.length });
   // The person is told where it was posted, so a thread named by its ID gets a link too.
   const link = (task ? task.link : args.link) || (await linkToThread(env, channel, ts));
@@ -1288,11 +1297,20 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told: string[] = [];
   let changed = false;
+  let ask = "";
   if (Object.keys(changes).length) {
     // The thread says it was an AI agent, and Slack shows the person no private prompt: they are not looking at it.
-    changed = await applyChanges(env, { channel, ts }, changes, user, { source: "mcp" });
+    const change = await applyChanges(env, { channel, ts }, changes, user, { source: "mcp" });
+    changed = Boolean(change);
     told.push(changed ? `The change is posted in the task's thread.${skipped}` : `The task already had those values.${skipped}`);
-    if (changed && changes.status === "CLIENT_REVIEW") told.push("It is in Client review now: ask the person who should approve it, then call send_approval_request.");
+    // What it asks of people isn't posted with it, as in Slack (see commands/ask.ts): the person decides.
+    ask = change ? changeRequests(change).join("\n") : "";
+    if (ask) told.push(`Nothing was sent to the people it names. Ask the person whether to send this in the thread, as it is, changed, or not at all, then send_thread_message with their version: ${ask}`);
+    // In Client review, the approver's request is the one to offer, sent with send_approval_request.
+    if (changed && changes.status === "CLIENT_REVIEW") {
+      ask = approvalRequest(null);
+      told.push(`It is in Client review now. Ask the person who should approve it, and show them the request send_approval_request will post to them, to send as it is, changed, or not at all: "${ask}" (it mentions the approver first). Then call send_approval_request with the approver, and their version as message.`);
+    }
   }
   if (summary !== undefined) {
     // The thread hears of a new summary, as nobody watches the notes page; the same one again says nothing.
@@ -1304,7 +1322,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
   const now = await loadTask(env, channel, ts);
   return {
     text: `${changed || summary !== undefined ? "Done." : "Nothing changed."} ${told.join(" ")}`,
-    data: { task_id: `${channel}:${ts}`, changed, summary_saved: summary !== undefined, notes_link: now?.notes?.url ?? "" },
+    data: { task_id: `${channel}:${ts}`, changed, summary_saved: summary !== undefined, notes_link: now?.notes?.url ?? "", suggested_message: ask },
   };
 }
 

@@ -1,4 +1,5 @@
 import aiSuggest from "./ai-suggest.ts";
+import ask from "./ask.ts";
 import archive from "./archive.ts";
 import assign from "./assign.ts";
 import remove from "./delete.ts";
@@ -80,9 +81,9 @@ function adminsOnly(handlers: Record<string, PayloadHandler> = {}): Record<strin
 }
 const guarded = (handler: Handler): Handler => (handler.admin ? { ...handler, actions: adminsOnly(handler.actions), views: adminsOnly(handler.views) } : handler);
 
-// The Home tab's Refresh button, the task card's menu, its Edit and Pull requests forms, and suggestions from people's
-// own words only answer clicks and messages, so they aren't commands.
-const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, prs, suggest, aiSuggest].map(guarded);
+// The Home tab's Refresh button, the task card's menu, its Edit and Pull requests forms, suggestions from people's
+// own words, and the drafts of what a change asks of people only answer clicks and messages, so they aren't commands.
+const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, prs, suggest, aiSuggest, ask].map(guarded);
 
 export const views: Record<string, PayloadHandler> = Object.assign(
   {},

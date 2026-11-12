@@ -2,7 +2,7 @@ import { callSlack } from "../slack.ts";
 import { NOT_A_TASK, TASK_EDIT_ACTION, TASK_MENU_ACTION, TASK_PRS_ACTION, TASK_SUBTASKS_ACTION, loadTask } from "../tasks.ts";
 import { editForm } from "./edit.ts";
 import { archiveTask } from "./archive.ts";
-import { prsForm } from "./prs.ts";
+import { prsView } from "./prs.ts";
 import { subtaskForm, subtasksView } from "./subtask.ts";
 import type { Context, Handler, SlackPayload } from "../types.ts";
 import type { AppEnv } from "../env.ts";
@@ -18,8 +18,8 @@ type Origin = { channel: string; ts: string };
 //            and the card updates.
 //   Subtasks (the button) on a task that isn't a subtask: them, in a modal, each linking to its
 //            thread, with Add subtask, which opens the form for one (see subtask.ts).
-//   Pull requests (the button) the task's pull requests: those open to change, those merged and
-//            closed to see (see prs.ts).
+//   Pull requests (the button) the task's pull requests, Open, Merged and Closed, with Edit on the
+//            open ones (see prs.ts).
 //   Archive  archives the task, as `@Cade archive` does (see archive.ts),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted before had Edit, Add subtask
@@ -29,7 +29,7 @@ const FORMS: Record<"edit" | "subtask" | "subtasks" | "prs", (env: AppEnv, origi
   edit: (env, origin, task) => editForm(origin, task),
   subtask: (env, origin, task) => subtaskForm(origin, task),
   subtasks: (env, origin, task) => subtasksView(env, origin, task),
-  prs: (env, origin, task) => prsForm(origin, task),
+  prs: (env, origin, task) => prsView(origin, task),
 };
 
 export default {

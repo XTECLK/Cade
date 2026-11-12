@@ -1025,7 +1025,7 @@ const prsSubmission = (box) =>
     view: { callback_id: "task:prs", private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1" }), state: { values: { prs: { value: { value: box } } } } },
   });
 
-test("the card's Pull requests button opens a form with the open ones in a box, and the merged and closed ones listed under it", async (t) => {
+test("the card's Pull requests button lists them in Open, Merged and Closed, as full links, with Edit on Open only, which opens the form for the open ones", async (t) => {
   const record = ownTask();
   record.task.prs = [PR, MR, PR3, PR4];
   record.task.prStates = { [PR3]: "MERGED", [PR4]: "CLOSED" };
@@ -1033,17 +1033,30 @@ test("the card's Pull requests button opens a form with the open ones in a box, 
   await send("/slack/interactions", prsClick());
   const { view, trigger_id } = calls.find((call) => call.method === "views.open").args;
   assert.equal(trigger_id, "T1");
-  assert.equal(view.callback_id, "task:prs");
+  // Only to see: no submit, and nothing to type in.
+  assert.equal(view.submit, undefined);
+  const sections = view.blocks.filter((block) => block.type === "section");
   // The GitLab one can't be read from GitHub, so it's open.
-  assert.equal(view.blocks[0].element.initial_value, `${PR}\n${MR}`);
-  assert.deepEqual(view.blocks.slice(1).map((block) => block.text.text), [`*Merged*\n<${PR3}|cade/43>`, `*Closed*\n<${PR4}|web/9>`]);
+  assert.deepEqual(sections.map((block) => block.text.text), [`*Open*\n<${PR}>\n<${MR}>`, `*Merged*\n<${PR3}>`, `*Closed*\n<${PR4}>`]);
+  assert.deepEqual(sections.map((block) => block.accessory?.action_id), ["prs:edit", undefined, undefined]);
 
-  // With none, the box is empty and nothing is listed under it.
+  // Edit opens the form on top of the list, with the open ones in its box.
+  await send(
+    "/slack/interactions",
+    interaction({ type: "block_actions", trigger_id: "T2", user: { id: "UACTOR" }, actions: [{ action_id: "prs:edit", value: sections[0].accessory.value }] }),
+  );
+  const pushed = calls.find((call) => call.method === "views.push").args;
+  assert.equal(pushed.trigger_id, "T2");
+  assert.equal(pushed.view.callback_id, "task:prs");
+  assert.deepEqual(pushed.view.blocks.map((block) => block.block_id), ["prs"]);
+  assert.equal(pushed.view.blocks[0].element.initial_value, `${PR}\n${MR}`);
+
+  // With none, every section says so, and Open still has Edit, to add one.
   const none = mockSlack(t, { stored: [ownTask()] });
   await send("/slack/interactions", prsClick());
-  const empty = none.find((call) => call.method === "views.open").args.view;
-  assert.equal(empty.blocks.length, 1);
-  assert.equal(empty.blocks[0].element.initial_value, undefined);
+  const empty = none.find((call) => call.method === "views.open").args.view.blocks.filter((block) => block.type === "section");
+  assert.deepEqual(empty.map((block) => block.text.text), ["*Open*\n_None_", "*Merged*\n_None_", "*Closed*\n_None_"]);
+  assert.equal(empty[0].accessory.action_id, "prs:edit");
 });
 
 test("saving the Pull requests form links new links and unlinks open ones taken out, keeping merged and closed ones", async (t) => {

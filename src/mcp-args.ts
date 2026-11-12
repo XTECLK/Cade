@@ -184,7 +184,7 @@ export type SendApprovalRequestArgs = {
   task_id: string;
   // Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it
   approver: string;
-  // The request in the person's own words, as plain text, in place of the usual one. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. At most 3000 characters
+  // The request in the person's own words, as plain text, in place of the usual one, all of it. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. A pull request is a link, <https://…|repo/42>. The usual one as update_task's suggested_message gives it, unchanged, is the same as leaving this out. At most 3000 characters
   message?: string;
 };
 

@@ -1577,6 +1577,26 @@ test("update_task posts only the change: what it asks of people is given to the 
   assert.doesNotMatch(moved.text, /send_thread_message/);
 });
 
+test("the usual approval request is the same however it's sent: as Slack's form starts it, update_task's suggested_message sent as it is, or no message", async (t) => {
+  const TS = "1700000000.000100";
+  const PR = "https://github.com/acme/cade/pull/42";
+  await putTask(env, "CDEV", TS, stored({ status: "IN_TESTING", prs: [PR] }));
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } }, "users.info": WORKSPACE });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const usual = `<@UBOB>, could you take a look and approve it, or let us know what needs to change?\n*PRs:* <${PR}|cade/42>`;
+
+  const moved = await tool(url, "update_task", { task_id: `CDEV:${TS}`, status: "CLIENT_REVIEW" });
+  assert.equal(moved.data.suggested_message, `Could you take a look and approve it, or let us know what needs to change?\n*PRs:* <${PR}|cade/42>`);
+  await tool(url, "send_approval_request", { task_id: `CDEV:${TS}`, approver: "UBOB", message: moved.data.suggested_message });
+  await tool(url, "send_approval_request", { task_id: `CDEV:${TS}`, approver: "UBOB" });
+  const posted = calls.filter((call) => call.method === "chat.postMessage" && call.args.text.startsWith("<@UME> sent:")).map((call) => call.args.text);
+  assert.deepEqual(posted, [`<@UME> sent:\n${usual}\nSent using AI agent`, `<@UME> sent:\n${usual}\nSent using AI agent`]);
+
+  // Changed, its pull request links stay links, and the rest is plain text.
+  await tool(url, "send_approval_request", { task_id: `CDEV:${TS}`, approver: "UBOB", message: `<@UBOB>, ready on staging <b>now</b>.\n*PRs:* <${PR}|cade/42>` });
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text, `<@UME> sent:\n<@UBOB>, ready on staging &lt;b&gt;now&lt;/b&gt;.\n*PRs:* <${PR}|cade/42>\nSent using AI agent`);
+});
+
 test("send_approval_request asks the chosen person to approve a task in Client review, with buttons only they can click", async (t) => {
   const TS = "1700000000.000100";
   await putTask(env, "CDEV", TS, stored({ status: "CLIENT_REVIEW", link: "https://acme.slack.com/archives/CDEV/p1700000000000100", prs: ["https://github.com/acme/cade/pull/42"] }));
@@ -1615,14 +1635,14 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   assert.match((await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "  " })).text, /The message is empty/);
   assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1, "only the first call posted");
 
-  // In the person's words: the approver is mentioned first when the message doesn't, and <!here> is
-  // only text.
+  // In the person's words, all of it, the PRs too: the approver is mentioned first when the message
+  // doesn't, and <!here> is only text.
   const worded = await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "Staging has it <!here>. Could you approve by Friday?" });
   assert.equal(worded.isError, false, worded.text);
   const request = calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text;
-  assert.match(request, /^<@UME> sent:\n<@UCLIENT123> Staging has it &lt;!here&gt;\. Could you approve by Friday\?\n\*PRs:\* .*\nSent using AI agent$/);
+  assert.match(request, /^<@UME> sent:\n<@UCLIENT123> Staging has it &lt;!here&gt;\. Could you approve by Friday\?\nSent using AI agent$/);
   await tool(url, "send_approval_request", { task_id: TASK, approver: "UCLIENT123", message: "Hi <@UCLIENT123>, please approve." });
-  assert.match(calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text, /^<@UME> sent:\nHi <@UCLIENT123>, please approve\.\n\*PRs:\* /);
+  assert.match(calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text, /^<@UME> sent:\nHi <@UCLIENT123>, please approve\.\nSent using AI agent$/);
 
   // A long request is posted whole; its buttons, which hold 2000 characters, keep it cut short.
   const long = `Please check "the flow" & approve.\n${"word ".repeat(560).trim()}`;
@@ -1631,7 +1651,7 @@ test("send_approval_request asks the chosen person to approve a task in Client r
   assert.ok(last.text.includes(long.slice(-50)), "posted whole");
   const value = JSON.parse(last.blocks).find((block) => block.type === "actions").elements[0].value;
   assert.ok(value.length <= 2000, `${value.length} characters`);
-  assert.match(JSON.parse(value).text, /^<@UME> sent:\n<@UCLIENT123> Please check "the flow" &amp; approve\.\nword[\s\S]*…\n\*PRs:\* /);
+  assert.match(JSON.parse(value).text, /^<@UME> sent:\n<@UCLIENT123> Please check "the flow" &amp; approve\.\nword[\s\S]*…$/);
 });
 
 test("a tool's arguments are checked against its inputSchema before it runs, saying what is wrong", async (t) => {

@@ -1485,11 +1485,10 @@ test("a task card's menu on a task that's gone says so privately", async (t) => 
 // The approver clicking Approve or Not approve in the task's thread.
 // Moves the task at `channel`/100.1 to Client review as UACTOR, clicks the
 // private Ask for approval button and chooses `approver` in its form, sending `message` (rich text
-// elements, the form's own once they're chosen by default).
+// elements; by default what the form starts with, unchanged).
 // Returns every Slack call, and in `calls.responses` what was sent to the
 // button's response_url.
-const asApproverRequest = (approver) => [{ type: "rich_text_section", elements: [{ type: "user", user_id: approver }, { type: "text", text: ", could you take a look and approve it, or let us know what needs to change?" }] }];
-async function clientReview(t, responses, { channel = "CDEV", approver = "UCREATOR", environment = env, message = asApproverRequest(approver) } = {}) {
+async function clientReview(t, responses, { channel = "CDEV", approver = "UCREATOR", environment = env, message = undefined } = {}) {
   const calls = mockSlack(t, responses);
   calls.responses = recordResponses(t);
   await send("/slack/events", threadEvent("<@UBOT> status client review", { channel }), {}, environment);
@@ -1519,7 +1518,7 @@ async function clientReview(t, responses, { channel = "CDEV", approver = "UCREAT
       view: {
         callback_id: form.callback_id,
         private_metadata: form.private_metadata,
-        state: { values: { approver: { "status:approver": { selected_user: approver } }, message: { value: { rich_text_value: { type: "rich_text", elements: message } } } } },
+        state: { values: { approver: { "status:approver": { selected_user: approver } }, message: { value: { rich_text_value: { type: "rich_text", elements: message ?? form.blocks[1].element.initial_value.elements } } } } },
       },
     }),
     {},
@@ -1527,6 +1526,22 @@ async function clientReview(t, responses, { channel = "CDEV", approver = "UCREAT
   );
   return calls;
 }
+
+test("the Ask for approval form starts with the task's PRs in its message, which can be taken out like the rest", async (t) => {
+  const task = withStatus("IN_TESTING");
+  task.task.prs = [PR];
+  let calls = await clientReview(t, { stored: [task] }, { approver: "UCLIENT" });
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  // The PRs are a link in the box, and come back as one.
+  assert.equal(fromRichTextOf(form.blocks[1].element.initial_value), `Could you take a look and approve it, or let us know what needs to change?\n*PRs:* <${PR}|cade/42>`);
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    `<@UACTOR> sent:\n<@UCLIENT>, could you take a look and approve it, or let us know what needs to change?\n*PRs:* <${PR}|cade/42>`,
+  );
+  // Taken out, they aren't posted.
+  calls = await clientReview(t, { stored: [task] }, { approver: "UCLIENT", message: [{ type: "rich_text_section", elements: [{ type: "user", user_id: "UCLIENT" }, { type: "text", text: ", please approve." }] }] });
+  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> sent:\n<@UCLIENT>, please approve.");
+});
 
 test("the Ask for approval form shows the request, to change before it's sent, following who is chosen until it's changed", async (t) => {
   const calls = await clientReview(t, { stored: [storedTask()] }, {

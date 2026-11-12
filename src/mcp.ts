@@ -13,7 +13,7 @@ import { syncNotes } from "./notes.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
 import { callSlack, escapeSlack, linkedMessage, linkedThread, sentBy, viaAgent, type SlackChannel, type SlackUser } from "./slack.ts";
 import { nameMap } from "./export.ts";
-import { approvalRequest, requestApproval } from "./commands/status.ts";
+import { approvalRequest, requestApproval, usualRequest } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, taskMessage, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
@@ -350,7 +350,9 @@ async function requestApprovalTool(env: AppEnv, user: string, args: SendApproval
     refuseSecrets(message, "The message");
     await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
   }
-  const problem = await requestApproval(env, channel, ts, approver, user, message && plainMessage(message));
+  // The usual request sent as it is (update_task's suggested_message) is posted as Slack's form posts it.
+  const request = message && !usualRequest(message, task.prs) ? withLinks(plainMessage(message)) : undefined;
+  const problem = await requestApproval(env, channel, ts, approver, user, request);
   if (problem) throw new ToolError(problem);
   console.log("Approval requested by MCP", { channel, ts, by: user, approver });
   return {
@@ -1136,6 +1138,12 @@ function plainMessage(text: string) {
   return escapeSlack(text).replace(/&lt;@([UW][A-Z0-9]{2,})&gt;/g, "<@$1>");
 }
 
+// A plainMessage with its links kept as links, <https://…|label>, such as an approval request's pull
+// requests (see approvalRequest in commands/status.ts).
+function withLinks(text: string) {
+  return text.replace(/&lt;(https?:\/\/[^\s|<>]+?)(\|[^<>\n]*?)?&gt;/g, (_, url: string, label = "") => `<${url.replace(/&amp;/g, "&")}${label}>`);
+}
+
 // Posts the person's message in a thread, as Cade, led by who sent it and ending with the "Sent
 // using AI agent" footer:
 // a task's thread, or any other in a channel the person can read.
@@ -1307,9 +1315,9 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     ask = change ? changeRequests(change).join("\n") : "";
     if (ask) told.push(`Nothing was sent to the people it names. Ask the person whether to send this in the thread, as it is, changed, or not at all, then send_thread_message with their version: ${ask}`);
     // In Client review, the approver's request is the one to offer, sent with send_approval_request.
-    if (changed && changes.status === "CLIENT_REVIEW") {
-      ask = approvalRequest(null);
-      told.push(`It is in Client review now. Ask the person who should approve it, and show them the request send_approval_request will post to them, to send as it is, changed, or not at all: "${ask}" (it mentions the approver first). Then call send_approval_request with the approver, and their version as message.`);
+    if (change && changes.status === "CLIENT_REVIEW") {
+      ask = approvalRequest(null, change.task.prs ?? []);
+      told.push(`It is in Client review now. Ask the person who should approve it, and show them the request send_approval_request will post to them, with the approver mentioned first as @Name, to send as it is, changed, or not at all: "${ask}". Then call send_approval_request with the approver, and their version as message (leave message out for this one as it is).`);
     }
   }
   if (summary !== undefined) {

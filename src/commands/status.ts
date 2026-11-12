@@ -268,16 +268,22 @@ async function openApproverForm(payload: SlackPayload, env: AppEnv) {
   }
   // The private button goes once the form is sent (see dismiss).
   const origin = { channel, ts, responseUrl: payload.response_url };
-  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: approverForm(origin, null, approvalRequest(null), MESSAGE_BLOCK) });
+  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: approverForm(origin, null, approvalRequest(null, task.prs), MESSAGE_BLOCK) });
 }
 
-// The request to the approver, as the form starts it: to them, once chosen. An AI agent is given it too,
-// to offer the person (see updateTask in mcp.ts).
+// The request to the approver, as the form starts it, with the task's pull requests, `prs`: to them,
+// once chosen. All of it is theirs to change. An AI agent is given it too, to offer the person (see
+// updateTask in mcp.ts).
 const ASKS_APPROVAL = "ould you take a look and approve it, or let us know what needs to change?";
-export function approvalRequest(approver: string | null) {
-  return approver ? `<@${approver}>, c${ASKS_APPROVAL}` : `C${ASKS_APPROVAL}`;
+export function approvalRequest(approver: string | null, prs: string[]) {
+  const request = approver ? `<@${approver}>, c${ASKS_APPROVAL}` : `C${ASKS_APPROVAL}`;
+  return prs.length ? `${request}\n*PRs:* ${prs.map(prLink).join(", ")}` : request;
 }
-const UNCHANGED_REQUEST = new RegExp(`^(?:<@[UW][A-Z0-9]+>, c|C)${ASKS_APPROVAL.replace(/[.?]/g, "\\$&")}$`);
+
+// Whether `text` is the usual request, to whoever it names, or to no one yet: not changed.
+export function usualRequest(text: string, prs: string[]) {
+  return text.replace(/^<@[UW][A-Z0-9]+>, c/, "C") === approvalRequest(null, prs);
+}
 
 // The Ask for approval form: who approves, and the message they're sent, to change before it is, as
 // a change's draft can be (see ask.ts). `messageBlock` is the message box's block_id: Slack keeps what
@@ -303,9 +309,11 @@ function approverForm(origin: TaskForm, approver: string | null, message: string
   };
 }
 
-// `text`, a request written for `approver`, mentioning them, so they're notified, even when it no
-// longer names them.
-export function toApprover(approver: string, text: string) {
+// `text`, a request written for `approver` about a task with `prs`, mentioning them, so they're
+// notified, even when it no longer names them. The usual request, as an AI agent is given it before
+// anyone is chosen, reads as the Slack form's does once they are: "<@cleo>, could you take a look…".
+function toApprover(approver: string, text: string, prs: string[]) {
+  if (usualRequest(text, prs)) return approvalRequest(approver, prs);
   return text.includes(`<@${approver}>`) ? text : `<@${approver}> ${text}`;
 }
 
@@ -319,12 +327,13 @@ function messageIn(values: ViewValues) {
 async function followApprover(payload: SlackPayload, env: AppEnv) {
   const approver = payload.actions[0].selected_user ?? null;
   const { block, text } = messageIn(payload.view.state.values);
-  if (!UNCHANGED_REQUEST.test(text)) return;
   const origin = readPayload<TaskForm>(TASK_FORM, payload.view.private_metadata || "{}", "approver form");
+  const prs = (await loadTask(env, origin.channel, origin.ts))?.prs ?? [];
+  if (!usualRequest(text, prs)) return;
   await callSlack(env, "views.update", {
     view_id: payload.view.id,
     hash: payload.view.hash,
-    view: approverForm(origin, approver, approvalRequest(approver), block === `${MESSAGE_BLOCK}-${approver}` ? `${block}-` : `${MESSAGE_BLOCK}-${approver}`),
+    view: approverForm(origin, approver, approvalRequest(approver, prs), block === `${MESSAGE_BLOCK}-${approver}` ? `${block}-` : `${MESSAGE_BLOCK}-${approver}`),
   });
 }
 
@@ -334,10 +343,10 @@ function submitApprover(payload: SlackPayload, context: Context) {
   if (!approver) return { response_action: "errors", errors: { approver: "Please choose who approves it." } };
   const { block, text } = messageIn(values);
   if (!text) return { response_action: "errors", errors: { [block]: "Write the message, or cancel." } };
-  const request = toApprover(approver, text);
-  if (request.length > MAX_REQUEST) return { response_action: "errors", errors: { [block]: `Keep it to ${MAX_REQUEST} characters or fewer.` } };
+  // The approver's mention may still be added in front (see toApprover), so it is left room.
+  if (text.length > MAX_REQUEST - 20) return { response_action: "errors", errors: { [block]: `Keep it to ${MAX_REQUEST - 20} characters or fewer.` } };
   const origin = readPayload<TaskForm>(TASK_FORM, payload.view.private_metadata || "{}", "approver form");
-  context.waitUntil(requestReview(context.env, origin, approver, payload.user.id, request));
+  context.waitUntil(requestReview(context.env, origin, approver, payload.user.id, text));
   return { response_action: "clear" };
 }
 
@@ -351,7 +360,7 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
     return;
   }
   await dismiss(responseUrl);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(user, channel, ts, task, approver, request) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(user, channel, ts, approver, toApprover(approver, request, task.prs)) });
 }
 
 // Asks `approver` to review the task, in its thread, for `user`, who asked through their AI agent:
@@ -361,7 +370,7 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
 export async function requestApproval(env: AppEnv, channel: string, ts: string, approver: string, user: string, request?: string) {
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
-  const prompt = reviewPrompt(user, channel, ts, task, approver, request && toApprover(approver, request));
+  const prompt = reviewPrompt(user, channel, ts, approver, request ? toApprover(approver, request, task.prs) : approvalRequest(approver, task.prs));
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
@@ -371,19 +380,18 @@ export async function requestApproval(env: AppEnv, channel: string, ts: string, 
   return null;
 }
 
-// The request `user` sends, led by who it's from, as any message sent for someone is (see sentBy),
-// with the task's linked pull requests, and the approver's Approve and Not approve buttons, mentioning
-// them so they are notified. The buttons carry the message, to keep it when they are replaced, and who
-// may click them. `request` is what the form's message says, or the usual one, as for an AI agent.
-function reviewPrompt(user: string, channel: string, ts: string, task: StoredTask, approver: string, request = approvalRequest(approver)) {
-  const prs = task.prs.length ? `\n*PRs:* ${task.prs.map(prLink).join(", ")}` : "";
-  const text = `${sentBy(user, request)}${prs}`;
+// The request `user` sends, led by who it's from, as any message sent for someone is (see sentBy), and
+// the approver's Approve and Not approve buttons. `request` mentions them, so they are notified, and
+// lists the task's pull requests unless whoever sent it took them out (see approvalRequest). The buttons
+// carry the message, to keep it when they are replaced, and who may click them.
+function reviewPrompt(user: string, channel: string, ts: string, approver: string, request: string) {
+  const text = sentBy(user, request);
   const value = (kept: string) => JSON.stringify({ channel, ts, text: kept, approver });
   // A button's value holds 2000 characters at most: a long request is cut short there, not in the thread.
   let kept = text;
   for (let cut = [...request].length; value(kept).length > MAX_BUTTON_VALUE && cut > 0; ) {
     cut -= value(kept).length - MAX_BUTTON_VALUE;
-    kept = `${sentBy(user, `${[...request].slice(0, Math.max(cut, 0)).join("").trimEnd()}…`)}${prs}`;
+    kept = sentBy(user, `${[...request].slice(0, Math.max(cut, 0)).join("").trimEnd()}…`);
   }
   const buttons = value(kept);
   return {

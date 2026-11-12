@@ -653,13 +653,13 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Ask someone to approve a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. The request says \"Could you take a look and approve it, or let us know what needs to change?\" to them, unless the person words it their own way in message. Preview: the task, who will be asked to approve it, and the request as it will be posted. Call this only with an approver and request the person has chosen and approved. Each call posts a new request.",
+            "Asks a person to approve a task that is in Client review: posts a request in the task's thread that mentions them, with Approve and Not approve buttons only they can click. Approving moves the task to Done; not approving sends it back to In progress. The request says \"<@approver>, could you take a look and approve it, or let us know what needs to change?\", then, on a line of its own, \"*PRs:* \" and the task's pull requests (get_task lists them), the same request the person starts with in Slack, unless they word it their own way in message, which replaces all of it, pull requests too: show it in the preview with their name, as \"@Cleo, could you take a look…\". Preview: the task, who will be asked to approve it, and the request as it will be posted. Call this only with an approver and request the person has chosen and approved. Each call posts a new request.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
                 approver: str("Who approves it, as a Slack user ID such as U0123ABCD: the client, or whoever handles them. find_user_by_name gives it"),
-                message: str(`The request in the person's own words, as plain text, in place of the usual one. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. At most ${MAX_MESSAGE} characters`),
+                message: str(`The request in the person's own words, as plain text, in place of the usual one, all of it. Mention people as <@U0123ABCD>; the approver is mentioned first when the message doesn't. A pull request is a link, <https://…|repo/42>. The usual one as update_task's suggested_message gives it, unchanged, is the same as leaving this out. At most ${MAX_MESSAGE} characters`),
             },
             required: ["task_id", "approver"],
         },

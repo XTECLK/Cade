@@ -79,13 +79,17 @@ function editForm({ channel, ts, text }: AskButton, responseUrl: string) {
   };
 }
 
-// The draft, in mrkdwn with <@ID> mentions, as a rich text box's value.
+// A draft, in the mrkdwn Cade writes, as a rich text box's value: <@ID> mentions, <url|label> links,
+// such as a pull request's, and *bold*, such as "*PRs:*".
 export function toRichText(text: string): RichText {
   const elements: RichText[] = [];
   let last = 0;
-  for (const match of text.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g)) {
+  for (const match of text.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>|<(https?:\/\/[^|>]+)(?:\|([^>]*))?>|\*([^*\n]+)\*/g)) {
     if (match.index > last) elements.push({ type: "text", text: unescape(text.slice(last, match.index)) });
-    elements.push({ type: "user", user_id: match[1]! });
+    const [, user, url, label, bold] = match;
+    if (user) elements.push({ type: "user", user_id: user });
+    else if (url) elements.push({ type: "link", url, ...(label && { text: unescape(label) }) });
+    else elements.push({ type: "text", text: unescape(bold!), style: { bold: true } });
     last = match.index + match[0].length;
   }
   if (last < text.length) elements.push({ type: "text", text: unescape(text.slice(last)) });

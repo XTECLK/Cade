@@ -2668,15 +2668,12 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   assert.doesNotMatch(text, /Someone else's|Finished/);
   const headers = publish.args.view.blocks.filter((block) => block.type === "header").map(blockText);
   assert.deepEqual(headers, ["Your tasks", ":hammer_and_wrench: To work on (2)", ":eyes: To review (1)", ":test_tube: To test (0)", ":outbox_tray: Worked on (0)"]);
-  // Every section ends with the same gap as between two cards, whatever its last line, so they all
-  // look alike: To work on with a card, To review with Coming up, To test and Worked on with their empty line.
+  // No section ends with a gap before its divider, whatever its last line: To work on a card, To review
+  // Coming up, To test and Worked on their empty line.
   const blocks = publish.args.view.blocks;
-  const first = blocks.findIndex((block) => blockText(block) === ":hammer_and_wrench: To work on (2)");
-  const ends = blocks.filter((block, i) => i > first && block.type === "context" && blocks[i + 1]?.type === "divider");
-  assert.equal(ends.length, 4);
-  for (const block of ends) assert.match(blockText(block), /\n\u2800$/);
-  // The summary, before the first section, has none.
-  assert.doesNotMatch(blockText(blocks[first - 2]), /\u2800/);
+  const ends = blocks.filter((block, i) => block.type === "context" && blocks[i + 1]?.type === "divider");
+  assert.equal(ends.length, 5);
+  for (const block of ends) assert.doesNotMatch(blockText(block), /\u2800/);
   assert.match(text, /Worked on \(0\)\n_Nothing handed over yet\._/);
 });
 
@@ -2687,6 +2684,7 @@ test("My Tasks lists what is before a role's turn as Coming up, and what is past
       historyTask("1.1", { title: "Built it", owners: ["UME"], status: "IN_REVIEW" }),
       historyTask("2.1", { title: "Reviewed and built it", owners: ["UME"], reviewers: ["UME"], status: "IN_TESTING" }),
       historyTask("3.1", { title: "Review later", reviewers: ["UME"], status: "TODO" }),
+      historyTask("3.5", { title: "Review now", reviewers: ["UME"], status: "IN_REVIEW" }),
       historyTask("4.1", { title: "Test later", testers: ["UME"], status: "IN_REVIEW" }),
       historyTask("5.1", { title: "Tested it", testers: ["UME"], status: "CLIENT_REVIEW" }),
     ],
@@ -2698,12 +2696,16 @@ test("My Tasks lists what is before a role's turn as Coming up, and what is past
   // Nothing comes before working on a task, so To work on has no Coming up.
   assert.doesNotMatch(section("To work on", "To review"), /Coming up/);
   assert.match(section("To review", "To test"), /\*Coming up\*\n<[^|]+\|Review later>  ·  :memo: To do$/m);
+  // A card keeps its gap before Coming up, though not before a divider.
+  const comingUp = blocks.findIndex((block) => /^\*Coming up\*\n[^\n]*Review later/.test(blockText(block) ?? ""));
+  assert.match(blockText(blocks[comingUp - 1]), /\n\u2800$/);
+  assert.doesNotMatch(blockText(blocks[comingUp]), /\u2800/);
   assert.match(section("To test", "Worked on ("), /\*Coming up\*\n<[^|]+\|Test later>  ·  :eyes: In review$/m);
   // Each handed-over task once, in small type under a header like the others, with the roles it was theirs in.
   const header = blocks.findIndex((block) => block.type === "header" && blockText(block) === ":outbox_tray: Worked on (3)");
   assert.ok(header > 0);
   assert.equal(blocks[header + 1].type, "context");
-  const lines = blockText(blocks[header + 1]).split("\n").filter((line) => line !== "\u2800");
+  const lines = blockText(blocks[header + 1]).split("\n");
   assert.equal(lines.length, 3);
   assert.ok(lines.some((line) => /\|Built it>  ·  :eyes: In review  ·  _Owner_$/.test(line)));
   assert.ok(lines.some((line) => /\|Reviewed and built it>  ·  :test_tube: In testing  ·  _Owner, Reviewer_$/.test(line)));

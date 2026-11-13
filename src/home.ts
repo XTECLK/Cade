@@ -199,15 +199,15 @@ async function draw(env: AppEnv, user: string, tab: string) {
     { type: "context", elements: [mrkdwn(summary)] },
   ];
   const budget = { left: MAX_BLOCKS - blocks.length - MINE_AFTER };
-  for (const [i, section] of sections.entries()) {
-    blocks.push(...divider(blocks, i > 0));
+  for (const section of sections) {
+    blocks.push(...divider(blocks));
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
     blocks.push(...list(section, today, user, budget));
   }
-  blocks.push(...divider(blocks, true));
+  blocks.push(...divider(blocks));
   blocks.push({ type: "header", text: { type: "plain_text", text: `:outbox_tray: Worked on (${workedOn.length})`, emoji: true } });
   blocks.push({ type: "context", elements: [mrkdwn(workedOn.length ? smallLines(workedOn).join("\n") : "_Nothing handed over yet._")] });
-  blocks.push(...divider(blocks, true));
+  blocks.push(...divider(blocks));
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
 }
@@ -334,14 +334,14 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
   ];
   if (!unassigned) return allView(env, blocks, entries, today, user);
-  blocks.push(...divider(blocks, false));
+  blocks.push(...divider(blocks));
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
   const shown = drawn(entries.slice(0, MAX_LISTED), { left: MAX_BLOCKS - blocks.length - LIST_AFTER }, (row, budget) => card(row, today, user, budget, { claim: unassigned }));
   blocks.push(...shown.blocks);
   if (entries.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - shown.count} more._`)] });
   }
-  blocks.push(...divider(blocks, true));
+  blocks.push(...divider(blocks));
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
 }
@@ -349,16 +349,16 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
 // The All Tasks view, after `blocks`: the cards in a section for each stage, most urgent first.
 function allView(env: AppEnv, blocks: SlackBlock[], rows: Row[], today: string, user: string) {
   const budget = { left: MAX_BLOCKS - blocks.length - ALL_AFTER };
-  for (const [i, stage] of STAGES.entries()) {
+  for (const stage of STAGES) {
     const inStage = rows.filter((row) => stage.statuses.includes(row.entry.task.status));
-    blocks.push(...divider(blocks, i > 0));
+    blocks.push(...divider(blocks));
     blocks.push({ type: "header", text: { type: "plain_text", text: `${stage.emoji} ${stage.title} (${inStage.length})`, emoji: true } });
     if (!inStage.length) blocks.push({ type: "context", elements: [mrkdwn(`_${stage.empty}_`)] });
     const shown = drawn(inStage.slice(0, MAX_LISTED), budget, (row, room) => card(row, today, user, room));
     blocks.push(...shown.blocks);
     if (inStage.length > shown.count) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${inStage.length - shown.count} more._`)] });
   }
-  blocks.push(...divider(blocks, true));
+  blocks.push(...divider(blocks));
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
 }
@@ -404,12 +404,12 @@ function smallLines(rows: { row: Row; roles: Role[] }[]) {
   return lines;
 }
 
-// A divider, to push after `blocks`. When it `closes` a section, the section ends with the same gap
-// as there is between two cards (see card), whatever its last line is: a card, Coming up, "…and more".
-function divider(blocks: SlackBlock[], closes: boolean): SlackBlock[] {
+// A divider, to push after `blocks`. A card ends with a blank line, as a gap before what follows it
+// (see card): another card, Coming up or "…and more". Before a divider it would only leave room, so it goes.
+function divider(blocks: SlackBlock[]): SlackBlock[] {
   const last = blocks.at(-1);
   const text = last?.type === "context" ? (last.elements as { text: string }[])[0]!.text : "";
-  if (closes && last && text && !text.endsWith(GAP)) last.elements = [mrkdwn(`${text}${GAP}`)];
+  if (last && text.endsWith(GAP)) last.elements = [mrkdwn(text.slice(0, -GAP.length))];
   return [{ type: "divider" }];
 }
 

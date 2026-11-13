@@ -1,5 +1,5 @@
 import { setHomeProject, setSuggestions } from "../db.ts";
-import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PROJECT_ACTION, REFRESH_ACTION, SUGGESTIONS_ACTION, TABS, publishHome } from "../home.ts";
+import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PERSON_ACTION, PROJECT_ACTION, REFRESH_ACTION, SUGGESTIONS_ACTION, TABS, publishHome } from "../home.ts";
 import { SUGGESTIONS_BUTTON, readPayload, type SuggestionsButton } from "../payloads.ts";
 import { loadTask } from "../tasks.ts";
 import { changeTask } from "./changes.ts";
@@ -33,6 +33,12 @@ export default {
       const { value } = payload.actions[0].selected_option;
       await setHomeProject(env, payload.user.id, value);
       await publishHome(env, payload.user.id, payload.view?.private_metadata);
+    },
+    // The team member picked on the By person view: the view is drawn again with their tasks. Whether
+    // they are in the project's channel is checked when it is drawn.
+    [PERSON_ACTION]: async (payload, { env }) => {
+      const { value } = payload.actions[0].selected_option;
+      await publishHome(env, payload.user.id, `person:${value}`);
     },
     // The button's id ends with the task's channel and thread. Someone may
     // have taken the task since the tab was drawn, and then it's left

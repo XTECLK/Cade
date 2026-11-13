@@ -2713,6 +2713,64 @@ test("My Tasks lists what is before a role's turn as Coming up, and what is past
   assert.ok(text.indexOf("Worked on (") > text.indexOf("To test"));
 });
 
+test("By person shows a picked team member's tasks as My Tasks shows yours, and Refresh keeps the pick", async (t) => {
+  const stored = [
+    historyTask("1.1", { title: "Rex builds", owners: ["UREX"], status: "IN_PROGRESS" }),
+    historyTask("2.1", { title: "Rex reviews", owners: ["UME"], reviewers: ["UREX"], status: "IN_REVIEW" }),
+    historyTask("3.1", { title: "Rex handed over", owners: ["UREX"], status: "IN_TESTING" }),
+    historyTask("4.1", { title: "Not Rex's", owners: ["UOTHER"] }),
+  ];
+  const draw = async (action) => {
+    const calls = mockSlack(t, {
+      "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" },
+      "conversations.members": { members: ["UREX", "UBOT", "UME", "UBOB"] },
+      "users.info": ({ user }) => ({ user: { profile: { display_name: { UREX: "Rex", UME: "Me", UBOB: "Bob" }[user] } } }),
+      stored,
+    });
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [action] }));
+    const { blocks } = calls.find((call) => call.method === "views.publish").args.view;
+    assert.deepEqual(duplicateActionIds(blocks), []);
+    return blocks;
+  };
+  const text = (blocks) => blocks.map((block) => blockText(block) ?? "").join("\n");
+  const picker = (blocks) => blocks.flatMap((block) => block.elements ?? []).find((element) => element.action_id === "home:person");
+
+  // No one picked yet: the project channel's people by name, without Cade, and a line asking for one.
+  const empty = await draw({ action_id: "home:tab:person" });
+  assert.deepEqual(picker(empty).options.map((option) => [option.text.text, option.value]), [["Bob", "UBOB"], ["Me", "UME"], ["Rex", "UREX"]]);
+  assert.equal(picker(empty).initial_option, undefined);
+  assert.match(text(empty), /Pick a team member to see their tasks/);
+  assert.doesNotMatch(text(empty), /Rex builds/);
+
+  // Picking Rex shows Rex's tasks, in the sections My Tasks has, and says whose.
+  const rex = await draw({ action_id: "home:person", selected_option: { value: "UREX" } });
+  assert.equal(picker(rex).initial_option.value, "UREX");
+  const headers = rex.filter((block) => block.type === "header").map(blockText);
+  assert.deepEqual(headers, ["Rex's tasks", ":hammer_and_wrench: To work on (1)", ":eyes: To review (1)", ":test_tube: To test (0)", ":outbox_tray: Worked on (1)"]);
+  assert.match(text(rex), /\*2\* waiting on <@UREX>/);
+  assert.match(text(rex), /\|Rex builds>/);
+  // The people line still speaks to the viewer: their own part is "you".
+  assert.match(text(rex), /\|Rex reviews>\*\n[^\n]+\nOwner you/);
+  assert.doesNotMatch(text(rex), /Not Rex's/);
+
+  // Refresh and the project picker draw the view again on Rex, as the view carries the pick.
+  const refresh = rex[0].elements.find((element) => element.action_id === "home:refresh");
+  assert.equal(refresh.value, "person:UREX");
+  const again = await draw({ action_id: "home:refresh", value: refresh.value });
+  assert.equal(picker(again).initial_option.value, "UREX");
+  assert.match(text(again), /Rex builds/);
+  // The pick isn't kept beyond the view: the tab opens without one.
+  const reopened = await draw({ action_id: "home:tab:person" });
+  assert.equal(picker(reopened).initial_option, undefined);
+});
+
+test("By person asks for a pick again when the one picked isn't in the project's channel, as after switching project", async (t) => {
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" }, "conversations.members": { members: ["UME"] } });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:refresh", value: "person:UGONE" }] }));
+  const text = calls.find((call) => call.method === "views.publish").args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
+  assert.match(text, /Pick a team member/);
+});
+
 test("All Tasks splits tasks by status into Working on, In review, In testing and Delivered, by priority, with subtasks under their task", async (t) => {
   const calls = mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
@@ -2946,7 +3004,7 @@ test("Settings on the Home tab has the person's own setup, and for an admin a pr
   assert.equal(home.view.blocks[1].type, "divider");
   assert.equal(member.view.blocks[1].type, "divider");
   assert.deepEqual(home.view.blocks[2].elements.map((element) => element.action_id), ["home:project", "home:project:add"]);
-  assert.deepEqual(home.view.blocks[3].elements.map((element) => element.text.text), ["My Tasks", "Unassigned", "All Tasks"]);
+  assert.deepEqual(home.view.blocks[3].elements.map((element) => element.text.text), ["My Tasks", "By person", "Unassigned", "All Tasks"]);
   const memberHome = await open("home:section:home", "UME");
   assert.deepEqual(memberHome.view.blocks[2].elements.map((element) => element.action_id), ["home:project"]);
 });

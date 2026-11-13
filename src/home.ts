@@ -1,6 +1,7 @@
-import { isMember } from "./access.ts";
+import { channelMembers, isMember } from "./access.ts";
 import { projects } from "./channels.ts";
 import { getHomeProject, getHomeTab, setHomeTab, suggestionsOn } from "./db.ts";
+import { nameMap } from "./export.ts";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.ts";
 import { formatTime } from "./format.ts";
 import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.ts";
@@ -63,6 +64,11 @@ export const PROJECT_ACTION = "home:project";
 export const HOME_ACTION = "home:section:home";
 export const CONFIGURE_ACTION = "home:section:configure";
 export const CONFIGURE = "configure";
+// The team member picker, on the By person view. Its value is their Slack user ID. The pick isn't kept:
+// the view carries it (see publishHome), so Refresh and the project picker keep it, and the tab opens
+// without one.
+export const PERSON_ACTION = "home:person";
+
 // Edit, under Projects in Settings: opens the picked project's settings form (see commands/project.ts).
 export const SETTINGS_ACTION = "home:settings";
 export const ADD_PROJECT_ACTION = "home:project:add";
@@ -73,6 +79,7 @@ export const SUGGESTIONS_ACTION = "home:suggestions";
 // tabs in the Home tab, so a button draws the tab again with its view.
 export const TABS = {
   mine: { action: "home:tab:mine", label: "My Tasks" },
+  person: { action: "home:tab:person", label: "By person" },
   unassigned: { action: "home:tab:unassigned", label: "Unassigned" },
   all: { action: "home:tab:all", label: "All Tasks" },
 };
@@ -107,22 +114,26 @@ const STAGES: { emoji: string; title: string; statuses: Status[]; empty: string 
 // "…and more" line, then the closing divider and Updated.
 const ALL_AFTER = STAGES.length * 3 + 2;
 
-// Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Settings, which isn't.
-// With none, it opens on the tasks tab they were last on.
-export async function publishHome(env: AppEnv, user: string, tab?: string) {
+// Draws `user`'s Home tab, on the `shown` view, whose tab is kept for next time, or on Settings, which
+// isn't. With none, it opens on the tasks tab they were last on. `shown` is a tab, or on By person the
+// tab and the picked person's ID, as "person:U123", which is what the view carries in its metadata and
+// Refresh button: views drawn before By person carry only the tab.
+export async function publishHome(env: AppEnv, user: string, shown?: string) {
+  let [tab, person] = (shown ?? "").split(":");
   if (TABS[tab as Tab]) await setHomeTab(env, user, tab!);
   else if (tab !== CONFIGURE) tab = (await getHomeTab(env, user)) ?? DEFAULT_TAB;
-  await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab) });
+  await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab, person) });
 }
 
-// The view carries its tab (or Settings), for the project picker to draw it again on.
-export async function homeView(env: AppEnv, user: string, tab: string = DEFAULT_TAB) {
+// The view carries its tab (or Settings), and on By person who was picked, for the project picker to draw it again on.
+export async function homeView(env: AppEnv, user: string, tab: string = DEFAULT_TAB, person?: string) {
   if (!TABS[tab as Tab] && tab !== CONFIGURE) tab = DEFAULT_TAB;
-  return { ...(await draw(env, user, tab)), private_metadata: tab };
+  const shown = tab === "person" && person ? `${tab}:${person}` : tab;
+  return { ...(await draw(env, user, tab, shown, person)), private_metadata: shown };
 }
 
-async function draw(env: AppEnv, user: string, tab: string) {
-  const { url } = await callSlack(env, "auth.test", {});
+async function draw(env: AppEnv, user: string, tab: string, shown: string, picked?: string) {
+  const { url, user_id: bot } = await callSlack(env, "auth.test", {});
   const all = projects(env);
   // Home shows only the projects whose channel the person is in, as everywhere else (see readableName
   // in access.ts). Admins manage every project in Settings.
@@ -138,7 +149,7 @@ async function draw(env: AppEnv, user: string, tab: string) {
     elements: [
       { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
       { type: "button", action_id: CONFIGURE_ACTION, text: plainText("Settings"), ...(tab === CONFIGURE && { style: "primary" }) },
-      { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
+      { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: shown },
     ],
   };
   const nav: SlackBlock[] = [navRow, { type: "divider" }];
@@ -164,10 +175,48 @@ async function draw(env: AppEnv, user: string, tab: string) {
       ...(name === tab && { style: "primary" }),
     })),
   };
-  if (tab !== "mine") return listView(env, tab, top, tabRow, open, today, user);
+  if (tab === "mine") return tasksOf(env, [...top, tabRow], open, today, user, user, "Your tasks");
+  if (tab === "person") return await personView(env, [...top, tabRow], project, open, today, user, bot, picked);
+  return listView(env, tab, top, tabRow, open, today, user);
+}
 
+// The By person view: a picker of the project's people, then the `picked` one's tasks as My Tasks shows
+// the viewer's own. With no one picked, or someone not in the channel (as after switching project), it
+// asks for a pick. The people are those in the project's channel but Cade itself, by name.
+async function personView(env: AppEnv, top: SlackBlock[], project: Project, open: TaskEntry[], today: string, viewer: string, bot: string, picked?: string) {
+  let members: string[];
+  try {
+    members = (await channelMembers(env, project.channel)).filter((id) => id !== bot);
+  } catch (error) {
+    console.warn("Could not read the channel's members", { channel: project.channel, error: error.message });
+    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_I couldn't read who is in the project's channel just now. Press Refresh to try again._")] }] };
+  }
+  const names = await nameMap(env, members);
+  const people = members.map((id) => ({ id, name: names.get(id) ?? id })).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
+  const person = people.find(({ id }) => id === picked);
+  const options = people.map(({ id, name }) => ({ text: plainText(name.slice(0, 75)), value: id }));
+  const picker: SlackBlock = {
+    type: "actions",
+    elements: [
+      {
+        type: "static_select",
+        action_id: PERSON_ACTION,
+        placeholder: plainText("Team member"),
+        options,
+        ...(person && { initial_option: options[people.indexOf(person)] }),
+      },
+    ],
+  };
+  if (!people.length) return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_No one is in the project's channel yet._")] }] };
+  if (!person) return { type: "home", blocks: [...top, picker, { type: "context", elements: [mrkdwn("_Pick a team member to see their tasks._")] }] };
+  return tasksOf(env, [...top, picker], open, today, person.id, viewer, person.id === viewer ? "Your tasks" : `${person.name}'s tasks`.slice(0, 150));
+}
+
+// `person`'s tasks, as `viewer` sees them, under `top` and headed `title`: a section for each thing they
+// do on a task, most urgent first, with what is coming up under each, then what they have worked on.
+function tasksOf(env: AppEnv, top: SlackBlock[], open: TaskEntry[], today: string, person: string, viewer: string, title: string) {
   // A subtask with no owner of its own is its task's owners' (see shownPeople).
-  const has = (entry: TaskEntry, role: Role) => shownPeople(entry.task)[role].includes(user);
+  const has = (entry: TaskEntry, role: Role) => shownPeople(entry.task)[role].includes(person);
   const entries = open.filter((entry) => (Object.keys(ROLES) as Role[]).some((role) => has(entry, role)));
 
   // A subtask of theirs brings its parent along, as the card it is shown under, and a task of theirs
@@ -188,21 +237,17 @@ async function draw(env: AppEnv, user: string, tab: string) {
   const overdue = new Set(entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel));
 
   const waiting = sections.reduce((sum, section) => sum + section.ready.length, 0);
+  const self = person === viewer;
   const summary = waiting
-    ? `*${waiting}* waiting on you${overdue.size ? `  ·  :warning: *${overdue.size}* overdue` : ""}`
-    : "You're all caught up :tada:";
+    ? `*${waiting}* waiting on ${self ? "you" : `<@${person}>`}${overdue.size ? `  ·  :warning: *${overdue.size}* overdue` : ""}`
+    : `${self ? "You're" : `<@${person}> is`} all caught up :tada:`;
 
-  const blocks: SlackBlock[] = [
-    ...top,
-    tabRow,
-    { type: "header", text: plainText("Your tasks") },
-    { type: "context", elements: [mrkdwn(summary)] },
-  ];
+  const blocks: SlackBlock[] = [...top, { type: "header", text: plainText(title) }, { type: "context", elements: [mrkdwn(summary)] }];
   const budget = { left: MAX_BLOCKS - blocks.length - MINE_AFTER };
   for (const section of sections) {
     blocks.push(...divider(blocks));
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
-    blocks.push(...list(section, today, user, budget));
+    blocks.push(...list(section, today, viewer, budget, self ? "Your subtasks" : "Their subtasks"));
   }
   blocks.push(...divider(blocks));
   blocks.push({ type: "header", text: { type: "plain_text", text: `:outbox_tray: Worked on (${workedOn.length})`, emoji: true } });
@@ -365,10 +410,10 @@ function allView(env: AppEnv, blocks: SlackBlock[], rows: Row[], today: string, 
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string, budget: Budget) {
+function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string, budget: Budget, label: string) {
   const blocks: SlackBlock[] = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  const shown = drawn(ready.slice(0, MAX_READY), budget, (row, room) => card(row, today, user, room, { label: "Your subtasks" }));
+  const shown = drawn(ready.slice(0, MAX_READY), budget, (row, room) => card(row, today, user, room, { label }));
   blocks.push(...shown.blocks);
   if (ready.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - shown.count} more._`)] });

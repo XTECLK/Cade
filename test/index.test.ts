@@ -2670,6 +2670,63 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   assert.deepEqual(headers, ["Your tasks", ":hammer_and_wrench: To work on (2)", ":eyes: To review (1)", ":test_tube: To test (0)"]);
 });
 
+test("My Tasks lists what is before a role's turn as Coming up, and what is past it once, at the bottom, as Worked on", async (t) => {
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    stored: [
+      historyTask("1.1", { title: "Built it", owners: ["UME"], status: "IN_REVIEW" }),
+      historyTask("2.1", { title: "Reviewed and built it", owners: ["UME"], reviewers: ["UME"], status: "IN_TESTING" }),
+      historyTask("3.1", { title: "Review later", reviewers: ["UME"], status: "TODO" }),
+      historyTask("4.1", { title: "Test later", testers: ["UME"], status: "IN_REVIEW" }),
+      historyTask("5.1", { title: "Tested it", testers: ["UME"], status: "CLIENT_REVIEW" }),
+    ],
+  });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:tab:mine" }] }));
+  const blocks = calls.find((call) => call.method === "views.publish").args.view.blocks;
+  const text = blocks.map((block) => blockText(block) ?? "").join("\n");
+  const section = (from, to) => text.slice(text.indexOf(from), to ? text.indexOf(to) : undefined);
+  // Nothing comes before working on a task, so To work on has no Coming up.
+  assert.doesNotMatch(section("To work on", "To review"), /Coming up/);
+  assert.match(section("To review", "To test"), /\*Coming up\*\n<[^|]+\|Review later>  ·  :memo: To do$/m);
+  assert.match(section("To test", "*Worked on*"), /\*Coming up\*\n<[^|]+\|Test later>  ·  :eyes: In review$/m);
+  // Each handed-over task once, in small type, with the roles it was theirs in.
+  const workedOn = blocks.find((block) => block.type === "context" && /^\*Worked on\*/.test(blockText(block)));
+  assert.ok(workedOn);
+  const lines = blockText(workedOn).split("\n").slice(1);
+  assert.equal(lines.length, 3);
+  assert.ok(lines.some((line) => /\|Built it>  ·  :eyes: In review  ·  _Owner_$/.test(line)));
+  assert.ok(lines.some((line) => /\|Reviewed and built it>  ·  :test_tube: In testing  ·  _Owner, Reviewer_$/.test(line)));
+  assert.ok(lines.some((line) => /\|Tested it>  ·  :raising_hand: Client review  ·  _Tester_$/.test(line)));
+  assert.ok(text.indexOf("*Worked on*") > text.indexOf("To test"));
+});
+
+test("All Tasks splits tasks by status into Working on, In review, In testing and Delivered, by priority, with subtasks under their task", async (t) => {
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    stored: [
+      historyTask("1.1", { title: "Low todo", priority: "Low", status: "TODO" }),
+      historyTask("2.1", { title: "Urgent doing", priority: "Urgent", status: "IN_PROGRESS" }),
+      historyTask("3.1", { title: "Reviewing", status: "IN_REVIEW" }),
+      subtaskOf("3.2", { title: "Low part", priority: "Low", status: "TODO", parent: { ts: "3.1", title: "Reviewing" } }),
+      subtaskOf("3.3", { title: "Urgent part", priority: "Urgent", status: "IN_TESTING", parent: { ts: "3.1", title: "Reviewing" } }),
+      historyTask("4.1", { title: "With client", status: "CLIENT_REVIEW" }),
+    ],
+  });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:tab:all" }] }));
+  const blocks = calls.find((call) => call.method === "views.publish").args.view.blocks;
+  const text = blocks.map((block) => blockText(block) ?? "").join("\n");
+  const headers = blocks.filter((block) => block.type === "header").map(blockText);
+  assert.deepEqual(headers, ["All open tasks", ":arrow_forward: Working on (2)", ":eyes: In review (1)", ":test_tube: In testing (0)", ":raising_hand: Delivered (1)"]);
+  const at = (title) => text.indexOf(`|${title}>`);
+  // Most urgent first within a section.
+  assert.ok(at("Urgent doing") < at("Low todo") && at("Low todo") < text.indexOf("In review ("));
+  // Subtasks go with their task, whatever their own status, most urgent first.
+  assert.ok(text.indexOf("In review (") < at("Reviewing") && at("Reviewing") < at("Urgent part") && at("Urgent part") < at("Low part"));
+  assert.ok(at("Low part") < text.indexOf("In testing ("));
+  assert.match(text, /In testing \(0\)\n_Nothing in testing\._/);
+  assert.ok(text.indexOf("Delivered (") < at("With client"));
+});
+
 test("the Home tab's cards don't link the notes page, as the title opens the task", async (t) => {
   const task = (ts: string, title: string, notes?: { url: string; tab?: string }): Stored => ({
     channel: "CDEV",

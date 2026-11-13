@@ -26,8 +26,9 @@ type Row = { entry: TaskEntry; subs: TaskEntry[]; context: boolean };
 // stores, drawn when they open it or press Refresh.
 
 // What each role is doing, and the statuses in which the task is waiting on
-// them. Tasks in other statuses are theirs but not yet, and are listed
-// after the ones to act on.
+// them. Tasks in a status before those are theirs but not yet, and are listed
+// after the ones to act on, as Coming up; those past them they have handed
+// over, and are listed once for all roles at the bottom, as Worked on.
 const SECTIONS: Section[] = [
   { role: "owner", emoji: ":hammer_and_wrench:", title: "To work on", ready: ["TODO", "IN_PROGRESS"], empty: "Nothing to work on." },
   { role: "reviewer", emoji: ":eyes:", title: "To review", ready: ["IN_REVIEW"], empty: "Nothing to review." },
@@ -38,6 +39,9 @@ const SECTIONS: Section[] = [
 // short.
 const MAX_READY = 12;
 const MAX_LATER = 5;
+
+// The statuses in the order a task goes through them.
+const ORDER = Object.keys(STATUSES) as Status[];
 
 export const REFRESH_ACTION = "home:refresh";
 
@@ -83,10 +87,22 @@ const MAX_SUBS = 8;
 const MAX_BLOCKS = 100;
 type Budget = { left: number };
 // What the Your tasks view adds after its cards, at most: each section's divider, header, empty or
-// "…and more" line and Coming up, then the closing divider and Updated line.
-const MINE_AFTER = SECTIONS.length * 4 + 2;
+// "…and more" line and Coming up, then the divider and Worked on, and the closing divider and Updated line.
+const MINE_AFTER = SECTIONS.length * 4 + 4;
 // The same for the Unassigned and All Tasks views: "…and more", the divider and Updated.
 const LIST_AFTER = 3;
+
+// The All Tasks view's sections, by where a task (or a subtask without its task open) is: its subtasks
+// are shown under it whatever their own status.
+const STAGES: { emoji: string; title: string; statuses: Status[]; empty: string }[] = [
+  { emoji: ":arrow_forward:", title: "Working on", statuses: ["TODO", "IN_PROGRESS"], empty: "Nothing being worked on." },
+  { emoji: ":eyes:", title: "In review", statuses: ["IN_REVIEW"], empty: "Nothing in review." },
+  { emoji: ":test_tube:", title: "In testing", statuses: ["IN_TESTING"], empty: "Nothing in testing." },
+  { emoji: ":raising_hand:", title: "Delivered", statuses: ["CLIENT_REVIEW"], empty: "Nothing delivered." },
+];
+// What the All Tasks view adds after its cards, at most: each section's divider, header and empty or
+// "…and more" line, then the closing divider and Updated.
+const ALL_AFTER = STAGES.length * 3 + 2;
 
 // Draws `user`'s Home tab, on the `tab` view, which is kept for next time, or on Settings, which isn't.
 // With none, it opens on the tasks tab they were last on.
@@ -154,11 +170,18 @@ async function draw(env: AppEnv, user: string, tab: string) {
   // A subtask of theirs brings its parent along, as the card it is shown under, and a task of theirs
   // brings all its subtasks. A card is ready to act on when anything on it is: a task in testing is,
   // while issues found in it are being fixed.
+  // A card not ready yet is coming up while anything on it is still before the role's turn, and handed
+  // over once all of it is past it.
   const sections = SECTIONS.map((section) => {
     const theirs = sorted(cards(open, (entry) => has(entry, section.role)));
-    const ready = (row: Row) => (row.context ? row.subs : [row.entry, ...row.subs]).some((entry) => section.ready.includes(entry.task.status));
-    return { ...section, ready: theirs.filter(ready), later: theirs.filter((row) => !ready(row)) };
+    const onCard = (row: Row) => (row.context ? row.subs : [row.entry, ...row.subs]);
+    const ready = (row: Row) => onCard(row).some((entry) => section.ready.includes(entry.task.status));
+    const turn = Math.min(...section.ready.map((status) => ORDER.indexOf(status)));
+    const before = (row: Row) => onCard(row).some((entry) => ORDER.indexOf(entry.task.status) < turn);
+    const notReady = theirs.filter((row) => !ready(row));
+    return { ...section, ready: theirs.filter(ready), later: notReady.filter(before), handed: notReady.filter((row) => !before(row)) };
   });
+  const workedOn = handedOver(sections);
   const overdue = new Set(entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel));
 
   const waiting = sections.reduce((sum, section) => sum + section.ready.length, 0);
@@ -177,6 +200,10 @@ async function draw(env: AppEnv, user: string, tab: string) {
     blocks.push({ type: "divider" });
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
     blocks.push(...list(section, today, user, budget));
+  }
+  if (workedOn.length) {
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "context", elements: [mrkdwn(`*Worked on*\n${smallLines(workedOn).join("\n")}`)] });
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -294,6 +321,7 @@ const unassignedTask = ({ task }: TaskEntry) => !task.parent && !(Object.keys(RO
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first, with their subtasks under them. Unassigned ones have an Assign to me button there, and only there.
+// All Tasks splits them into sections by status (see STAGES).
 function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBlock, open: TaskEntry[], today: string, user: string) {
   const unassigned = tab === "unassigned";
   const entries = sorted(cards(open, unassigned ? unassignedTask : () => true));
@@ -302,13 +330,31 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
     tabRow,
     { type: "header", text: plainText(unassigned ? "Unassigned tasks" : "All open tasks") },
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
-    { type: "divider" },
   ];
+  if (!unassigned) return allView(env, blocks, entries, today, user);
+  blocks.push({ type: "divider" });
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
   const shown = drawn(entries.slice(0, MAX_LISTED), { left: MAX_BLOCKS - blocks.length - LIST_AFTER }, (row, budget) => card(row, today, user, budget, { claim: unassigned }));
   blocks.push(...shown.blocks);
   if (entries.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - shown.count} more._`)] });
+  }
+  blocks.push({ type: "divider" });
+  blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
+  return { type: "home", blocks };
+}
+
+// The All Tasks view, after `blocks`: the cards in a section for each stage, most urgent first.
+function allView(env: AppEnv, blocks: SlackBlock[], rows: Row[], today: string, user: string) {
+  const budget = { left: MAX_BLOCKS - blocks.length - ALL_AFTER };
+  for (const stage of STAGES) {
+    const inStage = rows.filter((row) => stage.statuses.includes(row.entry.task.status));
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "header", text: { type: "plain_text", text: `${stage.emoji} ${stage.title} (${inStage.length})`, emoji: true } });
+    if (!inStage.length) blocks.push({ type: "context", elements: [mrkdwn(`_${stage.empty}_`)] });
+    const shown = drawn(inStage.slice(0, MAX_LISTED), budget, (row, room) => card(row, today, user, room));
+    blocks.push(...shown.blocks);
+    if (inStage.length > shown.count) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${inStage.length - shown.count} more._`)] });
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -325,16 +371,35 @@ function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: stri
   if (ready.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - shown.count} more._`)] });
   }
-  if (later.length) {
-    // Each task, with the subtasks its card shows under it.
-    const coming = later.flatMap((row) => [row.entry, ...row.subs].map((entry, i) => ({ entry, under: i > 0 })));
-    const lines = coming
-      .slice(0, MAX_LATER)
-      .map(({ entry: { task, link }, under }) => `${under ? ":arrow_right_hook: " : ""}<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}`);
-    if (coming.length > MAX_LATER) lines.push(`_…and ${coming.length - MAX_LATER} more._`);
-    blocks.push({ type: "context", elements: [mrkdwn(`*Coming up*\n${lines.join("\n")}`)] });
-  }
+  if (later.length) blocks.push({ type: "context", elements: [mrkdwn(`*Coming up*\n${smallLines(later.map((row) => ({ row, roles: [] }))).join("\n")}`)] });
   return blocks;
+}
+
+// The cards each section's role has handed over, each once, with every role it was the person's in,
+// most urgent first.
+function handedOver(sections: { role: Role; handed: Row[] }[]) {
+  const found = new Map<string, { row: Row; roles: Role[] }>();
+  for (const { role, handed } of sections) {
+    for (const row of handed) {
+      const key = row.entry.channel + row.entry.ts;
+      const seen = found.get(key);
+      if (seen) seen.roles.push(role);
+      else found.set(key, { row, roles: [role] });
+    }
+  }
+  return [...found.values()].sort((a, b) => byUrgency(lead(a.row), lead(b.row)));
+}
+
+// Cards as small lines, for Coming up and Worked on: each task, with the subtasks its card shows under
+// it, its status, and, given any, the roles it was the person's in.
+function smallLines(rows: { row: Row; roles: Role[] }[]) {
+  const all = rows.flatMap(({ row, roles }) => [row.entry, ...row.subs].map((entry, i) => ({ entry, under: i > 0, roles: i ? [] : roles })));
+  const lines = all.slice(0, MAX_LATER).map(({ entry: { task, link }, under, roles }) => {
+    const as = roles.length ? `  ·  _${roles.map((role) => ROLES[role]).join(", ")}_` : "";
+    return `${under ? ":arrow_right_hook: " : ""}<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}${as}`;
+  });
+  if (all.length > MAX_LATER) lines.push(`_…and ${all.length - MAX_LATER} more._`);
+  return lines;
 }
 
 // The cards of `rows` that fit in `budget`, drawn with `draw`, in order, stopping at the first that

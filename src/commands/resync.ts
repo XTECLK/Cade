@@ -23,7 +23,8 @@ const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 // its thread is read from Slack again, to store what is missing (see
 // export.ts). Where its GitHub pull requests stand is read again too, all the links' in one request
 // (see readPrStates in github.ts). Nothing changes but the message, so no one is notified, and only
-// whoever sent it sees the reply.
+// whoever sent it sees the reply; but a pull request found merged or closed is told in its task's thread,
+// as the sync would have.
 //
 // `/cade resync all` in a dev channel redraws its tasks' cards, Done ones and subtasks too, quietly, as
 // for one, a run at a time (see resyncAll), having read all their GitHub pull requests in one request.

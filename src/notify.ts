@@ -65,6 +65,13 @@ export function autoLinked(urls: string[]) {
   return `Auto-linked ${urls.map(prLink).join(", ")}.`;
 }
 
+// Pull requests merged or closed on GitHub, as the sync reads them (see github.ts): no one did it in
+// Slack, so no one is named, and a task's that ended in one run are told in one message.
+export function prsEnded(merged: string[], closed: string[]) {
+  const was = (urls: string[]) => `${urls.map(prLink).join(", ")} ${urls.length > 1 ? "were" : "was"}`;
+  return [merged.length && `${was(merged)} merged on GitHub.`, closed.length && `${was(closed)} closed on GitHub without merging.`].filter(Boolean) as string[];
+}
+
 export function unlinked(user: string, urls: string[]) {
   return `<@${user}> unlinked ${urls.map(prLink).join(", ")}.`;
 }

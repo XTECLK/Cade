@@ -1,6 +1,7 @@
 import { assigned, autoLinked, onTheirPlate, request, toAsk } from "../notify.ts";
 import { acknowledged, applyChanges, changeTask } from "./changes.ts";
 import { offerAsk } from "./ask.ts";
+import { knowPrStates } from "../github.ts";
 import { suggesting } from "../intents.ts";
 import { suggestionMessage } from "./ai-suggest.ts";
 import { askForPerson } from "./status.ts";
@@ -124,6 +125,8 @@ async function addPullRequests(env: AppEnv, channel: string, ts: string, task: S
   const added = urls.filter((url) => !task.prs.includes(url));
   if (!added.length) return null;
   task.prs = [...task.prs, ...added];
+  // Where they stand, so the card and the review request don't take a merged one for open.
+  task.prStates = { ...task.prStates, ...(await knowPrStates(env, added)) };
   await saveTask(env, channel, ts, task);
   return { added };
 }

@@ -131,7 +131,7 @@
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code> <code>@Cade pr remove &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and counted on the card. Linking asks its reviewers to review it while the task is In review; with no reviewer yet, Cade suggests, only to you, assigning one, with <b>Edit…</b> and <b>Reject</b>, a suggestion with nothing to accept. A link pasted into the thread is linked without the command (see <a href="proactive.html#words">plain words</a>). With a GitHub token set, Cade reads every 15 minutes whether each GitHub pull request is open, merged or closed (see <a href="setup.html">setup</a>); without one, or for GitLab and Bitbucket, they count as open.</p>
+        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and counted on the card. Linking asks its reviewers to review it while the task is In review; with no reviewer yet, Cade suggests, only to you, assigning one, with <b>Edit…</b> and <b>Reject</b>, a suggestion with nothing to accept. A link pasted into the thread is linked without the command (see <a href="proactive.html#words">plain words</a>). With a GitHub token set, Cade reads whether each GitHub pull request is open, merged or closed as it is linked, so one already merged isn't put up for review, and every 15 minutes after that (see <a href="setup.html">setup</a>); without one, or for GitLab and Bitbucket, they count as open.</p>
         <div class="example"><b>Example:</b> <code>@Cade pr add https://github.com/acme/booking-web/pull/131</code></div>
       </article>
 

@@ -184,6 +184,14 @@
       </article>
 
       <article class="entry">
+        <h3>A PR merged or closed on GitHub</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>web/12, web/13 were merged on GitHub.<br>web/14 was closed on GitHub without merging.</dd>
+        </dl>
+        <p>Cade reads where GitHub PRs stand as they are linked, every 15 minutes after (with the deployment's <code>GITHUB_TOKEN</code>), and on <code>/cade resync</code>. When open ones of a task have been merged or closed since, its thread is told once, naming all of them; the card counts them too. A PR already merged or closed when it was linked isn't told again. No one is asked anything.</p>
+      </article>
+
+      <article class="entry">
         <h3>A subtask closed or reopened</h3>
         <dl class="flow">
           <dt>Task thread</dt><dd>@mia closed the subtask <i>Fails on Safari</i>. Subtasks: 1 open · 2 closed.</dd>

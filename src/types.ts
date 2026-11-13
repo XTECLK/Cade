@@ -8,6 +8,8 @@ export type Role = "owner" | "reviewer" | "tester";
 export type People = Record<Role, string[]>;
 // Where a pull request stands on GitHub (see github.ts): OPEN, drafts too, MERGED, or CLOSED without merging.
 export type PrState = "OPEN" | "MERGED" | "CLOSED";
+// A pull request whose state changed, as setPrStates in db.ts saved it: `from` is missing the first time it is read.
+export type PrChange = { url: string; from?: PrState; to: PrState };
 
 // A task, as stored (see taskFromRow in db.ts). Fields a new task may not
 // have yet are optional.

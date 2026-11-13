@@ -5,7 +5,7 @@
 // of it in one place in schema.sql.
 
 import type { AppEnv } from "./env.ts";
-import type { PrState, Priority, Role, Status, StoredTask, Task } from "./types.ts";
+import type { PrChange, PrState, Priority, Role, Status, StoredTask, Task } from "./types.ts";
 
 // Only the DB binding is used here, so callers (and tests) can pass any env
 // that has one.
@@ -725,7 +725,7 @@ export async function prsToSync(env: DbEnv, limit: number) {
   return results.map((row) => row.url);
 }
 
-// Saves where pull requests stand, and returns the URLs whose state changed (one not saved before counts).
+// Saves where pull requests stand, and returns those whose state changed (one not saved before counts).
 export async function setPrStates(env: DbEnv, states: { url: string; state: PrState }[]) {
   if (!states.length) return [];
   const urls = JSON.stringify(states.map(({ url }) => url));
@@ -743,7 +743,27 @@ export async function setPrStates(env: DbEnv, states: { url: string; state: PrSt
       .bind(...chunk.flatMap(({ url, state }) => [url, state]))
       .run();
   }
-  return states.filter(({ url, state }) => before.get(url) !== state).map(({ url }) => url);
+  return states.filter(({ url, state }) => before.get(url) !== state).map(({ url, state }): PrChange => ({ url, from: before.get(url), to: state }));
+}
+
+// Saves pull requests as open, those not saved before: linked with no word from GitHub on them. They
+// are marked as read long ago, so the sync, which reads the oldest first, reads them next (see prsToSync).
+export async function addOpenPrs(env: DbEnv, urls: string[]) {
+  if (!urls.length) return;
+  // "WHERE true" lets SQLite read ON CONFLICT as the upsert's, not the SELECT's join.
+  await env.DB.prepare(
+    "INSERT INTO pull_requests (url, state, synced_at) SELECT value, 'OPEN', '1970-01-01 00:00:00' FROM json_each(?) WHERE true ON CONFLICT (url) DO NOTHING",
+  )
+    .bind(JSON.stringify(urls))
+    .run();
+}
+
+// Where those of `urls` saved stand, as { url: state }.
+export async function prStatesOf(env: DbEnv, urls: string[]) {
+  const { results } = await env.DB.prepare("SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))")
+    .bind(JSON.stringify(urls))
+    .all<{ url: string; state: PrState }>();
+  return Object.fromEntries(results.map((row) => [row.url, row.state]));
 }
 
 // The posted tasks, not deleted or archived, that link one of `urls`, as { channel, ts, task }.

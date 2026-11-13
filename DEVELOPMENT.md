@@ -190,9 +190,11 @@ its subtasks' open and closed counts and where its pull requests stand (`TASK_SE
 card shows, and saving a subtask redraws its parent's card. Slack is only written to, never read back: the task lists are a query of
 open tasks. An incident is a task of `kind` `incident`: always urgent
 and due immediately. A task's pull requests are links in its `prs`; where each
-GitHub one stands (open, merged or closed) is a row of `pull_requests`, which the cron
-fills in every 15 minutes with the deployment's `GITHUB_TOKEN` (`github.ts`), redrawing the cards
-that changed. One not read yet, or not on GitHub, counts as open. Deleted tasks keep their rows, with
+GitHub one stands (open, merged or closed) is a row of `pull_requests`, read as it is linked
+(`knowPrStates`, giving up after two seconds) and by the cron every 15 minutes after, with the
+deployment's `GITHUB_TOKEN` (`github.ts`), redrawing the cards that changed and telling the threads of
+those merged or closed. A link GitHub doesn't tell in time (or without the token) is saved as open,
+marked for the sync to read next. One not on GitHub counts as open. Deleted tasks keep their rows, with
 `deleted_at` set.
 
 The database isn't named in `wrangler.toml`, so nothing account-specific is

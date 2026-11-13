@@ -1214,6 +1214,52 @@ test("the sync reads where open tasks' GitHub pull requests stand, saves it, and
   assert.ok(!calls.some((call) => call.method === "chat.update"));
 });
 
+test("open pull requests merged or closed on GitHub are told in each task's thread, one message a task", async (t) => {
+  const { syncPullRequests } = await import("../src/github.ts");
+  const PR5 = "https://github.com/acme/cade/pull/44";
+  const PR6 = "https://github.com/acme/cade/pull/45";
+  const open = storedTask({ status: "IN_REVIEW" });
+  open.task.prs = [PR, PR3, PR5, PR6];
+  open.task.prStates = { [PR]: "OPEN", [PR3]: "OPEN", [PR5]: "OPEN" };
+  const other = storedTask();
+  other.ts = "100.2";
+  other.task.prs = [PR3];
+  other.task.prStates = { [PR3]: "OPEN" };
+  const calls = mockSlack(t, { stored: [open, other] });
+  // 42 merged and 43 closed, 44 still open, 45 read for the first time already merged.
+  mockGitHub({ 42: "MERGED", 43: "CLOSED", 44: "OPEN", 45: "MERGED" });
+  await seeded;
+  await syncPullRequests({ ...env, GITHUB_TOKEN: "ghp_test" });
+
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(
+    posts.map((call) => [call.args.thread_ts, call.args.text]).sort(),
+    [
+      ["100.1", `<${PR}|cade/42> was merged on GitHub.\n<${PR3}|cade/43> was closed on GitHub without merging.`],
+      ["100.2", `<${PR3}|cade/43> was closed on GitHub without merging.`],
+    ],
+  );
+
+  // Read again with nothing new, nothing is told again.
+  calls.length = 0;
+  mockGitHub({ 44: "OPEN" });
+  await syncPullRequests({ ...env, GITHUB_TOKEN: "ghp_test" });
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+});
+
+test("several pull requests of a task merged in one read are named together", async (t) => {
+  const { syncPullRequests } = await import("../src/github.ts");
+  const record = storedTask();
+  record.task.prs = [PR, PR3];
+  record.task.prStates = { [PR]: "OPEN", [PR3]: "OPEN" };
+  const calls = mockSlack(t, { stored: [record] });
+  mockGitHub({ 42: "MERGED", 43: "MERGED" });
+  await seeded;
+  await syncPullRequests({ ...env, GITHUB_TOKEN: "ghp_test" });
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(posts.map((call) => call.args.text), [`<${PR}|cade/42>, <${PR3}|cade/43> were merged on GitHub.`]);
+});
+
 test("without GITHUB_TOKEN nothing is read from GitHub, and every pull request counts as open", async (t) => {
   const { syncPullRequests } = await import("../src/github.ts");
   const record = storedTask();
@@ -1754,7 +1800,9 @@ test("@Cade pr add links pull requests, counted on one line of the card, and rea
   const blocks = allBlocks(calls[0].args);
   // Stored without the /files tab, and only once.
   assert.deepEqual((await savedTask()).prs, [PR, MR]);
-  // Not read from GitHub yet, so open: counted in the work block, after the status, before the people.
+  // No GITHUB_TOKEN, so the GitHub one is saved as open, and the other host's counts as open.
+  assert.deepEqual((await savedTask()).prStates, { [PR]: "OPEN", [MR]: "OPEN" });
+  // Counted in the work block, after the status, before the people.
   assert.equal(blocks.at(-2).type, "context");
   // Its count is in the first block; the work block is the status and people.
   assert.equal(blockText(allBlocks(calls[0].args).at(-3)), "Pull requests: 2 open  ·  0 merged");
@@ -1844,6 +1892,53 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
   assert.equal(calls[1].args.name, "white_check_mark");
   assert.deepEqual(drafts(calls), [`<@URIA>, <@UREX>, could you review this?`]);
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"), "nothing posted, and no picker");
+});
+
+test("linking a PR reads where it stands on GitHub first: one merged already isn't put up for review", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" })] });
+  const asked = mockGitHub({ 42: "MERGED" });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`), {}, { ...env, GITHUB_TOKEN: "ghp_test" });
+  assert.equal(asked.length, 1);
+  assert.deepEqual((await savedTask()).prStates, { [PR]: "MERGED" });
+  assert.equal(blockText(allBlocks(calls[0]!.args).at(-3)), "Pull requests: 0 open  ·  1 merged");
+  // No one asked to review it, and the thread isn't told it was merged: it was linked so.
+  assert.deepEqual(drafts(calls), []);
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+
+  // Found merged by a later read, it isn't told either: it didn't change.
+  calls.length = 0;
+  mockGitHub({});
+  const { syncPullRequests } = await import("../src/github.ts");
+  await syncPullRequests({ ...env, GITHUB_TOKEN: "ghp_test" });
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+});
+
+test("linking a PR when GitHub can't be reached saves it as open, read next by the sync, and its merge is told", async (t) => {
+  const record = storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" });
+  // Another task's, read just now: the one linked goes before it.
+  const other = storedTask();
+  other.ts = "100.2";
+  other.task.prs = [PR3];
+  other.task.prStates = { [PR3]: "OPEN" };
+  const calls = mockSlack(t, { stored: [record, other] });
+  const slack = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url) === "https://api.github.com/graphql" ? Promise.reject(new Error("timed out")) : slack(url, init));
+  const withToken = { ...env, GITHUB_TOKEN: "ghp_test" };
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`), {}, withToken);
+  assert.deepEqual((await savedTask()).prs, [PR]);
+  assert.deepEqual((await savedTask()).prStates, { [PR]: "OPEN" });
+  assert.deepEqual(drafts(calls), [`<@URIA>, could you review this?`]);
+  const { prsToSync } = await import("../src/db.ts");
+  assert.deepEqual(await prsToSync(env, 1), [PR]);
+
+  // Merged before the sync reads it: a change from open, so the thread is told.
+  calls.length = 0;
+  globalThis.fetch = slack;
+  mockGitHub({ 42: "MERGED", 43: "OPEN" });
+  const { syncPullRequests } = await import("../src/github.ts");
+  await syncPullRequests(withToken);
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(posts.map((call) => call.args.text), [`<${PR}|cade/42> was merged on GitHub.`]);
 });
 
 test("linking a PR before In review asks no reviewer yet, and moving to In review asks them", async (t) => {

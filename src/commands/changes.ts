@@ -1,5 +1,6 @@
 import { changeLog, changeRequests } from "../notify.ts";
 import { offerAsk } from "./ask.ts";
+import { knowPrStates } from "../github.ts";
 import { acknowledge, callSlack, viaAgent } from "../slack.ts";
 import { ROLES, cleanReason, loadTask, saveTask, waitsForSubtasks } from "../tasks.ts";
 import { afterStatusChange, setStatusFields } from "./status.ts";
@@ -86,6 +87,8 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
   const removed = (changes.prs?.remove ?? []).filter((url) => task.prs!.includes(url));
   if (added.length || removed.length) {
     task.prs = [...task.prs!.filter((url) => !removed.includes(url)), ...added];
+    // Where the new ones stand, so the card and the requests below don't take a merged one for open.
+    task.prStates = { ...task.prStates, ...(await knowPrStates(env, added)) };
     change.prs = { added, removed };
   }
 

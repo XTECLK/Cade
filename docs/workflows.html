@@ -42,6 +42,7 @@
     <ul class="toc">
       <li><a href="#prompts">Use the prompts</a></li>
       <li><a href="#task-summary">A task's summary</a></li>
+      <li><a href="#sync-tasks">Tasks in line with their threads</a></li>
       <li><a href="#executive-summary">An executive summary</a></li>
       <li><a href="#your-own">Writing your own</a></li>
     </ul>
@@ -72,7 +73,7 @@
         <h3>task-summary</h3>
         <ol>
           <li>Finds the task, by its ID, a link to its card or thread, or its title, and its subtasks with <code>get_task</code>.</li>
-          <li>Reads it with <code>get_task_summary</code>: the summary saved so far and the messages of the task's thread after it. A message moved in from another thread links to it, and the agent reads the rest of that thread with <code>get_thread_history</code>, or its own Slack tools; if neither can, the copy is all there is.</li>
+          <li>Reads the summary saved so far with <code>get_task_summary</code>, and the messages of the task's thread after it with <code>get_task_history</code>. A message moved in from another thread links to it, and the agent reads the rest of that thread with <code>get_thread_history</code>, or its own Slack tools; if neither can, the copy is all there is.</li>
           <li>Writes what the issue is, who raised it, its impact, the details needed to understand it and what was decided about it, keeping what is still right in the one saved. The status, people and pull requests come from <code>get_task</code> as they are now.</li>
           <li>Saves it with <code>save_task_summary</code> for the next agent. That needs no approval: only agents read it.</li>
           <li>Does the same for each subtask: every subtask keeps a summary of its own thread, brought up to date only when it has new messages.</li>
@@ -84,7 +85,27 @@
   </div>
 </section>
 
-<section id="executive-summary">
+<section id="sync-tasks">
+  <div class="wrap">
+    <div class="eyebrow">Prompt</div>
+    <h2>Tasks in line with their threads</h2>
+    <p class="lede">People often do what a thread says without changing the task: work starts on a task still To do, someone takes it on but isn't assigned, a pull request is mentioned but never linked. This finds those and offers the fixes, before a standup or a report, or whenever a task looks out of date.</p>
+    <div class="entries">
+      <article class="entry">
+        <h3>sync-tasks</h3>
+        <ol>
+          <li>Finds the task, with its open subtasks. For several tasks, such as before a report, it is followed for each in turn.</li>
+          <li>For each, reads the task as it is with <code>get_task</code>, and the messages not checked yet with <code>get_task_history</code> and the consumer <code>sync-tasks</code>, and looks for what the work has moved past: status, people, pull requests, blocked. Nothing from a plan, a question or a guess.</li>
+          <li>Shows every fix as old → new with the message it rests on, and on your yes applies those you take with <code>update_task</code>, told in the thread as any change, then asks whether to send the requests that come with them.</li>
+          <li>Marks those messages handled with <code>ack_task_history</code> once you have answered, so a fix you turned down isn't offered again.</li>
+        </ol>
+        <div class="example"><b>Or ask:</b> “Are my tasks up to date with their threads?”</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="executive-summary" class="alt">
   <div class="wrap">
     <div class="eyebrow">Prompts</div>
     <h2>An executive summary</h2>
@@ -95,7 +116,8 @@
         <ol>
           <li>Reads the last summary in your team's document: where this period starts, and the format to follow.</li>
           <li><code>get_tasks</code> with the project and the period (<code>completed_from</code>, <code>completed_to</code>, <code>include_open</code>): what was done, and what is still open.</li>
-          <li>For what each task is about, follows <code>task-summary</code>, which brings its and its subtasks' summaries up to date. For how each open one is going, reads its status, due date, subtasks and pull requests, and what moved in its thread during the period (<code>get_task_history</code> with <code>since</code>).</li>
+          <li>Asks once to bring those tasks up to date first, then follows <code>sync-tasks</code> (showing its fixes for your yes) and <code>task-summary</code> for each, so the report rests on current statuses and summaries.</li>
+          <li>For how each open task is going, reads its status, due date, subtasks and pull requests, and what moved in its thread during the period (<code>get_task_history</code> with <code>since</code>).</li>
           <li>Judges each open task: blocked, delayed (past its due date), at risk (due soon with much left, no progress in the period, waiting on someone outside, or a problem raised) or on track, with its progress, naming the evidence.</li>
           <li>Drafts a line per task in the last summary's format. Shows it all; on a clear yes, writes it to the document with your agent's own tools.</li>
         </ol>
@@ -114,7 +136,7 @@
   </div>
 </section>
 
-<section id="your-own" class="alt">
+<section id="your-own">
   <div class="wrap">
     <div class="eyebrow">Your own</div>
     <h2>Writing your own workflow</h2>

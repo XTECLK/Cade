@@ -18,6 +18,6 @@ arguments:
 
 # Summarize a task
 
-1. \`get_task_summary\` with the \`task_id\`, then \`get_thread_history\` with each \`moved_from.thread_id\`.
+1. \`get_task_summary\` with the \`task_id\`, then \`get_task_history\` with \`since\` its \`through\`.
 2. Show the summary, then \`save_task_summary\` with \`task_id\`, \`summary\` and \`through\`.
 `;

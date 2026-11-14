@@ -134,21 +134,6 @@ const MESSAGE_ITEM = {
     required: ["ts", "time", "user_id", "bot", "text", "files", "links"],
 };
 
-// A message of a task's thread for its summary: one Cade copied in from another thread names it.
-const SUMMARY_MESSAGE_ITEM = {
-    type: "object",
-    description: "A message in the task's thread",
-    properties: {
-        ...MESSAGE_PROPERTIES,
-        moved_from: {
-            type: ["object", "null"],
-            description: "Set when this message is Cade's copy of the first message of another thread, moved into the task: that thread, or null",
-            properties: {thread_id: str("The thread's ID, for get_thread_history"), link: str("A link to the message moved")},
-        },
-    },
-    required: ["ts", "time", "user_id", "bot", "text", "files", "links", "moved_from"],
-};
-
 const PERSON = {
     type: "object",
     description: "A person in the workspace",
@@ -302,12 +287,14 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Read a task's thread",
         annotations: READS,
         description:
-            "Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. For a task's summary, get_task_summary gives the messages it needs.",
+            "Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. " +
+            "With consumer, a name for what you do with the messages (such as sync-tasks), it gives only those that consumer hasn't acknowledged yet, and a token: once you have handled them, ack_task_history with it, so the next read with that consumer, by anyone, gives only what came after.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
                 since: str("Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message", {pattern: "^\\d{10}\\.\\d{6}$"}),
+                consumer: str("Only the messages this consumer hasn't acknowledged, such as sync-tasks: lowercase words joined by -. Not with since", {pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 40}),
             },
             required: ["task_id"],
         },
@@ -316,6 +303,28 @@ export const TOOL_DEFS: ToolDef[] = [
             title: str("The task's title"),
             messages: list("Oldest first", MESSAGE_ITEM),
             original_thread: THREAD,
+            token: str("With consumer: the last message given, or the consumer's position when none is new, for ack_task_history. Empty without consumer"),
+        }),
+    },
+    {
+        name: "ack_task_history",
+        title: "Acknowledge a task's messages",
+        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+        description:
+            "Moves a consumer's position in a task's thread on to the token get_task_history gave it, so the next read with that consumer gives only the messages after it. It changes nothing on the task and is shown to no one, so unlike other writes it needs no approval. Acknowledge once the messages are handled, a fix the person turned down included; not while they are still deciding. Refused when the consumer has read further since.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                consumer: str("The consumer it was read with", {pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 40}),
+                token: str("The token get_task_history gave"),
+            },
+            required: ["task_id", "consumer", "token"],
+        },
+        outputSchema: outputOf({
+            task_id: str("The task's ID, for the other tools"),
+            consumer: str("The consumer"),
+            acked: bool("Whether its position was moved on"),
         }),
     },
     {
@@ -323,25 +332,21 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Get a task's summary",
         annotations: READS,
         description:
-            "Gives a task's saved summary (whose agent saved it, when, and up to which message of the task's thread it covers) and the messages of the task's thread after that one, oldest first; with no summary saved, or with full, every message and no summary. A message Cade copied in from another thread names that thread in moved_from. save_task_summary saves a summary with the through given here. When the team has steps for writing it, prompt names them, for get_prompt.",
+            "Gives a task's saved summary, whose agent saved it and when, and through, the last message of the task's thread it covers: the messages after it are get_task_history's with since. save_task_summary saves a new one. When the team has steps for writing it, prompt names them, for get_prompt.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
-                full: bool("Leave out the saved summary and give every message of the task's thread. Default false"),
             },
             required: ["task_id"],
         },
         outputSchema: outputWithNames({
             task_id: str("The task's ID, for the other tools"),
             title: str("The task's title"),
-            summary: str("The summary saved so far, or empty when there is none or with full"),
+            summary: str("The summary saved, or empty when there is none"),
             summary_by: str("Whose agent saved it, or empty: a Slack user ID, show the name, not the ID"),
             summary_at: str("When it was saved, or empty (YYYY-MM-DD HH:MM, UTC)"),
-            summary_through: str("The last message of the task's thread the saved summary covers, or empty when none is saved"),
-            up_to_date: bool("Whether the saved summary covers every message: then there is nothing new to add"),
-            messages: list("The messages the summary doesn't cover yet (all of them with no summary or with full), oldest first", SUMMARY_MESSAGE_ITEM),
-            through: str("The last message of the task's thread given, or the saved summary's when none is new: for save_task_summary. Empty when the task's thread has no messages kept"),
+            through: str("The last message of the task's thread it covers, for get_task_history's since, or empty when there is none"),
             prompt: str("The prompt with the team's steps for a task's summary, for get_prompt with the task as its task argument, or empty when the team has none"),
         }),
     },
@@ -356,7 +361,7 @@ export const TOOL_DEFS: ToolDef[] = [
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
                 summary: str(`The summary, as plain text. At most ${MAX_SUMMARY} characters`),
-                through: str("The last message of the task's thread it covers: the through get_task_summary gave"),
+                through: str("The last message of the task's thread it covers: the last ts get_task_history gave"),
             },
             required: ["task_id", "summary", "through"],
         },

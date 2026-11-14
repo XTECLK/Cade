@@ -1,4 +1,4 @@
--- Made by `npm run schema` from migrations/ (up to 0032_task_summaries.sql): don't edit it by hand.
+-- Made by `npm run schema` from migrations/ (up to 0033_task_consumers.sql): don't edit it by hand.
 -- The database as the migrations leave it, for reference only: a change to the database is a new
 -- file in migrations/, then `npm run schema` to bring this up to date (a test fails until then).
 
@@ -65,6 +65,16 @@ CREATE TABLE pull_requests (
   -- OPEN (drafts too), MERGED or CLOSED (without merging).
   state TEXT NOT NULL CHECK (state IN ('OPEN', 'MERGED', 'CLOSED')),
   synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE task_consumers (
+  channel TEXT NOT NULL,
+  task_ts TEXT NOT NULL,
+  consumer TEXT NOT NULL,
+  through_ts TEXT NOT NULL,
+  acked_by TEXT NOT NULL,
+  acked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (channel, task_ts, consumer)
 );
 
 CREATE TABLE task_summaries (

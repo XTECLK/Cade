@@ -6,7 +6,7 @@ import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
 import { OPEN, byUrgency, threadLink, todayIn } from "./commands/tasks.ts";
-import { subtasksOf, deleteMcpToken, getSummary, mcpTokenUser, putMcpToken, promptByName, promptHashes, prompts, putSummary, taskTitleOf, tasksMovedFrom, tasksWithStatuses, threadMessages } from "./db.ts";
+import { subtasksOf, deleteMcpToken, getConsumer, getSummary, MAX_CONSUMERS, mcpTokenUser, putMcpToken, promptByName, promptHashes, prompts, putConsumer, putSummary, taskTitleOf, tasksMovedFrom, tasksWithStatuses, threadMessages } from "./db.ts";
 import { publicUrl } from "./links.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_TASKS, DEFAULT_THREADS, DEFAULT_USERS, EXTRA_FIELDS, MAX_CHANNELS, MAX_DAYS, MAX_MATCHES, MAX_MESSAGE, MAX_NAMES, MAX_PRESENCE, MAX_PREVIEW, MAX_SUMMARY, MAX_TASKS, MAX_THREADS, MAX_TITLE, MAX_USERS, TASK_FIELDS, TASK_VIEW_FIELDS, TOOL_DEFS, USER_FIELDS } from "./mcp-tools.ts";
@@ -18,7 +18,7 @@ import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
 import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
-import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetPromptArgs, GetPromptsArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTaskSummaryArgs, GetTasksArgs, SaveTaskSummaryArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
+import type { AckTaskHistoryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetPromptArgs, GetPromptsArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTaskSummaryArgs, GetTasksArgs, SaveTaskSummaryArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { PromptRow } from "./db.ts";
 import type { Project } from "./channels.ts";
@@ -126,7 +126,7 @@ function apiKeyOf(request: Request) {
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 // The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
 // made from the same inputSchema they are checked against before it is called (see callTool).
-const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_task_summary: getTaskSummary, save_task_summary: saveTaskSummary, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool, get_prompts: getPromptsTool, get_prompt: getPromptTool };
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_task_summary: getTaskSummary, save_task_summary: saveTaskSummary, ack_task_history: ackTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool, get_prompts: getPromptsTool, get_prompt: getPromptTool };
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
   // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
@@ -545,68 +545,68 @@ async function getTaskHistory(env: AppEnv, user: string, args: GetTaskHistoryArg
   const { channel, ts } = taskRef(args);
   const title = await taskTitleOf(env, channel, ts);
   if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
+  if (args.since !== undefined && args.consumer !== undefined) throw new ToolError("Give since or consumer, not both.");
   // The same rule as for Slack itself: a private channel's only for its members, and never a direct message.
   const where = await readableName(env, channel, user);
   if (where === null) throw new ToolError("You aren't in that task's project channel, so I can't read it for you.");
-  const all = await threadMessages(env, channel, ts);
-  // Slack's message times are all ten digits, a dot and six, so they compare as text.
-  const since = args.since;
-  const messages = since ? all.filter((message) => message.ts > since) : all;
+  const [all, position] = await Promise.all([threadMessages(env, channel, ts), args.consumer ? getConsumer(env, channel, ts, args.consumer) : null]);
+  // From a message given, or from where the consumer last acknowledged; never read, from the start.
+  const after = args.since ?? position?.through;
+  const { fresh: messages, through } = unread(all, after);
+  const token = args.consumer ? through : "";
   const taskId = `${channel}:${ts}`;
-  if (since && all.length) {
-    const lines = [`Task "${title}" in #${where} (${channel}), ${messages.length} kept message${messages.length === 1 ? "" : "s"} after ${since}, oldest first:`, ...messageLines(messages)];
-    return { text: lines.join("\n"), data: { task_id: taskId, title, messages: messageData(messages), original_thread: threadOut(sourceThreadOf(all)) } };
+  const original = threadOut(sourceThreadOf(all));
+  const data = { task_id: taskId, title, messages: messageData(messages), original_thread: original, token };
+  if (!all.length) {
+    return { text: `No messages are kept for "${title}" yet. get_thread_history reads the thread from Slack, or someone can send /cade resync with the task's link to store it.`, data: { ...data, original_thread: null } };
   }
-  if (!messages.length) {
-    return { text: `No messages are kept for "${title}" yet. get_thread_history reads the thread from Slack, or someone can send /cade resync with the task's link to store it.`, data: { task_id: taskId, title, messages: [], original_thread: null } };
-  }
-  const lines = [`Task "${title}" in #${where} (${channel}), ${messages.length} kept message${messages.length === 1 ? "" : "s"}, oldest first:`, ...messageLines(messages)];
+  const read = args.consumer ? (position ? ` not read yet by ${args.consumer} (last acknowledged by ${position.by} at ${position.at.slice(0, 16)} UTC)` : ` (${args.consumer} has read none yet)`) : after ? ` after ${after}` : "";
+  const lines = [`Task "${title}" in #${where} (${channel}), ${messages.length} kept message${messages.length === 1 ? "" : "s"}${read}, oldest first:`, ...messageLines(messages)];
   // This thread is what was done about the task; the problem is in the thread it came from.
-  const original = sourceThreadOf(messages);
-  if (original) {
+  if (original && !after) {
     lines.push("", `Note: "${title}" was made from another thread, where the problem was first raised; get_task names it and get_thread_history reads it. This thread is what was done about it.`);
   }
-  return { text: lines.join("\n"), data: { task_id: taskId, title, messages: messageData(messages), original_thread: threadOut(original) } };
+  if (args.consumer) lines.push("", `Token: ${token}. Once these are handled, ack_task_history with it, so ${args.consumer} reads only what comes after.`);
+  return { text: lines.join("\n"), data };
 }
 
-// A task's working summary, as some agent saved it, and the messages of its thread that summary doesn't
-// cover yet: all of them with `full`, or with none saved. Each that is Cade's copy of a message moved
-// in from another thread names it, as the rest of that discussion is there. Nothing is asked of Slack.
+// Moves a consumer's position in a task's thread on to the token get_task_history gave it, once what it read is
+// handled, so the next read gives only what came after. It changes nothing on the task and is shown to no one, so,
+// unlike the other writes, it isn't approved first.
+async function ackTaskHistory(env: AppEnv, user: string, args: AckTaskHistoryArgs) {
+  const { channel, ts } = taskRef(args);
+  if ((await taskTitleOf(env, channel, ts)) === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
+  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't do that for you.");
+  const token = String(args.token).trim();
+  await requireKept(env, channel, ts, token, "the token get_task_history gave");
+  const saved = await putConsumer(env, channel, ts, args.consumer, token, user);
+  if (saved === "behind") throw new ToolError(`${args.consumer} has read further since, so its position wasn't moved back. Call get_task_history with consumer ${args.consumer} for what is new.`);
+  if (saved === "full") throw new ToolError(`This task keeps positions for ${MAX_CONSUMERS} consumers already, so a new one can't be added.`);
+  console.log("Task history acknowledged", { channel, ts, consumer: args.consumer, by: user, through: token });
+  return { text: `${args.consumer} has read the task's thread up to ${token}: the next read gives only what comes after.`, data: { task_id: `${channel}:${ts}`, consumer: args.consumer, acked: true } };
+}
+
+// A task's working summary, as some agent saved it, and up to which message of its thread it covers: the
+// messages after it are get_task_history's, with since. Nothing is asked of Slack.
 async function getTaskSummary(env: AppEnv, user: string, args: GetTaskSummaryArgs) {
   const { channel, ts } = taskRef(args);
   const title = await taskTitleOf(env, channel, ts);
   if (title === null) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks.");
   const where = await readableName(env, channel, user);
   if (where === null) throw new ToolError("You aren't in that task's project channel, so I can't read it for you.");
-  const [saved, kept, steps] = await Promise.all([args.full ? null : getSummary(env, channel, ts), threadMessages(env, channel, ts), promptByName(env, SUMMARY_PROMPT)]);
-  // Slack's message times are all ten digits, a dot and six, so they compare as text.
-  const after = saved?.through;
-  const fresh = after ? kept.filter((message) => message.ts > after) : kept;
-  const through = fresh.at(-1)?.ts ?? after ?? "";
-  const upToDate = Boolean(saved) && !fresh.length;
-  const moved = fresh.map((message) => movedFromOf(message.text));
-  const messages = messageData(fresh).map((message, i) => {
-    const from = moved[i];
-    return { ...message, moved_from: from ? { thread_id: `${from.channel}:${from.ts}`, link: from.link } : null };
-  });
-
+  const [saved, steps] = await Promise.all([getSummary(env, channel, ts), promptByName(env, SUMMARY_PROMPT)]);
   const taskId = `${channel}:${ts}`;
   const lines = [`Task "${title}" in #${where} (task ID ${taskId}).`];
-  if (saved) lines.push("", `Summary so far, saved by ${saved.by} at ${saved.at.slice(0, 16)} UTC, covering the task's thread up to message ${saved.through}:`, saved.summary);
-  if (upToDate) lines.push("", "It covers every message of the task's thread: none is new.");
-  else if (!kept.length) lines.push("", "No messages are kept for the task's thread yet. Someone can send /cade resync with the task's link to store them.");
-  else {
-    const lead = saved ? `${fresh.length} message${fresh.length === 1 ? "" : "s"} since then` : `${args.full ? "E" : "No summary saved. E"}very message of the task's thread`;
-    // A moved message's line names the thread it came from.
-    const shown = messageLines(fresh).map((line, i) => (moved[i] ? `${line}\n    (moved from thread ${messages[i]!.moved_from!.thread_id})` : line));
-    lines.push("", `${lead}, oldest first:`, ...shown, "", `Through: ${through}`);
-  }
+  if (saved) {
+    lines.push("", `Summary, saved by ${saved.by} at ${saved.at.slice(0, 16)} UTC, covering the task's thread up to message ${saved.through}:`, saved.summary);
+    lines.push("", `The messages after it: get_task_history with since ${saved.through}.`);
+  } else lines.push("", "No summary saved yet: the whole thread is get_task_history's.");
   // The team's steps for writing it, from its deploy repo: asked in plain words, an agent follows them as the
   // slash command would.
   if (steps) lines.push("", `The team's steps for a task's summary: get_prompt with name "${SUMMARY_PROMPT}" and arguments {"task": "${taskId}"}.`);
   return {
     text: lines.join("\n"),
-    data: { task_id: taskId, title, summary: saved?.summary ?? "", summary_by: saved?.by ?? "", summary_at: saved ? saved.at.slice(0, 16) : "", summary_through: saved?.through ?? "", up_to_date: upToDate, messages, through, prompt: steps ? SUMMARY_PROMPT : "" },
+    data: { task_id: taskId, title, summary: saved?.summary ?? "", summary_by: saved?.by ?? "", summary_at: saved ? saved.at.slice(0, 16) : "", through: saved?.through ?? "", prompt: steps ? SUMMARY_PROMPT : "" },
   };
 }
 
@@ -621,14 +621,28 @@ async function saveTaskSummary(env: AppEnv, user: string, args: SaveTaskSummaryA
   if (summary.length > MAX_SUMMARY) throw new ToolError(`The summary is ${summary.length} characters; keep it to ${MAX_SUMMARY} or fewer.`);
   refuseSecrets(summary, "The summary");
   const through = String(args.through).trim();
-  if (!(await threadMessages(env, channel, ts)).some((message) => message.ts === through)) {
-    throw new ToolError("through isn't a message of the task's thread: pass the through get_task_summary gave.");
-  }
+  await requireKept(env, channel, ts, through, "as through the ts of the last message get_task_history gave");
   if (!(await putSummary(env, channel, ts, summary, through, user))) {
     throw new ToolError("A summary covering more of the task's thread was saved since you read it, so this one wasn't. Call get_task_summary again and add to that one.");
   }
   console.log("Task summary saved", { channel, ts, by: user, through, characters: summary.length });
   return { text: "Saved the task's summary. The next agent reads it and only the messages after it.", data: { task_id: `${channel}:${ts}`, saved: true } };
+}
+
+// The messages of a thread after the one at `mark` (all of them with none), and the mark to save once
+// they are read: the last of them, or `mark` when none is new.
+// Slack's message times are all ten digits, a dot and six, so they compare as text.
+function unread<M extends { ts: string }>(kept: M[], mark: string | undefined) {
+  const fresh = mark ? kept.filter((message) => message.ts > mark) : kept;
+  return { fresh, through: fresh.at(-1)?.ts ?? mark ?? "" };
+}
+
+// Whether `through` is a message of the task's kept thread, as a mark must be, or a ToolError saying `what` to
+// pass instead.
+async function requireKept(env: AppEnv, channel: string, ts: string, through: string, what: string) {
+  if (!(await threadMessages(env, channel, ts)).some((message) => message.ts === through)) {
+    throw new ToolError(`That isn't a message of the task's thread: pass ${what}.`);
+  }
 }
 
 // The thread a task was made from, as data, or null.

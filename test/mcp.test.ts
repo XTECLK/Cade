@@ -200,7 +200,7 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json<any>();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_task_summary", "save_task_summary", "get_tasks", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_prompts", "get_prompt", "get_server_info"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "ack_task_history", "get_task_summary", "save_task_summary", "get_tasks", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_prompts", "get_prompt", "get_server_info"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
   assert.ok(result.tools.filter((tool) => !["get_tasks", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info", "get_prompts"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
@@ -357,7 +357,7 @@ const keep = (ts: string, user: string | null, text: string) =>
 // Cade's copy of the first message of a thread moved into a task (see moveMessage in commands/move.ts).
 const MOVED = "Moved from <@UBOB>'s <https://acme.slack.com/archives/CPRIV/p1600000000000100|message>:\n> Login fails on Safari";
 
-test("get_task_summary gives the summary saved and the messages after it, and save_task_summary keeps it for the next agent", async (t) => {
+test("get_task_summary gives the summary saved and how far it covers, and save_task_summary keeps it for the next agent", async (t) => {
   await putTask(env, "CDEV", "1000000000.000100", stored());
   await putTask(env, "CPRIV", "1000000000.000100", stored({ title: "Secret" }));
   await keep("1000000001.000100", null, MOVED);
@@ -366,50 +366,41 @@ test("get_task_summary gives the summary saved and the messages after it, and sa
   const url = addressIn(await slash("mcp init", "UME"));
   const taskId = "CDEV:1000000000.000100";
 
-  // No summary yet: every message, the moved one naming the thread it came from.
+  // No summary yet: the whole thread is get_task_history's.
   const first = await tool(url, "get_task_summary", { task_id: taskId });
   assert.equal(first.isError, false, first.text);
-  assert.deepEqual([first.data.summary, first.data.summary_through, first.data.up_to_date, first.data.through], ["", "", false, "1000000002.000100"]);
-  assert.deepEqual(first.data.messages.map((message) => message.moved_from), [{ thread_id: "CPRIV:1600000000.000100", link: "https://acme.slack.com/archives/CPRIV/p1600000000000100" }, null]);
-  assert.match(first.text, /No summary saved\. Every message of the task's thread, oldest first:/);
-  assert.match(first.text, /\(moved from thread CPRIV:1600000000\.000100\)/);
-  assert.match(first.text, /\n\nThrough: 1000000002\.000100$/);
+  assert.deepEqual([first.data.summary, first.data.through], ["", ""]);
+  assert.ok(!("messages" in first.data));
+  assert.match(first.text, /No summary saved yet: the whole thread is get_task_history's\./);
 
   // Saved without approval and without a word in Slack: only agents read it.
-  const saved = await tool(url, "save_task_summary", { task_id: taskId, summary: "  Login fails on Safari.  ", through: first.data.through });
+  const saved = await tool(url, "save_task_summary", { task_id: taskId, summary: "  Login fails on Safari.  ", through: "1000000002.000100" });
   assert.equal(saved.isError, false, saved.text);
   assert.deepEqual(saved.data, { task_id: taskId, saved: true });
   assert.ok(!calls.some((call) => call.method.startsWith("chat.")));
 
-  // The next agent gets it, and only what came after.
+  // The next agent gets it, and where to read on from.
   await keep("1000000003.000100", "UANN", "Fixed in PR 7");
   const next = await tool(url, "get_task_summary", { task_id: taskId });
-  assert.deepEqual([next.data.summary, next.data.summary_by, next.data.summary_through, next.data.through], ["Login fails on Safari.", "UME", "1000000002.000100", "1000000003.000100"]);
-  assert.deepEqual(next.data.messages.map((message) => message.text), ["Fixed in PR 7"]);
-  assert.match(next.text, /covering the task's thread up to message 1000000002\.000100:\nLogin fails on Safari\.\n\n1 message since then, oldest first:/);
+  assert.deepEqual([next.data.summary, next.data.summary_by, next.data.through], ["Login fails on Safari.", "UME", "1000000002.000100"]);
+  assert.match(next.text, /covering the task's thread up to message 1000000002\.000100:\nLogin fails on Safari\.\n\nThe messages after it: get_task_history with since 1000000002\.000100\./);
+  const after = await tool(url, "get_task_history", { task_id: taskId, since: next.data.through });
+  assert.deepEqual(after.data.messages.map((message) => message.text), ["Fixed in PR 7"]);
 
   // Two agents at once: the one that covers more wins, and the other is told to read again.
   await tool(url, "save_task_summary", { task_id: taskId, summary: "Second", through: "1000000003.000100" });
   const late = await tool(url, "save_task_summary", { task_id: taskId, summary: "Stale", through: "1000000002.000100" });
   assert.match(late.text, /was saved since you read it, so this one wasn't\. Call get_task_summary again/);
-  const now = await tool(url, "get_task_summary", { task_id: taskId });
-  assert.deepEqual([now.data.summary, now.data.up_to_date, now.data.messages.length, now.data.through], ["Second", true, 0, "1000000003.000100"]);
-  assert.match(now.text, /It covers every message of the task's thread: none is new\.$/);
-
-  // full leaves the summary out, to write it again from every message.
-  const full = await tool(url, "get_task_summary", { task_id: taskId, full: true });
-  assert.deepEqual([full.data.summary, full.data.messages.length], ["", 3]);
-  assert.match(full.text, /\n\nEvery message of the task's thread, oldest first:/);
+  assert.deepEqual([(await tool(url, "get_task_summary", { task_id: taskId })).data.summary], ["Second"]);
 
   // What's wrong with a call is said, and nothing is saved.
-  assert.match((await tool(url, "save_task_summary", { task_id: taskId, summary: "S", through: "1000000009.000100" })).text, /through isn't a message of the task's thread/);
+  assert.match((await tool(url, "save_task_summary", { task_id: taskId, summary: "S", through: "1000000009.000100" })).text, /isn't a message of the task's thread: pass as through the ts of the last message get_task_history gave/);
   assert.match((await tool(url, "save_task_summary", { task_id: taskId, summary: " ", through: "1000000003.000100" })).text, /empty/);
   assert.match((await tool(url, "save_task_summary", { task_id: taskId, summary: "x".repeat(8001), through: "1000000003.000100" })).text, /8001 characters/);
   assert.match((await tool(url, "save_task_summary", { task_id: taskId, summary: "Use AKIAABCDEFGHIJKLMNOP to reproduce.", through: "1000000003.000100" })).text, /looks like it contains a AWS access key/);
   assert.match((await tool(url, "save_task_summary", { task_id: "CPRIV:1000000000.000100", summary: "S", through: "1.1" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "get_task_summary", { task_id: "CPRIV:1000000000.000100" })).text, /aren't in that task's project channel/);
   assert.match((await tool(url, "get_task_summary", { task_id: "CDEV:9000000000.000100" })).text, /isn't a task Cade tracks/);
-  assert.equal((await tool(url, "get_task_summary", { task_id: taskId })).data.summary, "Second");
   // update_task no longer takes a summary.
   assert.match((await tool(url, "update_task", { task_id: taskId, summary: "S" })).text, /summary/);
 });
@@ -482,6 +473,53 @@ test("get_task_summary names the team's task-summary prompt, which get_prompt gi
   // What's missing or unknown is refused, naming what there is.
   assert.match((await tool(url, "get_prompt", { name: "task-summary" })).text, /needs task/);
   assert.match((await tool(url, "get_prompt", { name: "nope" })).text, /There is no prompt called "nope"\. They are: report, task-summary\./);
+});
+
+test("get_task_history with a consumer gives what it hasn't acknowledged, and ack_task_history moves it on for everyone", async (t) => {
+  await putTask(env, "CDEV", "1000000000.000100", stored());
+  await putTask(env, "CPRIV", "1000000000.000100", stored({ title: "Secret" }));
+  await keep("1000000001.000100", "UREX", "On it");
+  await keep("1000000002.000100", "UREX", "PR is up, ready for review");
+  const calls = mock(t, { "conversations.info": { channel: { name: "dev" } } });
+  const url = addressIn(await slash("mcp init", "UME"));
+  const bob = addressIn(await slash("mcp init", "UBOB"));
+  const taskId = "CDEV:1000000000.000100";
+
+  // Never read: every message, and a token for the last.
+  const first = await tool(url, "get_task_history", { task_id: taskId, consumer: "sync-tasks" });
+  assert.equal(first.isError, false, first.text);
+  assert.deepEqual([first.data.messages.length, first.data.token], [2, "1000000002.000100"]);
+  assert.match(first.text, /2 kept messages \(sync-tasks has read none yet\), oldest first:/);
+  assert.match(first.text, /Token: 1000000002\.000100\. Once these are handled, ack_task_history with it/);
+  // Without a consumer there's no token, and since and consumer don't go together.
+  assert.equal((await tool(url, "get_task_history", { task_id: taskId })).data.token, "");
+  assert.match((await tool(url, "get_task_history", { task_id: taskId, since: "1000000001.000100", consumer: "sync-tasks" })).text, /Give since or consumer, not both/);
+
+  // Acknowledged without approval and without a word in Slack; the next read, by anyone, gives only what's new.
+  const acked = await tool(url, "ack_task_history", { task_id: taskId, consumer: "sync-tasks", token: first.data.token });
+  assert.deepEqual(acked.data, { task_id: taskId, consumer: "sync-tasks", acked: true });
+  assert.ok(!calls.some((call) => call.method.startsWith("chat.")));
+  await keep("1000000003.000100", "UANN", "QA passed");
+  const next = await tool(bob, "get_task_history", { task_id: taskId, consumer: "sync-tasks" });
+  assert.deepEqual([next.data.messages.map((message) => message.text), next.data.token], [["QA passed"], "1000000003.000100"]);
+  assert.match(next.text, /1 kept message not read yet by sync-tasks \(last acknowledged by UME at /);
+  // Another consumer has a position of its own.
+  assert.equal((await tool(url, "get_task_history", { task_id: taskId, consumer: "standup" })).data.messages.length, 3);
+
+  // Nothing new: no messages, and the same position as the token.
+  await tool(bob, "ack_task_history", { task_id: taskId, consumer: "sync-tasks", token: "1000000003.000100" });
+  const none = await tool(url, "get_task_history", { task_id: taskId, consumer: "sync-tasks" });
+  assert.deepEqual([none.data.messages, none.data.token], [[], "1000000003.000100"]);
+
+  // A position only moves forward, and only to a message of the thread.
+  assert.match((await tool(url, "ack_task_history", { task_id: taskId, consumer: "sync-tasks", token: "1000000002.000100" })).text, /sync-tasks has read further since, so its position wasn't moved back/);
+  assert.match((await tool(url, "ack_task_history", { task_id: taskId, consumer: "sync-tasks", token: "1000000009.000100" })).text, /isn't a message of the task's thread: pass the token get_task_history gave/);
+  assert.match((await tool(url, "ack_task_history", { task_id: taskId, consumer: "Sync Tasks", token: "1000000003.000100" })).text, /consumer/);
+  assert.match((await tool(url, "ack_task_history", { task_id: "CPRIV:1000000000.000100", consumer: "sync-tasks", token: "1.1" })).text, /aren't in that task's project channel/);
+
+  // A task keeps positions for at most ten consumers: sync-tasks and nine more (standup only read, so holds none).
+  for (let i = 0; i < 9; i++) await tool(url, "ack_task_history", { task_id: taskId, consumer: `c${i}`, token: "1000000001.000100" });
+  assert.match((await tool(url, "ack_task_history", { task_id: taskId, consumer: "one-more", token: "1000000001.000100" })).text, /keeps positions for 10 consumers already/);
 });
 
 test("get_thread_history reads a thread moved into a task for anyone who can read the task", async (t) => {
@@ -1074,7 +1112,7 @@ test("every tool follows the same conventions", () => {
   const names = TOOL_DEFS.map((def) => def.name);
   assert.equal(new Set(names).size, names.length);
   for (const def of TOOL_DEFS) {
-    assert.match(def.name, /^(get|find|update|send|create|save)_[a-z_]+$/, def.name);
+    assert.match(def.name, /^(get|find|update|send|create|save|ack)_[a-z_]+$/, def.name);
     assert.ok(def.title && def.description, `${def.name} has a title and a description`);
     assert.equal(def.inputSchema.type, "object");
     assert.equal(def.outputSchema.type, "object");
@@ -1083,7 +1121,7 @@ test("every tool follows the same conventions", () => {
     if (def.inputSchema.properties.task_id) assert.ok(!("link" in def.inputSchema.properties), `${def.name} takes a task_id, not a link`);
     for (const key of Object.keys(def.inputSchema.properties)) assert.ok(!["id", "taskId", "userId"].includes(key), `${def.name}: ${key}`);
     // Readers say so, and the writers don't.
-    const writes = ["update_task", "send_thread_message", "create_task", "send_approval_request", "save_task_summary"].includes(def.name);
+    const writes = ["update_task", "send_thread_message", "create_task", "send_approval_request", "save_task_summary", "ack_task_history"].includes(def.name);
     assert.equal(def.annotations.readOnlyHint, !writes, def.name);
     assert.equal(def.annotations.destructiveHint, false, def.name);
     // A list tool says how many there are in all, as get_tasks does.
@@ -1749,14 +1787,14 @@ test("the guardrails fit before clients cut them, and each write tool says what 
   assert.ok(INSTRUCTIONS.length <= MAX_INSTRUCTIONS, `the guardrails are ${INSTRUCTIONS.length} characters; keep them to ${MAX_INSTRUCTIONS}`);
   // The guardrails name the tools they speak of, so a renamed tool can't leave them pointing at nothing.
   const names = TOOL_DEFS.map((def) => def.name);
-  for (const named of INSTRUCTIONS.match(/\b[a-z]+(?:_[a-z]+)+\b/g)!.filter((word) => /^(get|find|send|create|update|save)_/.test(word))) {
+  for (const named of INSTRUCTIONS.match(/\b[a-z]+(?:_[a-z]+)+\b/g)!.filter((word) => /^(get|find|send|create|update|save|ack)_/.test(word))) {
     assert.ok(names.includes(named), named);
   }
   // A write's preview is described with the tool, which the guardrails point to. The one write that is
   // never approved, a summary only agents read, says so, and so do the guardrails.
   for (const def of TOOL_DEFS.filter((def) => !def.annotations.readOnlyHint)) {
-    if (def.name === "save_task_summary") assert.match(def.description, /needs no approval/);
+    if (["save_task_summary", "ack_task_history"].includes(def.name)) assert.match(def.description, /needs no approval/);
     else assert.match(def.description, /Preview: /, def.name);
   }
-  assert.match(INSTRUCTIONS, /nor does save_task_summary/);
+  assert.match(INSTRUCTIONS, /nor do save_task_summary and ack_task_history/);
 });

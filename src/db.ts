@@ -553,6 +553,38 @@ export async function putSummary(env: DbEnv, channel: string, taskTs: string, su
   return Boolean(result);
 }
 
+// How far `consumer` has read the task's thread (see get_task_history in mcp.ts): { through, by, at },
+// `through` being the ts of the last message it acknowledged, or null for one that never did.
+export async function getConsumer(env: DbEnv, channel: string, taskTs: string, consumer: string) {
+  const row = await env.DB.prepare("SELECT through_ts, acked_by, acked_at FROM task_consumers WHERE channel = ? AND task_ts = ? AND consumer = ?")
+    .bind(channel, taskTs, consumer)
+    .first<{ through_ts: string; acked_by: string; acked_at: string }>();
+  return row ? { through: row.through_ts, by: row.acked_by, at: row.acked_at } : null;
+}
+
+// The most consumers a task keeps a position for, so the table stays small.
+export const MAX_CONSUMERS = 10;
+
+// Moves `consumer`'s position in the task's thread on to `through`, for `user`. Returns "saved", or "behind"
+// when it is past that already (positions only move forward), or "full" for a new consumer of a task that has
+// MAX_CONSUMERS already.
+export async function putConsumer(env: DbEnv, channel: string, taskTs: string, consumer: string, through: string, user: string) {
+  const known = await getConsumer(env, channel, taskTs, consumer);
+  if (!known) {
+    const { n } = (await env.DB.prepare("SELECT COUNT(*) AS n FROM task_consumers WHERE channel = ? AND task_ts = ?").bind(channel, taskTs).first<{ n: number }>())!;
+    if (n >= MAX_CONSUMERS) return "full";
+  }
+  const result = await env.DB.prepare(
+    `INSERT INTO task_consumers (channel, task_ts, consumer, through_ts, acked_by) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (channel, task_ts, consumer) DO UPDATE SET through_ts = excluded.through_ts, acked_by = excluded.acked_by, acked_at = CURRENT_TIMESTAMP
+     WHERE task_consumers.through_ts <= excluded.through_ts
+     RETURNING 1 AS saved`,
+  )
+    .bind(channel, taskTs, consumer, through, user)
+    .first<{ saved: number }>();
+  return result ? "saved" : "behind";
+}
+
 // The tasks a thread was moved into: those whose kept messages include Cade's "Moved from" copy of a
 // message of the thread `channel`/`ts` (see moveMessage in commands/move.ts), as [{ channel, ts }].
 export async function tasksMovedFrom(env: DbEnv, channel: string, ts: string) {
@@ -772,12 +804,13 @@ export async function promptHashes(env: DbEnv) {
 }
 
 // Moves the task at `oldTs` to the root message `newTs` (see rotate.ts): a task, its kept messages and
-// its summary are all found by their root's ts.
+// its summary and its consumers' positions are all found by their root's ts.
 export async function moveTaskThread(env: DbEnv, channel: string, oldTs: string, newTs: string) {
   for (const sql of [
     "UPDATE tasks SET ts = ? WHERE channel = ? AND ts = ?",
     "UPDATE messages SET task_ts = ? WHERE channel = ? AND task_ts = ?",
     "UPDATE task_summaries SET task_ts = ? WHERE channel = ? AND task_ts = ?",
+    "UPDATE task_consumers SET task_ts = ? WHERE channel = ? AND task_ts = ?",
   ]) {
     await env.DB.prepare(sql).bind(newTs, channel, oldTs).run();
   }

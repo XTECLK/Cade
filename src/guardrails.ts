@@ -19,7 +19,7 @@ export const GUARDRAILS = [
       `Before calling one, show a preview of the values, one per line, as the tool will receive them (each write tool says what its preview shows), then ask "Go ahead?" and stop.`,
       `If they change anything, show the preview again and ask again: a yes covers only the version it answered.`,
       `After a clear yes, call the tool once with exactly those values, then say what it did and give the link.`,
-      `Reading needs no approval, and nor does save_task_summary: it keeps a working summary only agents read.`,
+      `Reading needs no approval, and nor do save_task_summary and ack_task_history: they keep a summary and a read position only agents use.`,
     ],
   },
   {

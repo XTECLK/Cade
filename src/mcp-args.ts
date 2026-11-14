@@ -20,13 +20,22 @@ export type GetTaskHistoryArgs = {
   task_id: string;
   // Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message
   since?: string;
+  // Only the messages this consumer hasn't acknowledged, such as sync-tasks: lowercase words joined by -. Not with since
+  consumer?: string;
+};
+
+export type AckTaskHistoryArgs = {
+  // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
+  task_id: string;
+  // The consumer it was read with
+  consumer: string;
+  // The token get_task_history gave
+  token: string;
 };
 
 export type GetTaskSummaryArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
-  // Leave out the saved summary and give every message of the task's thread. Default false
-  full?: boolean;
 };
 
 export type SaveTaskSummaryArgs = {
@@ -34,7 +43,7 @@ export type SaveTaskSummaryArgs = {
   task_id: string;
   // The summary, as plain text. At most 8000 characters
   summary: string;
-  // The last message of the task's thread it covers: the through get_task_summary gave
+  // The last message of the task's thread it covers: the last ts get_task_history gave
   through: string;
 };
 
@@ -222,6 +231,7 @@ export interface ToolArgs {
   get_task: GetTaskArgs;
   get_thread_history: GetThreadHistoryArgs;
   get_task_history: GetTaskHistoryArgs;
+  ack_task_history: AckTaskHistoryArgs;
   get_task_summary: GetTaskSummaryArgs;
   save_task_summary: SaveTaskSummaryArgs;
   get_tasks: GetTasksArgs;

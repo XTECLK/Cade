@@ -3444,6 +3444,7 @@ async function oldThread(status: Status = "TODO") {
   await putTask(env, "CDEV", OLD_ROOT, { ...task, export: { url: `https://worker.example.net/t/CDEV/${OLD_ROOT}` } });
   await DB.prepare("INSERT INTO messages (channel, task_ts, ts, text) VALUES ('CDEV', ?, '1765000001.000100', 'on it')").bind(OLD_ROOT).run();
   await DB.prepare("INSERT INTO task_summaries (channel, task_ts, summary, through_ts, written_by) VALUES ('CDEV', ?, 'The issue', '1765000001.000100', 'UANN')").bind(OLD_ROOT).run();
+  await DB.prepare("INSERT INTO task_consumers (channel, task_ts, consumer, through_ts, acked_by) VALUES ('CDEV', ?, 'sync-tasks', '1765000001.000100', 'UANN')").bind(OLD_ROOT).run();
 }
 
 const rotating = {
@@ -3474,7 +3475,7 @@ test("the cron rotates an open task's thread older than threadRotationDays, link
   assert.equal(update.args.ts, NEW_ROOT);
   assert.match(JSON.stringify(update.args.attachments), new RegExp(`/t/CDEV/${NEW_ROOT}`));
 
-  // The task, its kept messages and its summary are found by the new root now.
+  // The task, its kept messages, its summary and its consumers' positions are found by the new root now.
   assert.equal(await savedTask("CDEV", OLD_ROOT), null);
   const task = await savedTask("CDEV", NEW_ROOT);
   assert.equal(task.link, `https://slack.example/p${NEW_ROOT}`);
@@ -3483,6 +3484,7 @@ test("the cron rotates an open task's thread older than threadRotationDays, link
   const { results } = await DB.prepare("SELECT text FROM messages WHERE task_ts = ? ORDER BY ts").bind(NEW_ROOT).all();
   assert.deepEqual(results.map((row) => String(row.text).split(".")[0]), ["on it", ":recycle: Rotated thread"]);
   assert.ok(await DB.prepare("SELECT 1 FROM task_summaries WHERE task_ts = ?").bind(NEW_ROOT).first());
+  assert.ok(await DB.prepare("SELECT 1 FROM task_consumers WHERE task_ts = ?").bind(NEW_ROOT).first());
 });
 
 test("rotating a task's thread redraws its subtasks' cards, which link the new root", async (t) => {

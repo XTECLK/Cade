@@ -292,13 +292,19 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
 - **Versions.** A session ID names the tool set it loaded (a hash of the tools, the rules and the description); a tool
   called from an older session says so, and `get_server_info` reports it.
 - **Summaries.** A task's summary is a working one for agents, never shown in Slack or on a page, kept in
-  `task_summaries` with `through_ts`, the last message of the task's thread it covers. `get_task_summary` gives the one
-  saved and only the messages after it; a message that is Cade's copy of one moved in from another thread names that
-  thread (`moved_from`), which `get_thread_history` reads for anyone who can read the task, or the agent reads with its
-  own Slack tools. The agent writes the summary from those, answers the person, and saves it with `save_task_summary`
-  and the `through` it was given, the one write that needs no approval; a save that covers less of the thread than
-  the one saved is refused, so two agents at once can't go backwards. Nothing offers a summary when a task is made:
-  it is written when someone asks for one.
+  `task_summaries` with `through_ts`, the last message of the task's thread it covers, saved together so they can't
+  disagree. `get_task_summary` gives the one saved and its `through`; the agent reads the messages after it with
+  `get_task_history` and `since`, and the rest of a thread a message was moved from with `get_thread_history` (Cade's
+  copy says where it came from), which reads it for anyone who can read the task. It saves what it writes with
+  `save_task_summary`, which needs no approval; a save that covers less of the thread than the one saved is refused,
+  so two agents at once can't go backwards. Nothing offers a summary when a task is made: it is written when someone
+  asks for one. How to write it is the deploy repo's `task-summary` prompt.
+- **Consumers.** A recipe that acts on what is new in a task's thread, such as `sync-tasks` checking the task's
+  fields against it, reads with `get_task_history` and a `consumer` name: only the messages that consumer hasn't
+  acknowledged, and a `token`. Once they are handled (a fix the person turned down included), `ack_task_history`
+  moves its position on, so they aren't handled again, by anyone: positions are shared, one a consumer, at most
+  `MAX_CONSUMERS` a task, kept in `task_consumers`, and only move forward. Acknowledging needs no approval. The fixes
+  themselves are `update_task`, approved and told in the thread as any change.
 
 ## Tests
 

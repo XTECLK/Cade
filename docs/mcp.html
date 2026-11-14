@@ -150,7 +150,7 @@
 <section class="tool" id="get_task_history">
   <div class="wrap">
     <h2><code>get_task_history</code></h2>
-    <p>Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. For a task's summary, get_task_summary gives the messages it needs.</p>
+    <p>Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. With consumer, a name for what you do with the messages (such as sync-tasks), it gives only those that consumer hasn't acknowledged yet, and a token: once you have handled them, ack_task_history with it, so the next read with that consumer, by anyone, gives only what came after.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -158,6 +158,7 @@
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
 <tr><td><code>since</code></td><td>string</td><td></td><td>Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message</td></tr>
+<tr><td><code>consumer</code></td><td>string</td><td></td><td>Only the messages this consumer hasn't acknowledged, such as sync-tasks: lowercase words joined by -. Not with since</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -177,7 +178,34 @@
 <tr><td><code>original_thread</code></td><td>object or null</td><td>yes</td><td>The thread a task was made from, or null</td></tr>
 <tr><td><code>original_thread.thread_id</code></td><td>string</td><td></td><td>The thread's ID, for get_thread_history</td></tr>
 <tr><td><code>original_thread.link</code></td><td>string</td><td></td><td>A link to the thread</td></tr>
+<tr><td><code>token</code></td><td>string</td><td>yes</td><td>With consumer: the last message given, or the consumer's position when none is new, for ack_task_history. Empty without consumer</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="ack_task_history">
+  <div class="wrap">
+    <h2><code>ack_task_history</code></h2>
+    <p>Moves a consumer's position in a task's thread on to the token get_task_history gave it, so the next read with that consumer gives only the messages after it. It changes nothing on the task and is shown to no one, so unlike other writes it needs no approval. Acknowledge once the messages are handled, a fix the person turned down included; not while they are still deciding. Refused when the consumer has read further since.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>consumer</code></td><td>string</td><td>yes</td><td>The consumer it was read with</td></tr>
+<tr><td><code>token</code></td><td>string</td><td>yes</td><td>The token get_task_history gave</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>consumer</code></td><td>string</td><td>yes</td><td>The consumer</td></tr>
+<tr><td><code>acked</code></td><td>boolean</td><td>yes</td><td>Whether its position was moved on</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -186,14 +214,13 @@
 <section class="tool" id="get_task_summary">
   <div class="wrap">
     <h2><code>get_task_summary</code></h2>
-    <p>Gives a task's saved summary (whose agent saved it, when, and up to which message of the task's thread it covers) and the messages of the task's thread after that one, oldest first; with no summary saved, or with full, every message and no summary. A message Cade copied in from another thread names that thread in moved_from. save_task_summary saves a summary with the through given here. When the team has steps for writing it, prompt names them, for get_prompt.</p>
+    <p>Gives a task's saved summary, whose agent saved it and when, and through, the last message of the task's thread it covers: the messages after it are get_task_history's with since. save_task_summary saves a new one. When the team has steps for writing it, prompt names them, for get_prompt.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>full</code></td><td>boolean</td><td></td><td>Leave out the saved summary and give every message of the task's thread. Default false</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -202,23 +229,10 @@
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
 <tr><td><code>title</code></td><td>string</td><td>yes</td><td>The task's title</td></tr>
-<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>The summary saved so far, or empty when there is none or with full</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>The summary saved, or empty when there is none</td></tr>
 <tr><td><code>summary_by</code></td><td>string</td><td>yes</td><td>Whose agent saved it, or empty: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>summary_at</code></td><td>string</td><td>yes</td><td>When it was saved, or empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>summary_through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread the saved summary covers, or empty when none is saved</td></tr>
-<tr><td><code>up_to_date</code></td><td>boolean</td><td>yes</td><td>Whether the saved summary covers every message: then there is nothing new to add</td></tr>
-<tr><td><code>messages</code></td><td>object[]</td><td>yes</td><td>The messages the summary doesn't cover yet (all of them with no summary or with full), oldest first · A message in the task's thread</td></tr>
-<tr><td><code>messages[].ts</code></td><td>string</td><td>yes</td><td>Slack's message time</td></tr>
-<tr><td><code>messages[].time</code></td><td>string</td><td>yes</td><td>When it was sent (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>messages[].user_id</code></td><td>string</td><td>yes</td><td>The sender: a Slack user ID (show the name, not the ID), a bot's name or ID, or unknown</td></tr>
-<tr><td><code>messages[].bot</code></td><td>boolean</td><td>yes</td><td>Whether a bot sent it</td></tr>
-<tr><td><code>messages[].text</code></td><td>string</td><td>yes</td><td>What it says, with &lt;@U…&gt; mentions as sent</td></tr>
-<tr><td><code>messages[].files</code></td><td>string[]</td><td>yes</td><td>Names of attached files</td></tr>
-<tr><td><code>messages[].links</code></td><td>string[]</td><td>yes</td><td>The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person</td></tr>
-<tr><td><code>messages[].moved_from</code></td><td>object or null</td><td>yes</td><td>Set when this message is Cade's copy of the first message of another thread, moved into the task: that thread, or null</td></tr>
-<tr><td><code>messages[].moved_from.thread_id</code></td><td>string</td><td></td><td>The thread's ID, for get_thread_history</td></tr>
-<tr><td><code>messages[].moved_from.link</code></td><td>string</td><td></td><td>A link to the message moved</td></tr>
-<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread given, or the saved summary's when none is new: for save_task_summary. Empty when the task's thread has no messages kept</td></tr>
+<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread it covers, for get_task_history's since, or empty when there is none</td></tr>
 <tr><td><code>prompt</code></td><td>string</td><td>yes</td><td>The prompt with the team's steps for a task's summary, for get_prompt with the task as its task argument, or empty when the team has none</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 </tbody>
@@ -237,7 +251,7 @@
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
 <tr><td><code>summary</code></td><td>string</td><td>yes</td><td>The summary, as plain text. At most 8000 characters</td></tr>
-<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread it covers: the through get_task_summary gave</td></tr>
+<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread it covers: the last ts get_task_history gave</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>

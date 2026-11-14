@@ -71,10 +71,12 @@
       <article class="entry">
         <h3>task-summary</h3>
         <ol>
-          <li>Finds the task, by its ID, a link to its card or thread, or its title.</li>
+          <li>Finds the task, by its ID, a link to its card or thread, or its title, and its subtasks with <code>get_task</code>.</li>
           <li>Reads it with <code>get_task_summary</code>: the summary saved so far and the messages of the task's thread after it. A message moved in from another thread links to it, and the agent reads the rest of that thread with <code>get_thread_history</code>, or its own Slack tools; if neither can, the copy is all there is.</li>
           <li>Writes what the issue is, who raised it, its impact, the details needed to understand it and what was decided about it, keeping what is still right in the one saved. The status, people and pull requests come from <code>get_task</code> as they are now.</li>
-          <li>Gives it to you, and saves it with <code>save_task_summary</code> for the next agent. That needs no approval: only agents read it.</li>
+          <li>Saves it with <code>save_task_summary</code> for the next agent. That needs no approval: only agents read it.</li>
+          <li>Does the same for each subtask: every subtask keeps a summary of its own thread, brought up to date only when it has new messages.</li>
+          <li>Gives you one picture: the task's summary, then each subtask's title, status and gist. The picture isn't saved; it is put together again from the summaries next time.</li>
         </ol>
         <div class="example"><b>Or ask:</b> “Summarize the Cade task C0123ABCD:1700000000.000100.” The agent calls <code>get_task_summary</code>, which points it to this prompt with <code>get_prompt</code>, so it follows the same steps.</div>
       </article>

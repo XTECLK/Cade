@@ -2060,7 +2060,7 @@ function recordResponses(t) {
 test("pull requests pasted into a task's thread are auto-linked, with no one asked yet, and whoever pasted them is told privately, with OK and Unlink", async (t) => {
   const root = storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" });
   root.task.prs = [MR];
-  const calls = mockSlack(t, { stored: [root] });
+  const calls = mockSlack(t, { stored: [root], "chat.postMessage": { channel: "CDEV", ts: "300.1" } });
   await send("/slack/events", threadReply(`Fixed in <${PR}> and <${MR}>, see <https://example.com/doc>`));
 
   // Only the PR that isn't linked yet. The thread hears only that it was auto-linked: the reviewers
@@ -2075,7 +2075,8 @@ test("pull requests pasted into a task's thread are auto-linked, with no one ask
   assert.equal(notes[0].text, `I linked <${PR}|cade/42> to this task from your message.`);
   const [ok, unlink] = notes[0].blocks[1].elements;
   assert.deepEqual([ok.text.text, unlink.text.text], ["OK", "Unlink"]);
-  assert.deepEqual(JSON.parse(unlink.value), { channel: "CDEV", ts: "100.1", urls: [PR], told: [] });
+  // The Auto-linked message rides along, for Unlink to take back.
+  assert.deepEqual(JSON.parse(unlink.value), { channel: "CDEV", ts: "100.1", urls: [PR], posted: "300.1", told: [] });
 });
 
 test("OK on a note with nothing to suggest asks for review as linking would: the reviewers while In review, not those mentioned; with none, whoever pasted it privately", async (t) => {
@@ -2100,11 +2101,25 @@ test("OK on a note with nothing to suggest asks for review as linking would: the
     assert.deepEqual(drafts(calls), asked, label);
     assert.deepEqual(calls.filter((call) => call.method === "chat.postEphemeral" && !drafts([call]).length).map((call) => call.args.text), privately, label);
   }
-  // Unlink asks no one.
+  // Unlink asks no one, and takes the Auto-linked message back rather than posting another.
   const calls = mockSlack(t, { stored: [linked(storedTask({ reviewers: ["URIA"], status: "IN_REVIEW" }))] });
   recordResponses(t);
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UACTOR" }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, response_url: RESPONSE_URL, actions: [{ action_id: "pr:linked-unlink", value: JSON.stringify({ channel: "CDEV", ts: "100.1", urls: [PR], posted: "300.1", told: [] }) }] }));
+  assert.deepEqual((await savedTask()).prs, []);
+  assert.deepEqual(calls.filter((call) => call.method === "chat.postMessage"), []);
+  assert.deepEqual(calls.filter((call) => call.method === "chat.delete").map((call) => call.args), [{ channel: "CDEV", ts: "300.1" }]);
+  assert.deepEqual(drafts(calls), []);
+});
+
+test("Unlink on a note from before the Auto-linked message was kept tells the thread who unlinked it", async (t) => {
+  const record = storedTask();
+  record.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [record] });
+  recordResponses(t);
   await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UACTOR" }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, response_url: RESPONSE_URL, actions: [{ action_id: "pr:linked-unlink", value: JSON.stringify({ channel: "CDEV", ts: "100.1", urls: [PR], told: [] }) }] }));
+  assert.deepEqual((await savedTask()).prs, []);
   assert.deepEqual(calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text), [`<@UACTOR> unlinked <${PR}|cade/42>.`]);
+  assert.ok(!calls.some((call) => call.method === "chat.delete"));
 });
 
 test("an auto-linked PR asks no one, whatever the status and people: what the message means is suggested once the note is clicked", async (t) => {
@@ -2116,7 +2131,7 @@ test("an auto-linked PR asks no one, whatever the status and people: what the me
   }
 });
 
-test("OK or Unlink on the note turns it into the suggestion, or removes it with none; Unlink also takes the open ones off and tells the thread", async (t) => {
+test("OK or Unlink on the note turns it into the suggestion, or removes it with none; Unlink also takes the open ones off, and the Auto-linked message names only those left", async (t) => {
   const changes = { people: { reviewer: { add: ["UREX"], remove: [] } } };
   const click = (action_id, value) =>
     interaction({ type: "block_actions", user: { id: "UACTOR" }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, response_url: RESPONSE_URL, actions: [{ action_id, value }] });
@@ -2131,9 +2146,13 @@ test("OK or Unlink on the note turns it into the suggestion, or removes it with 
   // Unlink, with a suggestion: the note becomes it, and the open one is unlinked.
   let calls = mockSlack(t, { stored: [stored()] });
   let sent = recordResponses(t);
-  await send("/slack/interactions", click("pr:linked-unlink", JSON.stringify({ channel: "CDEV", ts: "100.1", urls: [PR, PR3], changes, from: "TODO", told: ["UREX"] })));
+  await send("/slack/interactions", click("pr:linked-unlink", JSON.stringify({ channel: "CDEV", ts: "100.1", urls: [PR, PR3], posted: "300.1", changes, from: "TODO", told: ["UREX"] })));
   assert.deepEqual((await savedTask()).prs, [MR, PR3]);
-  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, `<@UACTOR> unlinked <${PR}|cade/42>.`);
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage" || call.method === "chat.delete"));
+  assert.deepEqual(
+    calls.filter((call) => call.method === "chat.update" && call.args.ts === "300.1").map((call) => call.args.text),
+    [`Auto-linked <${PR3}|cade/43>.`],
+  );
   assert.equal(sent.length, 1);
   assert.equal(sent[0].replace_original, true);
   assert.equal(sent[0].text, "Should I update the task? From your message:");

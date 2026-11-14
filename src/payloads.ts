@@ -101,10 +101,10 @@ export const PR_SUGGESTION = object({ ...TASK_REF, urls: texts, mentioned: texts
 export type PrSuggestion = TaskRef & { urls?: string[]; mentioned?: string[]; reviewers?: string[] };
 
 // OK and Unlink on the private note that pull requests pasted into a task's thread were linked (pr.ts):
-// the task, the PRs that message linked, and what else it means, to ask about once clicked, as a
-// suggestion carries it.
-export const PR_LINKED = object({ ...TASK_REF, urls: texts, changes: CHANGES, from: text, told: texts }, ["channel", "ts", "urls"]);
-export type PrLinked = TaskRef & { urls: string[]; changes?: Changes; from?: Status; told?: string[] };
+// the task, the PRs that message linked, the Auto-linked message posted (not on older notes), and what
+// else it means, to ask about once clicked, as a suggestion carries it.
+export const PR_LINKED = object({ ...TASK_REF, urls: texts, posted: text, changes: CHANGES, from: text, told: texts }, ["channel", "ts", "urls"]);
+export type PrLinked = TaskRef & { urls: string[]; posted?: string; changes?: Changes; from?: Status; told?: string[] };
 
 // The reviewer picker's block_id (pr.ts): the PRs it asks about. It may have been cut short to fit,
 // and then it isn't read.

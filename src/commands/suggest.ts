@@ -105,9 +105,9 @@ async function suggestWork(message: PlainMessage, env: AppEnv) {
   const linked = await linkPasted(env, message, found.target, found.task);
   // The task as it now is, with them, for the rest of the message to be read against: as if they had
   // been linked before it.
-  const about = { ...found, task: { ...found.task, prs: [...found.task.prs, ...linked] } };
-  const changes = await readSuggestion(env, message, about, linked);
-  if (linked.length) await noteLinked(env, message, about, linked, changes);
+  const about = { ...found, task: { ...found.task, prs: [...found.task.prs, ...linked.urls] } };
+  const changes = await readSuggestion(env, message, about, linked.urls);
+  if (linked.urls.length) await noteLinked(env, message, about, linked, changes);
   else if (changes) await askToChange(env, message, about, changes);
 }
 

@@ -110,7 +110,7 @@ export default {
       context.waitUntil(
         (async () => {
           await afterNote(context.env, note, payload.response_url);
-          await unlinkPasted(context.env, note, note.urls, payload.user.id);
+          await unlinkPasted(context.env, note, payload.user.id);
         })(),
       );
     },
@@ -136,25 +136,26 @@ async function addPullRequests(env: AppEnv, channel: string, ts: string, task: S
 // linked. Cade linked them, not whoever pasted them, so the thread hears only that they were
 // auto-linked, as any link is recorded, and no one is asked anything yet: whoever pasted them is told
 // privately first (see noteLinked), and what else the message means, who reviews them included, is
-// suggested after that and notifies as any change does. Off with pr-links.
-export async function linkPasted(env: AppEnv, message: PlainMessage, target: TaskRef, task: StoredTask) {
-  if (!suggesting(env, "pr-links", message.channel)) return [];
+// suggested after that and notifies as any change does. Off with pr-links. Returns the `posted` message
+// too, so Unlink on the note can take it back (see unlinkPasted).
+export async function linkPasted(env: AppEnv, message: PlainMessage, target: TaskRef, task: StoredTask): Promise<{ urls: string[]; posted?: string }> {
+  if (!suggesting(env, "pr-links", message.channel)) return { urls: [] };
   const urls = pullRequestsIn(message.text).filter((url) => !task.prs.includes(url));
-  if (!urls.length) return [];
+  if (!urls.length) return { urls: [] };
   const change = await changeTask(env, target, { prs: { add: urls } }, message.user, { told: message.mentions });
-  if (!change?.prs) return [];
+  if (!change?.prs) return { urls: [] };
   const added = change.prs.added;
-  await callSlack(env, "chat.postMessage", { channel: target.channel, thread_ts: target.ts, text: autoLinked(added) });
-  return added;
+  const { ts } = await callSlack(env, "chat.postMessage", { channel: target.channel, thread_ts: target.ts, text: autoLinked(added) });
+  return { urls: added, posted: ts };
 }
 
 // Tells whoever pasted pull requests, privately, that they were linked (`urls`), with OK and Unlink, for
 // one pasted only to point at. Either, clicked, turns the note into the question about `changes`, what
 // else the message means (see afterNote), or removes it when there are none; once it's gone, the card's
 // Pull requests button takes one off (see prs.ts).
-export async function noteLinked(env: AppEnv, message: PlainMessage, { target, task }: { target: TaskRef; task: StoredTask }, urls: string[], changes: Changes | null) {
+export async function noteLinked(env: AppEnv, message: PlainMessage, { target, task }: { target: TaskRef; task: StoredTask }, { urls, posted }: { urls: string[]; posted?: string }, changes: Changes | null) {
   const note = `I linked ${urls.map(prLink).join(", ")} to this task from your message.`;
-  const value = JSON.stringify({ ...target, urls, told: message.mentions, ...(changes && { changes, from: task.status }) });
+  const value = JSON.stringify({ ...target, urls, posted, told: message.mentions, ...(changes && { changes, from: task.status }) });
   await callSlack(env, "chat.postEphemeral", {
     channel: message.channel,
     thread_ts: message.threadTs,
@@ -196,13 +197,23 @@ async function askToReview(env: AppEnv, { channel, ts, urls, told = [] }: PrLink
 }
 
 // Unlink on that note: takes off the pull requests the message linked that are still linked and open
-// (a merged or closed one stays, as in the Pull requests form), and the thread hears who did, as for any
-// change.
-async function unlinkPasted(env: AppEnv, target: TaskRef, urls: string[], user: string) {
-  const task = await loadTask(env, target.channel, target.ts);
+// (a merged or closed one stays, as in the Pull requests form). Rather than a second message saying who
+// unlinked them, the Auto-linked one is taken back: deleted, or left naming those still linked, so a
+// link pasted only to point at leaves nothing in the thread. A note from before it was kept tells the
+// thread who unlinked them, as for any change.
+async function unlinkPasted(env: AppEnv, { channel, ts, urls, posted }: PrLinked, user: string) {
+  const task = await loadTask(env, channel, ts);
   if (!task) return;
   const remove = urls.filter((url) => task.prs.includes(url) && prState(task, url) === "OPEN");
-  if (remove.length) await applyChanges(env, { channel: target.channel, ts: target.ts }, { prs: { remove } }, user);
+  if (!remove.length) return;
+  if (!posted) {
+    await applyChanges(env, { channel, ts }, { prs: { remove } }, user);
+    return;
+  }
+  await changeTask(env, { channel, ts }, { prs: { remove } }, user);
+  const kept = urls.filter((url) => !remove.includes(url));
+  if (kept.length) await callSlack(env, "chat.update", { channel, ts: posted, text: autoLinked(kept) });
+  else await callSlack(env, "chat.delete", { channel, ts: posted });
 }
 
 // The pull requests linked in a message's text, each once.

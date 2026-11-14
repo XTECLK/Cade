@@ -94,8 +94,10 @@
         <h3>executive-summary</h3>
         <ol>
           <li>Reads the last summary in your team's document: where this period starts, and the format to follow.</li>
-          <li><code>get_tasks</code> with the project and the period (<code>completed_from</code>, <code>completed_to</code>, <code>include_open</code>): what was done, and what is still open; then each open task's subtasks and thread, and for each done one its summary with <code>get_task_summary</code> (brought up to date and saved, as <code>task-summary</code> does).</li>
-          <li>Drafts a line per task: done, or its health, progress and a note, naming the evidence. Shows it all; on a clear yes, writes it to the document with your agent's own tools.</li>
+          <li><code>get_tasks</code> with the project and the period (<code>completed_from</code>, <code>completed_to</code>, <code>include_open</code>): what was done, and what is still open.</li>
+          <li>For what each task is about, follows <code>task-summary</code>, which brings its and its subtasks' summaries up to date. For how each open one is going, reads its status, due date, subtasks and pull requests, and what moved in its thread during the period (<code>get_task_history</code> with <code>since</code>).</li>
+          <li>Judges each open task: blocked, delayed (past its due date), at risk (due soon with much left, no progress in the period, waiting on someone outside, or a problem raised) or on track, with its progress, naming the evidence.</li>
+          <li>Drafts a line per task in the last summary's format. Shows it all; on a clear yes, writes it to the document with your agent's own tools.</li>
         </ol>
         <div class="example"><b>Or ask:</b> “Write the executive summary for Acme for the last two weeks, in our Acme status doc.”</div>
       </article>

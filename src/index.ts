@@ -38,9 +38,9 @@ export default {
     // AI agents reach Cade's MCP endpoint with an API key of their own in a
     // header, not Slack's signature (see mcp.ts).
     if (path === "/mcp" || path === "/mcp/") return handleMcp(request, env);
-    // People reach a task's thread and notes pages with a session of their
-    // own, which the Home tab's Web pages button starts (see web.ts).
-    if (/^\/(t|n|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
+    // People reach a task's thread page with a session of their own, which
+    // the Home tab's Web pages button starts (see web.ts).
+    if (/^\/(t|login|logout)(\/|$)/.test(path)) return handleWeb(request, env);
     const route = ROUTES[path];
     if (!route) return new Response("Not found", { status: 404 });
     if (request.method !== "POST") {

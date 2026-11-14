@@ -61,14 +61,14 @@
 <section class="tool" id="get_task">
   <div class="wrap">
     <h2><code>get_task</code></h2>
-    <p>Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.</p>
+    <p>Reads one task from Cade's own database: its details, people, links and pull requests, as they are now. For what the task is about, get_task_summary gives its summary. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at | original_thread | original_thread_state | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at | original_thread | original_thread_state | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -96,10 +96,6 @@
 <tr><td><code>user_names</code></td><td>object</td><td></td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 <tr><td><code>created_by</code></td><td>string</td><td></td><td>Who raised it: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>completed_at</code></td><td>string</td><td></td><td>When it was marked Done, or empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
-<tr><td><code>notes_link</code></td><td>string</td><td></td><td>A link to the notes page, or empty</td></tr>
-<tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the issue, or empty</td></tr>
-<tr><td><code>summary_by</code></td><td>string</td><td></td><td>Who wrote the summary, or empty: a Slack user ID, show the name, not the ID</td></tr>
-<tr><td><code>notes</code></td><td>string</td><td></td><td>The notes people wrote, or empty</td></tr>
 <tr><td><code>original_thread_state</code></td><td>string: found | none | unknown</td><td></td><td>found: original_thread names it; none: made from no other thread; unknown: no messages kept yet</td></tr>
 <tr><td><code>original_thread</code></td><td>object or null</td><td></td><td>The thread a task was made from, or null</td></tr>
 <tr><td><code>original_thread.thread_id</code></td><td>string</td><td></td><td>The thread's ID, for get_thread_history</td></tr>
@@ -121,7 +117,7 @@
 <section class="tool" id="get_thread_history">
   <div class="wrap">
     <h2><code>get_thread_history</code></h2>
-    <p>Reads a whole Slack thread from Slack, oldest message first. Slack's free plan hides messages older than 90 days; for a task Cade tracks, get_task_history has the messages Cade kept.</p>
+    <p>Reads a whole Slack thread from Slack, oldest message first, in a channel you are in, or one a message was moved from into a task you can read (get_task_summary names them). If Cade isn't in the channel, read it with your own Slack tools, as the person. Slack's free plan hides messages older than 90 days; for a task Cade tracks, get_task_history has the messages Cade kept.</p>
     <p>Give one of <code>thread_id</code> or <code>link</code>.</p>
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -154,13 +150,14 @@
 <section class="tool" id="get_task_history">
   <div class="wrap">
     <h2><code>get_task_history</code></h2>
-    <p>Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days.</p>
+    <p>Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. For a task's summary, get_task_summary gives the messages it needs.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>since</code></td><td>string</td><td></td><td>Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -186,6 +183,74 @@
   </div>
 </section>
 
+<section class="tool" id="get_task_summary">
+  <div class="wrap">
+    <h2><code>get_task_summary</code></h2>
+    <p>Gives a task's saved summary (whose agent saved it, when, and up to which message of the task's thread it covers) and the messages of the task's thread after that one, oldest first; with no summary saved, or with full, every message and no summary. A message Cade copied in from another thread names that thread in moved_from. save_task_summary saves a summary with the through given here. When the team has steps for writing it, prompt names them, for get_prompt.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>full</code></td><td>boolean</td><td></td><td>Leave out the saved summary and give every message of the task's thread. Default false</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>title</code></td><td>string</td><td>yes</td><td>The task's title</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>The summary saved so far, or empty when there is none or with full</td></tr>
+<tr><td><code>summary_by</code></td><td>string</td><td>yes</td><td>Whose agent saved it, or empty: a Slack user ID, show the name, not the ID</td></tr>
+<tr><td><code>summary_at</code></td><td>string</td><td>yes</td><td>When it was saved, or empty (YYYY-MM-DD HH:MM, UTC)</td></tr>
+<tr><td><code>summary_through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread the saved summary covers, or empty when none is saved</td></tr>
+<tr><td><code>up_to_date</code></td><td>boolean</td><td>yes</td><td>Whether the saved summary covers every message: then there is nothing new to add</td></tr>
+<tr><td><code>messages</code></td><td>object[]</td><td>yes</td><td>The messages the summary doesn't cover yet (all of them with no summary or with full), oldest first · A message in the task's thread</td></tr>
+<tr><td><code>messages[].ts</code></td><td>string</td><td>yes</td><td>Slack's message time</td></tr>
+<tr><td><code>messages[].time</code></td><td>string</td><td>yes</td><td>When it was sent (YYYY-MM-DD HH:MM, UTC)</td></tr>
+<tr><td><code>messages[].user_id</code></td><td>string</td><td>yes</td><td>The sender: a Slack user ID (show the name, not the ID), a bot's name or ID, or unknown</td></tr>
+<tr><td><code>messages[].bot</code></td><td>boolean</td><td>yes</td><td>Whether a bot sent it</td></tr>
+<tr><td><code>messages[].text</code></td><td>string</td><td>yes</td><td>What it says, with &lt;@U…&gt; mentions as sent</td></tr>
+<tr><td><code>messages[].files</code></td><td>string[]</td><td>yes</td><td>Names of attached files</td></tr>
+<tr><td><code>messages[].links</code></td><td>string[]</td><td>yes</td><td>The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person</td></tr>
+<tr><td><code>messages[].moved_from</code></td><td>object or null</td><td>yes</td><td>Set when this message is Cade's copy of the first message of another thread, moved into the task: that thread, or null</td></tr>
+<tr><td><code>messages[].moved_from.thread_id</code></td><td>string</td><td></td><td>The thread's ID, for get_thread_history</td></tr>
+<tr><td><code>messages[].moved_from.link</code></td><td>string</td><td></td><td>A link to the message moved</td></tr>
+<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread given, or the saved summary's when none is new: for save_task_summary. Empty when the task's thread has no messages kept</td></tr>
+<tr><td><code>prompt</code></td><td>string</td><td>yes</td><td>The prompt with the team's steps for a task's summary, for get_prompt with the task as its task argument, or empty when the team has none</td></tr>
+<tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="save_task_summary">
+  <div class="wrap">
+    <h2><code>save_task_summary</code></h2>
+    <p>Saves a task's summary, covering its thread up to through, in place of the one saved. It is kept for agents, not posted in Slack or shown on a page, so unlike other writes it needs no approval. Anyone who can read the task's channel gets it through their agent. Refused when the one saved covers more of the thread.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>The summary, as plain text. At most 8000 characters</td></tr>
+<tr><td><code>through</code></td><td>string</td><td>yes</td><td>The last message of the task's thread it covers: the through get_task_summary gave</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
+<tr><td><code>saved</code></td><td>boolean</td><td>yes</td><td>Whether it was saved</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
 <section class="tool" id="get_tasks">
   <div class="wrap">
     <h2><code>get_tasks</code></h2>
@@ -203,7 +268,7 @@
 <tr><td><code>completed_from</code></td><td>string</td><td></td><td>Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)</td></tr>
 <tr><td><code>completed_to</code></td><td>string</td><td></td><td>Only tasks marked Done on or before this day (YYYY-MM-DD)</td></tr>
 <tr><td><code>include_open</code></td><td>boolean</td><td></td><td>With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | summary | summary_by | notes | notes_link | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but created_by, prs, completed_at</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -231,10 +296,6 @@
 <tr><td><code>tasks[].parent.task_id</code></td><td>string</td><td></td><td>The task's ID, for get_task and get_task_history</td></tr>
 <tr><td><code>tasks[].parent.title</code></td><td>string</td><td></td><td>The task's title</td></tr>
 <tr><td><code>tasks[].parent.link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
-<tr><td><code>tasks[].summary</code></td><td>string</td><td></td><td>The summary of the issue, or empty</td></tr>
-<tr><td><code>tasks[].summary_by</code></td><td>string</td><td></td><td>Who wrote the summary, or empty: a Slack user ID, show the name, not the ID</td></tr>
-<tr><td><code>tasks[].notes</code></td><td>string</td><td></td><td>The notes people wrote, or empty</td></tr>
-<tr><td><code>tasks[].notes_link</code></td><td>string</td><td></td><td>A link to the notes page, or empty</td></tr>
 <tr><td><code>tasks[].created_by</code></td><td>string</td><td></td><td>Who raised it: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>tasks[].prs</code></td><td>object[]</td><td></td><td>The pull requests linked to the task, each with where it stands · A pull request linked to the task</td></tr>
 <tr><td><code>tasks[].prs[].url</code></td><td>string</td><td>yes</td><td>The pull request's address</td></tr>
@@ -313,7 +374,7 @@
 <section class="tool" id="create_task">
   <div class="wrap">
     <h2><code>create_task</code></h2>
-    <p>Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. Preview: kind (task or incident), title, project, priority, due date (or none), the whole summary, the thread it comes from, and the task it is a subtask of, if any.</p>
+    <p>Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. Suggest the title, priority and due date and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. Preview: kind (task or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -324,7 +385,6 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>Default Medium. Not for an incident</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD. Use a date the thread gives or clearly implies, never an invented one; leave out for none. Not for an incident</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td></td><td>Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false</td></tr>
-<tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most 8000 characters</td></tr>
 <tr><td><code>thread_id</code></td><td>string</td><td></td><td>The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>Instead of thread_id: a link to a message in the thread</td></tr>
 <tr><td><code>parent_task_id</code></td><td>string</td><td></td><td>Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's</td></tr>
@@ -339,8 +399,6 @@
 <tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td>yes</td><td>Whether it was made as an incident</td></tr>
 <tr><td><code>parent_task_id</code></td><td>string or null</td><td>yes</td><td>The task it is a subtask of, or null</td></tr>
-<tr><td><code>summary_saved</code></td><td>boolean</td><td>yes</td><td>Whether the summary was saved on the notes page</td></tr>
-<tr><td><code>notes_link</code></td><td>string</td><td>yes</td><td>A link to the notes page, or empty</td></tr>
 </tbody>
 </table></div>
   </div>
@@ -555,7 +613,7 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread; a changed summary is saved and the thread is told, with a link to the notes page. Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
+    <p>Changes a task in one call: its status, priority, due date, people and pull requests. Cade posts the changes in the task's thread. Its summary is save_task_summary's. Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, owner, reviewer, tester, pull requests), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -567,7 +625,6 @@
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason</td></tr>
-<tr><td><code>summary</code></td><td>string</td><td></td><td>The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, &quot;- &quot; for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one</td></tr>
 <tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first</td></tr>
 <tr><td><code>prs.add</code></td><td>string[]</td><td></td><td>Pull requests to link to the task, as links</td></tr>
 <tr><td><code>prs.remove</code></td><td>string[]</td><td></td><td>Pull requests to unlink from the task, as links</td></tr>
@@ -588,8 +645,6 @@
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, for the other tools</td></tr>
 <tr><td><code>changed</code></td><td>boolean</td><td>yes</td><td>Whether a field changed (and was posted in the thread)</td></tr>
-<tr><td><code>summary_saved</code></td><td>boolean</td><td>yes</td><td>Whether the summary was saved on the notes page</td></tr>
-<tr><td><code>notes_link</code></td><td>string</td><td>yes</td><td>A link to the notes page, or empty</td></tr>
 <tr><td><code>suggested_message</code></td><td>string</td><td>yes</td><td>What the change asks of the people it names, not sent: offer it to the person for send_thread_message, mentions as &lt;@ID&gt;. Moved to Client review, the request to the approver instead, for send_approval_request's message. Empty when there's nothing to ask</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
 </tbody>
@@ -619,6 +674,31 @@
 <tr><td><code>approver</code></td><td>string</td><td>yes</td><td>Who was asked: a Slack user ID, show the name, not the ID</td></tr>
 <tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the task's thread, or empty</td></tr>
 <tr><td><code>user_names</code></td><td>object</td><td>yes</td><td>The names of the people whose user IDs, or &lt;@…&gt; mentions, are in this result, by user ID (at most 50; for any other ID use get_user). Show the name, never the ID</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
+<section class="tool" id="get_prompt">
+  <div class="wrap">
+    <h2><code>get_prompt</code></h2>
+    <p>Gives one of this deployment's prompts, the team's own steps for a kind of work (such as task-summary for a task's summary), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>yes</td><td>The prompt's name, such as task-summary</td></tr>
+<tr><td><code>arguments</code></td><td>object</td><td></td><td>The prompt's arguments by name, such as {&quot;task&quot;: &quot;C0123ABCD:1700000000.000100&quot;}</td></tr>
+</tbody>
+</table></div>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>yes</td><td>The prompt's name</td></tr>
+<tr><td><code>description</code></td><td>string</td><td>yes</td><td>What it is for</td></tr>
+<tr><td><code>text</code></td><td>string</td><td>yes</td><td>Its steps, with the arguments given after them</td></tr>
 </tbody>
 </table></div>
   </div>

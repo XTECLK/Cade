@@ -56,7 +56,7 @@ async function session(user) {
 }
 
 // The page that needs a signed-in session, for the logout test.
-const notes = (cookie) => worker.fetch(new Request(`${ORIGIN}/n/CDEV/1.1`, { headers: { cookie } }), env, context());
+const page = (cookie) => worker.fetch(new Request(`${ORIGIN}/t/CDEV/1.1`, { headers: { cookie } }), env, context());
 
 // An interaction as Slack sends it: a button or a form submitted.
 async function interact(payload, environment = env) {
@@ -109,14 +109,14 @@ test("Add project makes the channel a project, named after it, tells the admin, 
 
 test("Add project keeps the switches picked in the form, and no list of people", async (t) => {
   const calls = mock(t, { "conversations.info": { channel: { name: "payments", is_member: true } }, ...ADDING });
-  await answer(addForm({ choices: { summaryCanvas: "on", newTaskDetection: "off", aiAgentSummary: "config" } }));
+  await answer(addForm({ choices: { summaryCanvas: "on", newTaskDetection: "off", taskChangeDetection: "config" } }));
   assert.match(lastNotice(calls), /is now the project/);
   const { withSettings } = await import("../src/settings.ts");
   const added = projects(await withSettings(env)).find((project) => project.channel === "CNEW");
   assert.equal("members" in added, false);
   assert.equal(added.summaryCanvas, true);
   assert.equal(added.newTaskDetection, false);
-  assert.equal("aiAgentSummary" in added, false);
+  assert.equal("taskChangeDetection" in added, false);
 });
 
 test("Add project refuses a non-admin, a taken or bad name and a private channel Cade isn't in, each on its field; a public one is joined", async (t) => {
@@ -180,7 +180,7 @@ test("the Project settings button opens a form with the channel's project, its n
   // The project it was opened for, by name, with no list to pick another, and a choice for each switch.
   assert.equal(view.blocks[0].text.text, "*acme*");
   assert.equal(view.blocks.some((block) => block.accessory?.type === "static_select"), false);
-  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskChangeDetection", "s_newTaskDetection", "s_summaryCanvas", "s_aiAgentSummary"]);
+  assert.deepEqual(view.blocks.filter((block) => block.type === "input").map((block) => block.block_id), ["s_taskChangeDetection", "s_newTaskDetection", "s_summaryCanvas"]);
   assert.equal(view.blocks.some((block) => /name|channel/.test(block.block_id ?? "") && block.type === "input"), false);
   // The config says summaryCanvas is on; the choice starts as following it.
   assert.equal(chosen(view, "summaryCanvas"), "config");
@@ -256,7 +256,7 @@ test("the web pages modal's sign-out button ends every browser session of the pe
   const calls = mock(t);
   const mine = [await session("UADMIN"), await session("UADMIN")];
   const other = await session("UMEMBER");
-  assert.equal((await notes(mine[0])).status, 404);
+  assert.equal((await page(mine[0])).status, 404);
   // Presses a button in the modal (see commands/configure.js) and reads what Cade drew in answer.
   const press = async (actionId, user = "UADMIN") => {
     const before = calls.length;
@@ -266,9 +266,9 @@ test("the web pages modal's sign-out button ends every browser session of the pe
   };
   assert.match(await press("home:web:logout"), /Signed out of 2 browser sessions/);
   // Both sessions are gone, so the page asks to sign in; the other person's stays (a task page they can't find).
-  assert.equal((await notes(mine[0])).status, 401);
-  assert.equal((await notes(mine[1])).status, 401);
-  assert.equal((await notes(other)).status, 404);
+  assert.equal((await page(mine[0])).status, 401);
+  assert.equal((await page(mine[1])).status, 401);
+  assert.equal((await page(other)).status, 404);
   assert.match(await press("home:web:logout"), /weren't signed in/);
   assert.match(await press("home:web:login"), /<https:\/\/worker\.example\.net\/login\/[\w-]+\|Sign in/);
   // Opening the modal only explains and offers the buttons; it makes no link.

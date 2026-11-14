@@ -33,11 +33,6 @@
 //                 channel: track it as a task, report it as an incident or
 //                 move it to a task (optional, on); false to leave such
 //                 messages alone
-//   aiAgentSummary
-//                 whether, after a task is made from a message, Cade offers
-//                 a prompt for the person's AI agent to summarize the
-//                 message's thread into it, through Cade's MCP endpoint
-//                 (optional, on); false to skip it (see mcp.js)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
 //                 (optional, off)
 // A project can also be added from the Home tab, which keeps it in the database.
@@ -125,9 +120,8 @@ export function readConfig(json) {
 }
 
 // Features with `true` or `false`, set on each project: summaryCanvas is off unless turned
-// on; taskChangeDetection and
-// newTaskDetection and aiAgentSummary are on unless turned off.
-const SWITCHES = ["taskChangeDetection", "summaryCanvas", "newTaskDetection", "aiAgentSummary"];
+// on; taskChangeDetection and newTaskDetection are on unless turned off.
+const SWITCHES = ["taskChangeDetection", "summaryCanvas", "newTaskDetection"];
 
 // What a project can set, which used to be allowed at the top of the file.
 const PROJECT_SETTINGS = SWITCHES;

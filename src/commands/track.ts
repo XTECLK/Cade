@@ -1,8 +1,7 @@
-import { groupDisabled, knownProject } from "../channels.ts";
-import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted, promptByName } from "../db.ts";
-import { CLOSE_ALL, callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
+import { knownProject } from "../channels.ts";
+import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.ts";
+import { callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
 import { moveMessage, offerStart } from "./move.ts";
-import { mcpEnabled } from "../mcp.ts";
 import { addPages } from "../export.ts";
 import {
   INCIDENT,
@@ -30,7 +29,6 @@ type Origin = TrackOrigin;
 export type FormOrigin = Omit<TrackOrigin, "channel"> & { channel?: string };
 // A task stored but not yet posted (see unpostedTasks).
 type Unposted = { id: number; channel: string; task: Task; origin: { move?: { channel: string; ts: string } }; attempts: number };
-type OnPosted = (task: Task & { taskId: string }) => void;
 
 const TRACK_VIEW = "track";
 const INCIDENT_VIEW = "incident";
@@ -141,14 +139,13 @@ function readOrigin(payload: SlackPayload) {
   return channel ? { origin: { ...origin, channel } } : { errors: { project: "Please choose a project." } };
 }
 
-async function submit(payload: SlackPayload, context: Context) {
+function submit(payload: SlackPayload, context: Context) {
   const { values } = payload.view.state;
   const { title, dueDate, priority, errors } = readTaskForm(values, "Please give the task a title.");
   const { origin, errors: noProject } = readOrigin(payload);
   if (errors || noProject) return { response_action: "errors", errors: { ...noProject, ...errors } };
 
   const task: Task = { title, priority: priority!, status: "TODO", dueDate, people: noPeople(), createdBy: payload.user.id };
-  if (guides(context.env, origin)) return createAndGuide(context, task, origin, payload.user.id);
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
@@ -159,7 +156,6 @@ function submitIncident(payload: SlackPayload, context: Context) {
   if (errors || noProject) return { response_action: "errors", errors: { ...noProject, ...errors } };
 
   const task: Task = { title, status: "TODO", ...INCIDENT, incident: true, people: noPeople(), createdBy: payload.user.id };
-  if (guides(context.env, origin)) return createAndGuide(context, task, origin, payload.user.id);
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
@@ -168,19 +164,17 @@ function submitIncident(payload: SlackPayload, context: Context) {
 // returns its root message's ts, if it was posted. Stored before it is
 // posted, so that if Slack doesn't take it, it is posted later (see
 // retry.ts); what follows the post needs only `move` and whoever made it.
-// `onPosted`, if given, is called with the task, its link included, as soon
-// as its root message is posted, before the rest of what follows the post.
-export async function createTask(env: AppEnv, task: Task, origin: Origin, { onPosted }: { onPosted?: OnPosted } = {}) {
+export async function createTask(env: AppEnv, task: Task, origin: Origin) {
   const after = { move: origin.move };
   const id = await insertTask(env, origin.channel, task, after);
-  return publishTask(env, { id, channel: origin.channel, task, origin: after, attempts: 0 }, { onPosted });
+  return publishTask(env, { id, channel: origin.channel, task, origin: after, attempts: 0 });
 }
 
 // Posts a stored task that has no root message yet, then moves the
 // message it was made from into its thread, and
 // returns its ts. If Slack refuses the post, the task waits for the next
 // retry, and whoever made it is told, the first time and when Cade gives up.
-export async function publishTask(env: AppEnv, { id, channel, task, origin, attempts }: Unposted, { onPosted }: { onPosted?: OnPosted } = {}): Promise<string | undefined> {
+export async function publishTask(env: AppEnv, { id, channel, task, origin, attempts }: Unposted): Promise<string | undefined> {
   let message: SlackAnswers["chat.postMessage"];
   try {
     message = await callSlack(env, "chat.postMessage", { channel, ...taskMessage(task) });
@@ -206,7 +200,6 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
     console.warn("Could not link the task", { ts: message.ts, error: error.message });
   }
   await markTaskPosted(env, id, message.ts, task.link);
-  onPosted?.({ ...task, taskId: `${message.channel}:${message.ts}` });
   console.log("Task created", {
     channel: message.channel,
     ts: message.ts,
@@ -236,81 +229,4 @@ async function announceSubtask(env: AppEnv, channel: string, task: Task) {
   await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text: subtaskAdded(task.createdBy, task) }).catch((error) => {
     console.warn("Could not tell the parent's thread about its subtask", { ts: task.parent!.ts, error: error.message });
   });
-}
-
-// After a task is made from a message, its form gives way to a second one
-// with a short prompt to paste into the person's AI agent, which reads the
-// task's thread and the thread it was made from through Cade's MCP endpoint
-// and writes the summary on the task's notes page (see mcp.ts), and a line
-// on what to do if the agent isn't connected to Cade yet (the Home tab's AI agent button,
-// see commands/mcp.ts). Only for a task made from a message, and not one from
-// a direct message or a channel Cade isn't in, which it can't read. A project turns it off with
-// `aiAgentSummary` (false), and turning MCP off (`mcp`: false) does too.
-
-// How long the first form waits for the task to be posted, so its ID can
-// go in the prompt, before it closes and the prompt follows as a private
-// message. Slack wants an answer within three seconds.
-const WAIT_MS = 2200;
-const TIMED_OUT = Symbol("timed out");
-
-// Whether the form for a task from `origin` is followed by the prompt.
-function guides(env: AppEnv, origin: Origin) {
-  const { move } = origin;
-  return mcpEnabled(env) && Boolean(move) && !move!.channel.startsWith("D") && !move!.away && !groupDisabled(env, origin.channel, "aiAgentSummary", "AI_AGENT_SUMMARY");
-}
-
-// Makes the task as createTask does, then answers its form with the prompt
-// for it: a form's answer that replaces the form. If the task isn't posted in
-// time, the form closes and the prompt follows in a private message once it
-// is.
-async function createAndGuide({ env, waitUntil }: Context, task: Task, origin: Origin, user: string) {
-  let posted!: (value: (Task & { taskId: string }) | null) => void;
-  const root = new Promise<(Task & { taskId: string }) | null>((resolve) => (posted = resolve));
-  waitUntil(createTask(env, task, origin, { onPosted: posted }).finally(() => posted(null)));
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const first = await Promise.race([root, new Promise<typeof TIMED_OUT>((resolve) => (timer = setTimeout(resolve, WAIT_MS, TIMED_OUT)))]);
-  clearTimeout(timer!);
-
-  if (first === TIMED_OUT) {
-    waitUntil(
-      root.then(async (posted) => {
-        if (!posted?.taskId) return;
-        await callSlack(env, "chat.postEphemeral", {
-          channel: origin.channel,
-          user,
-          text: `Your task is up. To have your AI agent write its summary:\n${await howTo(env, posted.taskId)}\n${NOT_CONNECTED}`,
-        });
-      }),
-    );
-    return CLOSE_ALL;
-  }
-  if (!first?.taskId) return CLOSE_ALL;
-  return { response_action: "update", view: agentView(await howTo(env, first.taskId)) };
-}
-
-const NOT_CONNECTED = "Agent not connected to Cade yet? Open Cade's Home tab and press AI agent.";
-
-// How to have the agent summarize the task with this ID, in Slack's mrkdwn. Words any agent works out
-// from the tools; and when the deployment has a task-summary prompt (see getPrompt in mcp.ts), which only
-// the person can start, its slash command in Claude Code, named after the server as connect-your-agent
-// adds it (cade).
-async function howTo(env: AppEnv, taskId: string) {
-  const words = `\`\`\`Summarize the Cade task ${taskId} and save the summary once I approve it.\`\`\``;
-  if (!(await promptByName(env, "task-summary"))) return `Paste this into it:\n${words}`;
-  return `In Claude Code, run:\n\`\`\`/mcp__cade__task-summary ${taskId}\`\`\`\nIn any other agent, paste this:\n${words}`;
-}
-
-// The second form: how to have the agent summarize it, and where to go if the agent isn't connected.
-function agentView(howTo: string) {
-  const section = (mrkdwn: string) => ({ type: "section", text: { type: "mrkdwn", text: mrkdwn } });
-  return {
-    type: "modal",
-    title: plainText("Summarize with AI"),
-    close: plainText("Done"),
-    blocks: [
-      section(`:white_check_mark: *The task is made.* To have your AI agent write its summary:\n${howTo}`),
-      { type: "context", elements: [{ type: "mrkdwn", text: NOT_CONNECTED }] },
-    ],
-  };
 }

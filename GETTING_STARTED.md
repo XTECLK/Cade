@@ -2,7 +2,7 @@
 
 Self-host Cade for your team: one Cloudflare Worker and one Slack app. There
 is no server to run;
-Cade keeps its tasks, their threads and their notes in a Cloudflare D1
+Cade keeps its tasks and their threads in a Cloudflare D1
 database that comes with the Worker, and shows them in Slack and on pages of
 the Worker.
 
@@ -317,7 +317,7 @@ After updating, the **Home** tab and any new shortcuts or events come with
   runs a workflow with its own AI agent, such as the `executive-summary`
   prompt the deploy repo starts with (see
   [the workflows guide](https://xteclk.github.io/Cade/workflows.html)).
-- **Task threads and notes** are in the
+- **Task threads** are in the
   database, on pages of the Worker (Settings → Web pages on the app's Home tab to open them).
 
 ## Using Cade

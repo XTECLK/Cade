@@ -2,7 +2,7 @@ import { groupDisabled, groupEnabled, groupSetting, projects } from "./channels.
 import { addedProjects, clearProjectSetting, projectSettings, setProjectSetting } from "./db.ts";
 import type { AppEnv } from "./env.ts";
 
-export type SettingKey = "taskChangeDetection" | "newTaskDetection" | "summaryCanvas" | "aiAgentSummary";
+export type SettingKey = "taskChangeDetection" | "newTaskDetection" | "summaryCanvas";
 export type SettingChoice = "config" | "on" | "off";
 
 // The project settings that can be changed in the form Edit opens, under Projects in Settings on the Home tab (see commands/project.ts), each on or off.
@@ -12,7 +12,6 @@ export const SETTINGS: { key: SettingKey; label: string; about: string }[] = [
   { key: "taskChangeDetection", label: "Task change detection", about: "Cade reads messages in task threads with AI, links pasted PRs, and offers, privately, to assign someone, move the status or mark it blocked." },
   { key: "newTaskDetection", label: "New task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
   { key: "summaryCanvas", label: "Summary canvas", about: "The channel's canvas holds a table of its tasks, kept up to date." },
-  { key: "aiAgentSummary", label: "AI agent summary prompt", about: "A task made from a message offers a prompt for the person's AI agent to summarize it." },
 ];
 
 // What a project keeps in the database. Who works on a project isn't kept: it is whoever is in its
@@ -72,8 +71,6 @@ export function settingOn(env: AppEnv, channel: string | undefined, key: Setting
     }
     case "newTaskDetection":
       return !groupDisabled(env, channel, key, "NEW_TASK_DETECTION");
-    case "aiAgentSummary":
-      return !groupDisabled(env, channel, key, "AI_AGENT_SUMMARY");
     case "summaryCanvas":
       return groupEnabled(env, channel, key, "SUMMARY_CANVAS");
     default:

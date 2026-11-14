@@ -23,8 +23,6 @@ export interface MessageRow {
   files?: { name?: string; permalink?: string }[] | null;
 }
 
-type TaskKey = { channel: string; ts: string };
-
 // Rows as D1 gives them: the columns in migrations/.
 interface TaskRow {
   id: number;
@@ -51,7 +49,6 @@ interface TaskRow {
   deleted_at: string | null;
   archived_at: string | null;
   archived_by: string | null;
-  notes_url: string | null;
   export_url: string | null;
 }
 
@@ -86,15 +83,11 @@ interface MessageDbRow {
   files: string | null;
 }
 
-interface NotesRow {
-  channel: string;
-  task_ts: string;
-  summary: string | null;
-  summary_by: string | null;
-  summary_at: string | null;
-  body: string | null;
-  updated_by: string | null;
-  updated_at: string | null;
+interface SummaryRow {
+  summary: string;
+  through_ts: string;
+  written_by: string;
+  written_at: string;
 }
 
 // How many times Cade tries to post a root message before giving up: once
@@ -455,7 +448,6 @@ function taskToRow(task: Task) {
     blocked: task.blocked ? 1 : 0,
     blocked_reason: task.blocked ? task.blockedReason ?? "" : "",
     link: task.link ?? null,
-    notes_url: task.notes?.url ?? null,
     export_url: task.export?.url ?? null,
   };
 }
@@ -481,9 +473,7 @@ function taskFromRow(row: ListedTaskRow): StoredTask {
     blocked: Boolean(row.blocked),
     blockedReason: row.blocked_reason ?? "",
     link: row.link || undefined,
-    // The address of the task's notes page on the Worker, once it has one (see notes.ts).
-    notes: row.notes_url ? { url: row.notes_url } : undefined,
-    // Its thread's page, likewise (see export.ts).
+    // The address of its thread's page on the Worker, once it has one (see export.ts).
     export: row.export_url ? { url: row.export_url } : undefined,
     // The task it is a subtask of, if it is one, and how its own subtasks stand.
     parent: row.parent_ts
@@ -537,53 +527,39 @@ export async function threadMessages(env: DbEnv, channel: string, taskTs: string
   }));
 }
 
-// The task's notes page: { summary, summaryBy, summaryAt, body, updatedBy,
-// updatedAt }, empty for a task with none yet.
-export async function getNotes(env: DbEnv, channel: string, taskTs: string) {
-  const row = await env.DB.prepare("SELECT * FROM task_notes WHERE channel = ? AND task_ts = ?").bind(channel, taskTs).first<NotesRow>();
-  return {
-    summary: row?.summary ?? "",
-    summaryBy: row?.summary_by ?? undefined,
-    summaryAt: row?.summary_at ?? undefined,
-    body: row?.body ?? "",
-    updatedBy: row?.updated_by ?? undefined,
-    updatedAt: row?.updated_at ?? undefined,
-  };
+// The task's working summary, which AI agents keep (see get_task_summary in mcp.ts): { summary,
+// through, by, at }, `through` being the ts of the last message of the task's thread it covers, or null
+// for a task with none yet.
+export async function getSummary(env: DbEnv, channel: string, taskTs: string) {
+  const row = await env.DB.prepare("SELECT summary, through_ts, written_by, written_at FROM task_summaries WHERE channel = ? AND task_ts = ?")
+    .bind(channel, taskTs)
+    .first<SummaryRow>();
+  return row ? { summary: row.summary, through: row.through_ts, by: row.written_by, at: row.written_at } : null;
 }
 
-// The notes pages of many tasks (`keys`: [{ channel, ts }]) as a Map from
-// "channel:ts" to { summary, summaryBy, body }; a task with none is absent.
-// D1 takes few values per query, so it asks in chunks.
-export async function notesOf(env: DbEnv, keys: TaskKey[]) {
-  const found = new Map<string, { summary: string; summaryBy: string; body: string }>();
-  for (let i = 0; i < keys.length; i += 40) {
-    const chunk = keys.slice(i, i + 40);
-    const { results } = await env.DB.prepare(`SELECT * FROM task_notes WHERE ${chunk.map(() => "(channel = ? AND task_ts = ?)").join(" OR ")}`)
-      .bind(...chunk.flatMap(({ channel, ts }) => [channel, ts]))
-      .all<NotesRow>();
-    for (const row of results) found.set(`${row.channel}:${row.task_ts}`, { summary: row.summary ?? "", summaryBy: row.summary_by ?? "", body: row.body ?? "" });
-  }
-  return found;
-}
-
-// Replaces the summary an AI agent wrote for `user`.
-export async function putSummary(env: DbEnv, channel: string, taskTs: string, summary: string, user: string) {
-  await env.DB.prepare(
-    `INSERT INTO task_notes (channel, task_ts, summary, summary_by, summary_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT (channel, task_ts) DO UPDATE SET summary = excluded.summary, summary_by = excluded.summary_by, summary_at = CURRENT_TIMESTAMP`,
+// Saves the task's working summary, written by `user` and covering its thread up to `through`, unless
+// the one saved covers more of it: two agents can work on it at once, and the later one wins. Returns
+// whether it was saved.
+export async function putSummary(env: DbEnv, channel: string, taskTs: string, summary: string, through: string, user: string) {
+  const result = await env.DB.prepare(
+    `INSERT INTO task_summaries (channel, task_ts, summary, through_ts, written_by) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (channel, task_ts) DO UPDATE SET summary = excluded.summary, through_ts = excluded.through_ts,
+       written_by = excluded.written_by, written_at = CURRENT_TIMESTAMP
+     WHERE task_summaries.through_ts <= excluded.through_ts
+     RETURNING 1 AS saved`,
   )
-    .bind(channel, taskTs, summary, user)
-    .run();
+    .bind(channel, taskTs, summary, through, user)
+    .first<{ saved: number }>();
+  return Boolean(result);
 }
 
-// Replaces the notes people write, as edited by `user`.
-export async function putNotesBody(env: DbEnv, channel: string, taskTs: string, body: string, user: string) {
-  await env.DB.prepare(
-    `INSERT INTO task_notes (channel, task_ts, body, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT (channel, task_ts) DO UPDATE SET body = excluded.body, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP`,
-  )
-    .bind(channel, taskTs, body, user)
-    .run();
+// The tasks a thread was moved into: those whose kept messages include Cade's "Moved from" copy of a
+// message of the thread `channel`/`ts` (see moveMessage in commands/move.ts), as [{ channel, ts }].
+export async function tasksMovedFrom(env: DbEnv, channel: string, ts: string) {
+  const { results } = await env.DB.prepare("SELECT DISTINCT channel, task_ts, text FROM messages WHERE text LIKE 'Moved from %' AND text LIKE ?")
+    .bind(`%/archives/${channel}/%`)
+    .all<{ channel: string; task_ts: string; text: string }>();
+  return results.map((row) => ({ channel: row.channel, ts: row.task_ts, text: row.text }));
 }
 
 // Names of Slack users, as a Map of the ones kept: the name, and whether it was looked up more than
@@ -796,12 +772,12 @@ export async function promptHashes(env: DbEnv) {
 }
 
 // Moves the task at `oldTs` to the root message `newTs` (see rotate.ts): a task, its kept messages and
-// its notes are all found by their root's ts.
+// its summary are all found by their root's ts.
 export async function moveTaskThread(env: DbEnv, channel: string, oldTs: string, newTs: string) {
   for (const sql of [
     "UPDATE tasks SET ts = ? WHERE channel = ? AND ts = ?",
     "UPDATE messages SET task_ts = ? WHERE channel = ? AND task_ts = ?",
-    "UPDATE task_notes SET task_ts = ? WHERE channel = ? AND task_ts = ?",
+    "UPDATE task_summaries SET task_ts = ? WHERE channel = ? AND task_ts = ?",
   ]) {
     await env.DB.prepare(sql).bind(newTs, channel, oldTs).run();
   }

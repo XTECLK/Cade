@@ -7,7 +7,7 @@ import type { Handler, SlackBlock, SlackPayload } from "../types.ts";
 
 // The setup buttons along the top of the Home tab (see home.ts), each opening a modal only the
 // person sees:
-//   Web pages  signs them in to the Worker's thread and notes pages that task cards link to (see
+//   Web pages  signs them in to the Worker's thread pages that task cards link to (see
 //              web.ts), or out of every browser: a link that works once for ten minutes, and keeps
 //              them signed in for thirty days.
 //   AI agent   whether Cade's MCP endpoint (see mcp.ts) is on, the endpoint, and their own API
@@ -40,7 +40,7 @@ export async function webLine(env: AppEnv, user: string) {
 // The web pages modal, with how things stand and what the last button said above its buttons.
 export async function webView(env: AppEnv, user: string, result?: string) {
   return modal("Cade web pages", [
-    section(`Task cards link to *Full history* and *Extra notes* pages that Cade hosts. Sign in once in each browser to read the ones for channels you're in.\n*Now:* ${await webLine(env, user)}`),
+    section(`Task cards link to a *Full history* page that Cade hosts. Sign in once in each browser to read the ones for channels you're in.\n*Now:* ${await webLine(env, user)}`),
     ...(result ? [section(result)] : []),
     {
       type: "actions",

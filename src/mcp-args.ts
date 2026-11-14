@@ -5,7 +5,7 @@ export type GetTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
   // Only these fields, to keep the result small; task_id is always there. Default: all
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "subtasks")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "subtasks")[];
 };
 
 export type GetThreadHistoryArgs = {
@@ -18,6 +18,24 @@ export type GetThreadHistoryArgs = {
 export type GetTaskHistoryArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
+  // Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message
+  since?: string;
+};
+
+export type GetTaskSummaryArgs = {
+  // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
+  task_id: string;
+  // Leave out the saved summary and give every message of the task's thread. Default false
+  full?: boolean;
+};
+
+export type SaveTaskSummaryArgs = {
+  // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
+  task_id: string;
+  // The summary, as plain text. At most 8000 characters
+  summary: string;
+  // The last message of the task's thread it covers: the through get_task_summary gave
+  through: string;
 };
 
 export type GetTasksArgs = {
@@ -37,8 +55,8 @@ export type GetTasksArgs = {
   completed_to?: string;
   // With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status
   include_open?: boolean;
-  // The fields to give for each task, besides task_id which is always there. Default: all but summary, summary_by, notes, notes_link, created_by, prs, completed_at. Add summary or notes to get them for every task listed
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "summary" | "summary_by" | "notes" | "notes_link" | "created_by" | "prs" | "completed_at")[];
+  // The fields to give for each task, besides task_id which is always there. Default: all but created_by, prs, completed_at
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at")[];
   // How many tasks to return, most urgent first. Default 20
   limit?: number;
 };
@@ -70,8 +88,6 @@ export type CreateTaskArgs = {
   due_date?: string;
   // Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false
   incident?: boolean;
-  // The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most 8000 characters
-  summary?: string;
   // The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used
   thread_id?: string;
   // Instead of thread_id: a link to a message in the thread
@@ -147,8 +163,6 @@ export type UpdateTaskArgs = {
   blocked?: boolean;
   // Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason
   blocked_reason?: string;
-  // The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most 8000 characters. Replaces any earlier one
-  summary?: string;
   // Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first
   prs?: {
     // Pull requests to link to the task, as links
@@ -188,6 +202,13 @@ export type SendApprovalRequestArgs = {
   message?: string;
 };
 
+export type GetPromptArgs = {
+  // The prompt's name, such as task-summary
+  name: string;
+  // The prompt's arguments by name, such as {"task": "C0123ABCD:1700000000.000100"}
+  arguments?: Record<string, unknown>;
+};
+
 export type GetServerInfoArgs = {
 
 };
@@ -197,6 +218,8 @@ export interface ToolArgs {
   get_task: GetTaskArgs;
   get_thread_history: GetThreadHistoryArgs;
   get_task_history: GetTaskHistoryArgs;
+  get_task_summary: GetTaskSummaryArgs;
+  save_task_summary: SaveTaskSummaryArgs;
   get_tasks: GetTasksArgs;
   get_channels: GetChannelsArgs;
   get_channel_threads: GetChannelThreadsArgs;
@@ -210,5 +233,6 @@ export interface ToolArgs {
   send_thread_message: SendThreadMessageArgs;
   update_task: UpdateTaskArgs;
   send_approval_request: SendApprovalRequestArgs;
+  get_prompt: GetPromptArgs;
   get_server_info: GetServerInfoArgs;
 }

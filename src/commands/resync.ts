@@ -1,7 +1,6 @@
 import { findProject, groupEnabled } from "../channels.ts";
 import { callSlack, escapeSlack, linkedThread, respondLater } from "../slack.ts";
 import { syncExport } from "../export.ts";
-import { syncNotes } from "../notes.ts";
 import { writeSummary } from "../summary.ts";
 import { STATUSES, loadTask, saveTask, taskMessage } from "../tasks.ts";
 import { tasksWithStatus } from "../db.ts";
@@ -19,7 +18,7 @@ const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 // `/cade resync <link> [<link> …]` redraws a task's card from what Cade has
 // stored, for a card that's out of date: one posted before a change to how
 // cards look, such as the ⋯ menu, or one a failed update left behind. A task
-// gets the links to its notes page and its thread's page, if it has none, and
+// gets the link to its thread's page, if it has none, and
 // its thread is read from Slack again, to store what is missing (see
 // export.ts). Where its GitHub pull requests stand is read again too, all the links' in one request
 // (see readPrStates in github.ts). Nothing changes but the message, so no one is notified, and only
@@ -136,7 +135,6 @@ function resyncSummary(command: SlashCommand, context: Context) {
 async function resync(env: AppEnv, { channel, ts }: { channel: string; ts: string }) {
   const task = await loadTask(env, channel, ts);
   if (!task) return "That link isn't to a task I'm tracking.";
-  syncNotes(env, channel, ts, task);
   await syncExport(env, channel, ts, task);
   await saveTask(env, channel, ts, task);
   const title = escapeSlack(task.title);

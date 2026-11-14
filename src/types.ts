@@ -32,7 +32,6 @@ export interface Task {
   blockedReason?: string;
   // The task's root message.
   link?: string;
-  notes?: { url: string };
   export?: { url: string };
   // Where its pull requests stand, by URL, which its card counts: given when it is read, not stored
   // with it. One not in it hasn't been read from GitHub, and counts as open (see prState in tasks.ts).

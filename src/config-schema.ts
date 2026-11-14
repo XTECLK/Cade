@@ -18,7 +18,6 @@ export const PROJECT_SCHEMA: Schema = {
     channel: { type: "string", pattern: "^[CG][A-Z0-9]{8,}$", description: "a Slack channel ID, such as C0123ABCD" },
     taskChangeDetection: SWITCH,
     newTaskDetection: SWITCH,
-    aiAgentSummary: SWITCH,
     summaryCanvas: SWITCH,
   },
 };

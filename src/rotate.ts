@@ -35,9 +35,9 @@ async function rotateThread(env: AppEnv, channel: string, oldTs: string, listed:
 
   // Read again, as the list is from before this run's rotations: a subtask's parent may have just moved.
   const task = (await loadTask(env, channel, newTs))!;
-  // The card's link and its pages' addresses (which end in the root's ts) follow it.
+  // The card's link and its page's address (which ends in the root's ts) follow it.
   const moved = (page?: { url: string }) => page && { url: page.url.endsWith(`/${oldTs}`) ? page.url.slice(0, -oldTs.length) + newTs : page.url };
-  const rotated = { ...task, link: newLink, notes: moved(task.notes), export: moved(task.export) };
+  const rotated = { ...task, link: newLink, export: moved(task.export) };
   await saveTask(env, channel, newTs, rotated);
   await redrawSubtasks(env, channel, newTs);
 

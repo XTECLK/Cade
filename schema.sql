@@ -1,4 +1,4 @@
--- Made by `npm run schema` from migrations/ (up to 0031_pull_requests.sql): don't edit it by hand.
+-- Made by `npm run schema` from migrations/ (up to 0032_task_summaries.sql): don't edit it by hand.
 -- The database as the migrations leave it, for reference only: a change to the database is a new
 -- file in migrations/, then `npm run schema` to bring this up to date (a test fails until then).
 
@@ -67,15 +67,13 @@ CREATE TABLE pull_requests (
   synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE task_notes (
+CREATE TABLE task_summaries (
   channel TEXT NOT NULL,
   task_ts TEXT NOT NULL,
-  summary TEXT NOT NULL DEFAULT '',
-  summary_by TEXT,
-  summary_at TEXT,
-  body TEXT NOT NULL DEFAULT '',
-  updated_by TEXT,
-  updated_at TEXT,
+  summary TEXT NOT NULL,
+  through_ts TEXT NOT NULL,
+  written_by TEXT NOT NULL,
+  written_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (channel, task_ts)
 );
 
@@ -105,7 +103,7 @@ CREATE TABLE tasks (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   -- Deleted tasks are kept, as the Sheet keeps their rows.
-  deleted_at TEXT, archived_at TEXT, archived_by TEXT, notes_url TEXT, export_url TEXT, blocked INTEGER NOT NULL DEFAULT 0, blocked_reason TEXT NOT NULL DEFAULT '', via_agent INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'task' CHECK (kind IN ('task', 'incident')), parent_id INTEGER REFERENCES tasks (id),
+  deleted_at TEXT, archived_at TEXT, archived_by TEXT, export_url TEXT, blocked INTEGER NOT NULL DEFAULT 0, blocked_reason TEXT NOT NULL DEFAULT '', via_agent INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'task' CHECK (kind IN ('task', 'incident')), parent_id INTEGER REFERENCES tasks (id),
   UNIQUE (channel, ts)
 );
 CREATE INDEX tasks_open ON tasks (channel, status) WHERE deleted_at IS NULL;

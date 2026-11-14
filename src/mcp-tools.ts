@@ -117,19 +117,36 @@ const SUBTASK_ITEM = {
     required: ["task_id", "title", "link", "status"],
 };
 
+const MESSAGE_PROPERTIES = {
+    ts: str("Slack's message time"),
+    time: str("When it was sent (YYYY-MM-DD HH:MM, UTC)"),
+    user_id: str("The sender: a Slack user ID (show the name, not the ID), a bot's name or ID, or unknown"),
+    bot: bool("Whether a bot sent it"),
+    text: str("What it says, with <@U…> mentions as sent"),
+    files: strings("Names of attached files"),
+    links: strings("The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person"),
+};
+
 const MESSAGE_ITEM = {
     type: "object",
     description: "A message in a thread",
-    properties: {
-        ts: str("Slack's message time"),
-        time: str("When it was sent (YYYY-MM-DD HH:MM, UTC)"),
-        user_id: str("The sender: a Slack user ID (show the name, not the ID), a bot's name or ID, or unknown"),
-        bot: bool("Whether a bot sent it"),
-        text: str("What it says, with <@U…> mentions as sent"),
-        files: strings("Names of attached files"),
-        links: strings("The web addresses in the message, once each. Cade doesn't open them: read them with your own tools, as the person"),
-    },
+    properties: MESSAGE_PROPERTIES,
     required: ["ts", "time", "user_id", "bot", "text", "files", "links"],
+};
+
+// A message of a task's thread for its summary: one Cade copied in from another thread names it.
+const SUMMARY_MESSAGE_ITEM = {
+    type: "object",
+    description: "A message in the task's thread",
+    properties: {
+        ...MESSAGE_PROPERTIES,
+        moved_from: {
+            type: ["object", "null"],
+            description: "Set when this message is Cade's copy of the first message of another thread, moved into the task: that thread, or null",
+            properties: {thread_id: str("The thread's ID, for get_thread_history"), link: str("A link to the message moved")},
+        },
+    },
+    required: ["ts", "time", "user_id", "bot", "text", "files", "links", "moved_from"],
 };
 
 const PERSON = {
@@ -179,10 +196,6 @@ const PR_ITEM = {
 
 // A property map: what get_tasks can include for each task, besides its task_id and the base fields.
 export const EXTRA_FIELDS = {
-    summary: str("The summary of the issue, or empty"),
-    summary_by: str("Who wrote the summary, or empty: a Slack user ID, show the name, not the ID"),
-    notes: str("The notes people wrote, or empty"),
-    notes_link: str("A link to the notes page, or empty"),
     created_by: str("Who raised it: a Slack user ID, show the name, not the ID"),
     prs: list("The pull requests linked to the task, each with where it stands", PR_ITEM),
     completed_at: str("When it was marked Done, or empty (YYYY-MM-DD HH:MM, UTC)"),
@@ -240,7 +253,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Get a task",
         annotations: READS,
         description:
-            "Reads one task from Cade's own database: its details, people, links, summary and notes. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.",
+            "Reads one task from Cade's own database: its details, people, links and pull requests, as they are now. For what the task is about, get_task_summary gives its summary. It includes no thread, but names the one the task was made from, which get_thread_history reads. It names the task's subtasks too (parts of it, or issues found while testing it), each with its own thread, which get_task_history reads: read them as well to know how the whole task went, such as for an executive summary.",
         inputSchema: {
             type: "object",
             properties: {
@@ -257,10 +270,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 user_names: USER_NAMES,
                 created_by: str("Who raised it: a Slack user ID, show the name, not the ID"),
                 completed_at: str("When it was marked Done, or empty (YYYY-MM-DD HH:MM, UTC)"),
-                notes_link: str("A link to the notes page, or empty"),
-                summary: str("The summary of the issue, or empty"),
-                summary_by: str("Who wrote the summary, or empty: a Slack user ID, show the name, not the ID"),
-                notes: str("The notes people wrote, or empty"),
                 original_thread_state: choice("found: original_thread names it; none: made from no other thread; unknown: no messages kept yet", ORIGINAL_THREAD_STATES),
                 original_thread: THREAD,
                 prs: list("The pull requests linked to the task, each with where it stands", PR_ITEM),
@@ -273,7 +282,7 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Read a Slack thread",
         annotations: READS_SLACK,
         description:
-            "Reads a whole Slack thread from Slack, oldest message first. Slack's free plan hides messages older than 90 days; for a task Cade tracks, get_task_history has the messages Cade kept.",
+            "Reads a whole Slack thread from Slack, oldest message first, in a channel you are in, or one a message was moved from into a task you can read (get_task_summary names them). If Cade isn't in the channel, read it with your own Slack tools, as the person. Slack's free plan hides messages older than 90 days; for a task Cade tracks, get_task_history has the messages Cade kept.",
         inputSchema: {
             type: "object",
             properties: {
@@ -293,11 +302,12 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Read a task's thread",
         annotations: READS,
         description:
-            "Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days.",
+            "Reads the messages Cade kept of a task's own thread, oldest first: what was done about the task, or only what came after a message with since. Unlike get_thread_history it doesn't ask Slack, so it still has messages Slack hides after 90 days. For a task's summary, get_task_summary gives the messages it needs.",
         inputSchema: {
             type: "object",
             properties: {
                 task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                since: str("Only the messages after this one, by its ts (Slack's message time, such as 1700000000.000100). Default: every message", {pattern: "^\\d{10}\\.\\d{6}$"}),
             },
             required: ["task_id"],
         },
@@ -306,6 +316,53 @@ export const TOOL_DEFS: ToolDef[] = [
             title: str("The task's title"),
             messages: list("Oldest first", MESSAGE_ITEM),
             original_thread: THREAD,
+        }),
+    },
+    {
+        name: "get_task_summary",
+        title: "Get a task's summary",
+        annotations: READS,
+        description:
+            "Gives a task's saved summary (whose agent saved it, when, and up to which message of the task's thread it covers) and the messages of the task's thread after that one, oldest first; with no summary saved, or with full, every message and no summary. A message Cade copied in from another thread names that thread in moved_from. save_task_summary saves a summary with the through given here. When the team has steps for writing it, prompt names them, for get_prompt.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                full: bool("Leave out the saved summary and give every message of the task's thread. Default false"),
+            },
+            required: ["task_id"],
+        },
+        outputSchema: outputWithNames({
+            task_id: str("The task's ID, for the other tools"),
+            title: str("The task's title"),
+            summary: str("The summary saved so far, or empty when there is none or with full"),
+            summary_by: str("Whose agent saved it, or empty: a Slack user ID, show the name, not the ID"),
+            summary_at: str("When it was saved, or empty (YYYY-MM-DD HH:MM, UTC)"),
+            summary_through: str("The last message of the task's thread the saved summary covers, or empty when none is saved"),
+            up_to_date: bool("Whether the saved summary covers every message: then there is nothing new to add"),
+            messages: list("The messages the summary doesn't cover yet (all of them with no summary or with full), oldest first", SUMMARY_MESSAGE_ITEM),
+            through: str("The last message of the task's thread given, or the saved summary's when none is new: for save_task_summary. Empty when the task's thread has no messages kept"),
+            prompt: str("The prompt with the team's steps for a task's summary, for get_prompt with the task as its task argument, or empty when the team has none"),
+        }),
+    },
+    {
+        name: "save_task_summary",
+        title: "Save a task's summary",
+        annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+        description:
+            "Saves a task's summary, covering its thread up to through, in place of the one saved. It is kept for agents, not posted in Slack or shown on a page, so unlike other writes it needs no approval. Anyone who can read the task's channel gets it through their agent. Refused when the one saved covers more of the thread.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                task_id: str("The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100"),
+                summary: str(`The summary, as plain text. At most ${MAX_SUMMARY} characters`),
+                through: str("The last message of the task's thread it covers: the through get_task_summary gave"),
+            },
+            required: ["task_id", "summary", "through"],
+        },
+        outputSchema: outputOf({
+            task_id: str("The task's ID, for the other tools"),
+            saved: bool("Whether it was saved"),
         }),
     },
     {
@@ -329,7 +386,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 completed_from: str("Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)"),
                 completed_to: str("Only tasks marked Done on or before this day (YYYY-MM-DD)"),
                 include_open: bool("With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status"),
-                fields: choices(`The fields to give for each task, besides task_id which is always there. Default: all but ${Object.keys(EXTRA_FIELDS).join(", ")}. Add summary or notes to get them for every task listed`, TASK_FIELDS),
+                fields: choices(`The fields to give for each task, besides task_id which is always there. Default: all but ${Object.keys(EXTRA_FIELDS).join(", ")}`, TASK_FIELDS),
                 limit: int(`How many tasks to return, most urgent first. Default ${DEFAULT_TASKS}`, {
                     minimum: 1,
                     maximum: MAX_TASKS
@@ -420,10 +477,10 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Create a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch, with its summary saved on the notes page. An incident is always Urgent and due immediately. " +
-            "Suggest the title, priority, due date and summary and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
+            "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. " +
+            "Suggest the title, priority and due date and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
             "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. " +
-            "Preview: kind (task or incident), title, project, priority, due date (or none), the whole summary, the thread it comes from, and the task it is a subtask of, if any.",
+            "Preview: kind (task or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.",
         inputSchema: {
             type: "object",
             properties: {
@@ -432,7 +489,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 priority: choice("Default Medium. Not for an incident", PRIORITY_NAMES),
                 due_date: str("DD/MM/YYYY or YYYY-MM-DD. Use a date the thread gives or clearly implies, never an invented one; leave out for none. Not for an incident"),
                 incident: bool("Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false"),
-                summary: str(`The summary of the issue only, saved on the notes page: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread it is made from, and leave out what that thread doesn't say. Plain text, people's names rather than @mentions. At most ${MAX_SUMMARY} characters`),
                 thread_id: str("The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used"),
                 link: str("Instead of thread_id: a link to a message in the thread"),
                 parent_task_id: str("Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's"),
@@ -445,8 +501,6 @@ export const TOOL_DEFS: ToolDef[] = [
             project: str("The project's name"),
             incident: bool("Whether it was made as an incident"),
             parent_task_id: {type: ["string", "null"], description: "The task it is a subtask of, or null"},
-            summary_saved: bool("Whether the summary was saved on the notes page"),
-            notes_link: str("A link to the notes page, or empty"),
         }),
     },
     {
@@ -600,11 +654,11 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Update a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
-            "Changes a task in one call: its status, priority, due date, people, pull requests and the summary on its notes page. Cade posts the field changes in the task's thread; a changed summary is saved and the thread is told, with a link to the notes page. " +
+            "Changes a task in one call: its status, priority, due date, people and pull requests. Cade posts the changes in the task's thread. Its summary is save_task_summary's. " +
             "Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. " +
             "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
             "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
-            "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests, summary), and nothing left unchanged. " +
+            "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests), and nothing left unchanged. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -615,7 +669,6 @@ export const TOOL_DEFS: ToolDef[] = [
                 due_date: str('DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident\'s never changes'),
                 blocked: bool("true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens"),
                 blocked_reason: str("Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason"),
-                summary: str(`The summary of the task's issue only: what the problem or request is, who raised it and when, the impact and the details needed to understand it, for someone who wasn't in the discussion. Write it from the thread the task was made from (get_task names it; if there is none, from the task's own thread), and leave out what that thread doesn't say, and what was done and how it ended. Plain text, short paragraphs, "- " for bullets, people's names rather than @mentions. At most ${MAX_SUMMARY} characters. Replaces any earlier one`),
                 prs: {
                     type: "object",
                     description: "Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first",
@@ -643,8 +696,6 @@ export const TOOL_DEFS: ToolDef[] = [
         outputSchema: outputWithNames({
             task_id: str("The task's ID, for the other tools"),
             changed: bool("Whether a field changed (and was posted in the thread)"),
-            summary_saved: bool("Whether the summary was saved on the notes page"),
-            notes_link: str("A link to the notes page, or empty"),
             suggested_message: str("What the change asks of the people it names, not sent: offer it to the person for send_thread_message, mentions as <@ID>. Moved to Client review, the request to the approver instead, for send_approval_request's message. Empty when there's nothing to ask"),
         }),
     },
@@ -667,6 +718,26 @@ export const TOOL_DEFS: ToolDef[] = [
             task_id: str("The task's ID, for the other tools"),
             approver: str("Who was asked: a Slack user ID, show the name, not the ID"),
             link: str("A link to the task's thread, or empty"),
+        }),
+    },
+    {
+        name: "get_prompt",
+        title: "Get one of the team's prompts",
+        annotations: READS,
+        description:
+            "Gives one of this deployment's prompts, the team's own steps for a kind of work (such as task-summary for a task's summary), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                name: str("The prompt's name, such as task-summary"),
+                arguments: {type: "object", description: "The prompt's arguments by name, such as {\"task\": \"C0123ABCD:1700000000.000100\"}", additionalProperties: {type: "string"}},
+            },
+            required: ["name"],
+        },
+        outputSchema: outputOf({
+            name: str("The prompt's name"),
+            description: str("What it is for"),
+            text: str("Its steps, with the arguments given after them"),
         }),
     },
     {

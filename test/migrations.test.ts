@@ -44,6 +44,22 @@ test("0029 drops what was left from client channels, keeping the tasks", () => {
 });
 
 // schema.sql is made from the migrations by `npm run schema`, for reading the database in one place.
+test("0032 starts the summaries afresh, as the old ones don't say what they cover, and drops the notes, their page's address and the summary prompt's setting", () => {
+  const { db, rest } = before("0032");
+  db.exec(`INSERT INTO tasks (channel, ts, title, priority, status, created_by, notes_url) VALUES ('CDEV', '1.1', 'Fix login', 'High', 'TODO', 'U1', 'https://w.example/n/CDEV/1.1')`);
+  db.exec(`INSERT INTO project_settings (channel, key, value) VALUES ('CDEV', 'aiAgentSummary', 'false'), ('CDEV', 'summaryCanvas', 'true')`);
+  db.exec(`INSERT INTO task_notes (channel, task_ts, summary, summary_by, summary_at, body) VALUES
+    ('CDEV', '1.1', 'Login fails on Safari', 'U2', '2026-11-01 10:00:00', 'Call the client'),
+    ('CDEV', '1.2', '', NULL, NULL, 'Only notes')`);
+  rest();
+  assert.deepEqual(db.prepare("SELECT * FROM task_summaries").all(), []);
+  assert.deepEqual({ ...db.prepare("SELECT ts, title FROM tasks").get() }, { ts: "1.1", title: "Fix login" });
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'task_notes'").get(), undefined);
+  assert.ok(!db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "notes_url"));
+  // The summary prompt's setting goes with the prompt; the others stay.
+  assert.deepEqual(db.prepare("SELECT key FROM project_settings").all().map((row) => row.key), ["summaryCanvas"]);
+});
+
 test("schema.sql is the database as the migrations leave it", async () => {
   const { SCHEMA_FILE, currentSchema } = await import("../scripts/schema.ts");
   assert.equal(readFileSync(SCHEMA_FILE, "utf8"), currentSchema(), "schema.sql is stale: run npm run schema");

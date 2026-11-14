@@ -296,7 +296,7 @@ async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: P
   const blocks: SlackBlock[] = [
     ...nav,
     { type: "header", text: plainText("Just for you") },
-    row("Web pages", `${await webLine(env, user)}\nThe thread and notes pages that task cards link to.`, WEB_ACTION, "Manage"),
+    row("Web pages", `${await webLine(env, user)}\nThe thread pages that task cards link to.`, WEB_ACTION, "Manage"),
     row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
     await suggestionsRow(env, user, yours),
   ];

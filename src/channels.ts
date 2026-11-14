@@ -11,7 +11,6 @@ export interface Project {
   taskChangeDetection?: boolean | string[];
   newTaskDetection?: boolean;
   summaryCanvas?: boolean;
-  aiAgentSummary?: boolean;
   [key: string]: unknown;
 }
 

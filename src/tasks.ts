@@ -119,20 +119,16 @@ export function peopleLine(task: Pick<Task, "people">, viewer?: string) {
 }
 
 export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | null } = {}): MessageBody {
-  // The title, led by its priority, then in small text a link to its notes
-  // page (once it has one) and to its thread's export, its status and due date, how many of its pull
+  // The title, led by its priority, then in small text a link to its
+  // thread's export (once it has one), its status and due date, how many of its pull
   // requests are open and merged (when it has any), and who works on
   // it and who tracked it. Under the title, its buttons and ⋯ menu; the rest sits in an
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
   // in place of its status, and has no buttons, as Cade no longer tracks it.
   const people = peopleLine({ people: shownPeople(task) });
-  // The links under the title, on one line: to its notes page and to its thread's
-  // export (see export.ts).
-  const links = [
-    task.notes && `Extra notes <${task.notes.url}|here>`,
-    task.export && `Full history <${task.export.url}|here>`,
-  ].filter(Boolean);
+  // The link under the title: to its thread's export (see export.ts).
+  const links = [task.export && `Full history <${task.export.url}|here>`].filter(Boolean);
   // Three blocks, each a few lines: what goes with it (whose subtask it is, its pages, how its subtasks
   // and pull requests stand); the work (its status and people); and who tracked it. Lines in a block sit
   // closer than the blocks do, so the card reads in those three parts. A block with nothing in it is

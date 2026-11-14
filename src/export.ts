@@ -1,6 +1,5 @@
 import { addMessage, addMessages, keepName, keptNames, putTask } from "./db.ts";
 import { threadUrl } from "./links.ts";
-import { syncNotes } from "./notes.ts";
 import { callSlack } from "./slack.ts";
 import { loadTask, taskMessage } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
@@ -120,12 +119,11 @@ export async function syncExport(env: AppEnv, channel: string, ts: string, task:
   if (url) task.export = { url };
 }
 
-// For a task just posted: stores its thread, gives it the links to its notes
-// page and its thread's, then saves it and redraws the card with them.
+// For a task just posted: stores its thread, gives it the link to its thread's
+// page, then saves it and redraws the card with it.
 export async function addPages(env: AppEnv, channel: string, ts: string, task: Task) {
-  syncNotes(env, channel, ts, task);
   await syncExport(env, channel, ts, task);
-  if (!task.notes && !task.export) return;
+  if (!task.export) return;
   await putTask(env, channel, ts, task);
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
 }

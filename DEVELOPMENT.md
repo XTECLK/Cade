@@ -168,9 +168,9 @@ hedged messages ("not done yet") don't count as progress.
 A tracked task's thread is kept in the `messages` table: each reply is stored
 by the event itself (`recordMessage` in `export.ts`), and a new task's thread
 is read from Slack as it is made, so Slack's 90-day limit on the free plan
-doesn't lose it. The task's card links two pages of the Worker (`web.ts`): its
-thread, `/t/<channel>/<ts>`, and its notes, `/n/<channel>/<ts>`, where the
-AI agent's summary and notes people type are kept (`task_notes`). Pages are
+doesn't lose it. The task's card links its thread's page on the Worker
+(`web.ts`), `/t/<channel>/<ts>`. A task's summary isn't on a page: people's
+agents keep it (`task_summaries`, see Summaries under the MCP server). Pages are
 for people who can read the channel and are signed in (Settings → Web pages on the Home tab signs out of every browser): the same window gives a
 link that works once and sets a 30-day cookie (`web_tokens`, hashes only). The
 links are built on `PUBLIC_URL`, or the address a request came by.
@@ -222,9 +222,9 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/slack.ts` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/format.ts` | Times in `TIMEZONE`, and Slack users' names |
 | `src/export.ts` | Keeping each tracked thread's messages in D1 (`messages`) |
-| `src/notes.ts`, `src/links.ts` | A task's notes page and the addresses of its pages |
+| `src/links.ts` | The address of a task's thread page |
 | `src/settings.ts`, `src/commands/project.ts` | the Add project button to add a project, Edit under Projects in Settings (a Slack form) for each project's switches, kept in D1 over the config, for the `admins` in the config |
-| `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads, `/n/…` notes), sign-in from Settings → Web pages, and who may read a channel |
+| `src/web.ts`, `src/access.ts` | The Worker's pages (`/t/…` threads), sign-in from Settings → Web pages, and who may read a channel |
 | `scripts/` | `setup`, `config`, `dev`, `github`, `prompts`, `schema`, `slack-app` and the rest, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
@@ -269,7 +269,10 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
   [docs/workflows.html](docs/workflows.html).
 - **Prompts.** Workflows come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in their agent
-  (in Claude Code, `/mcp__cade__task-summary …`). They are each deployment's own, not Cade's: Markdown files in the
+  (in Claude Code, `/mcp__cade__task-summary …`). An agent can't pick one itself, so the `get_prompt` tool gives the
+  same text, and a tool's result names the prompt for its work: `get_task_summary` names `task-summary` when the
+  deployment has it, so an agent asked in plain words follows the team's steps too. The guardrails make a prompt
+  from `get_prompt` the one thing read that is followed rather than treated as data. They are each deployment's own, not Cade's: Markdown files in the
   deploy repo's `prompts/` (the cade-deploy template starts it with a task's summary and an executive summary), with
   a description and arguments in the frontmatter. `npm run prompts` (`scripts/prompts.ts`) checks them against the
   tools of the checked-out Cade and saves them to the `prompts` table, replacing what was there; `npm run deploy`
@@ -287,10 +290,14 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   preview shows, is in that tool's description.
 - **Versions.** A session ID names the tool set it loaded (a hash of the tools, the rules and the description); a tool
   called from an older session says so, and `get_server_info` reports it.
-- **Summaries.** A task's summary, written by `create_task` or `update_task`, goes to the top of its notes page on the
-  Worker (`/n/<channel>/<ts>`), kept in `task_notes` and marked as written by the person. After a task is made from a
-  message, its form shows a short prompt to paste into the agent, naming the task by its ID (`src/commands/track.ts`);
-  `aiAgentSummary: false` on a project turns that off.
+- **Summaries.** A task's summary is a working one for agents, never shown in Slack or on a page, kept in
+  `task_summaries` with `through_ts`, the last message of the task's thread it covers. `get_task_summary` gives the one
+  saved and only the messages after it; a message that is Cade's copy of one moved in from another thread names that
+  thread (`moved_from`), which `get_thread_history` reads for anyone who can read the task, or the agent reads with its
+  own Slack tools. The agent writes the summary from those, answers the person, and saves it with `save_task_summary`
+  and the `through` it was given, the one write that needs no approval; a save that covers less of the thread than
+  the one saved is refused, so two agents at once can't go backwards. Nothing offers a summary when a task is made:
+  it is written when someone asks for one.
 
 ## Tests
 

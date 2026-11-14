@@ -721,11 +721,37 @@ export const TOOL_DEFS: ToolDef[] = [
         }),
     },
     {
+        name: "get_prompts",
+        title: "List the team's prompts",
+        annotations: READS,
+        description:
+            "Lists this deployment's prompts: the team's own steps for kinds of work, such as a task's summary or a client report, each with what it is for and the arguments it takes. Read one with get_prompt.",
+        inputSchema: {type: "object", properties: {}},
+        outputSchema: outputOf({
+            total: int("How many prompts the team has"),
+            prompts: list("By name", {
+                type: "object",
+                description: "A prompt",
+                properties: {
+                    name: str("Its name, for get_prompt"),
+                    description: str("When to use it and what it does"),
+                    arguments: list("What it takes, for get_prompt's arguments", {
+                        type: "object",
+                        description: "An argument",
+                        properties: {name: str("Its name"), description: str("What to give"), required: bool("Whether it must be given")},
+                        required: ["name", "description", "required"],
+                    }),
+                },
+                required: ["name", "description", "arguments"],
+            }),
+        }),
+    },
+    {
         name: "get_prompt",
         title: "Get one of the team's prompts",
         annotations: READS,
         description:
-            "Gives one of this deployment's prompts, the team's own steps for a kind of work (such as task-summary for a task's summary), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.",
+            "Gives one of this deployment's prompts, the team's own steps for a kind of work (get_prompts lists them), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.",
         inputSchema: {
             type: "object",
             properties: {

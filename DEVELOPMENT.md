@@ -269,8 +269,9 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   executive summary, is a workflow the team runs with its agent on top of these tools, not a tool of Cade's: see
   [docs/workflows.html](docs/workflows.html).
 - **Prompts.** Workflows come as MCP prompts (`prompts/list`, `prompts/get`), which a person picks in their agent
-  (in Claude Code, `/mcp__cade__task-summary …`). An agent can't pick one itself, so the `get_prompt` tool gives the
-  same text, and a tool's result names the prompt for its work: `get_task_summary` names `task-summary` when the
+  (in Claude Code, `/mcp__cade__task-summary …`). An agent never sees that list, so `get_prompts` lists them for it (name,
+  description, arguments), the guardrails tell it to check them once a session and follow the one that fits a
+  request, and `get_prompt` gives one's text. A tool's result also names the prompt for its work: `get_task_summary` names `task-summary` when the
   deployment has it, so an agent asked in plain words follows the team's steps too. The guardrails make a prompt
   from `get_prompt` the one thing read that is followed rather than treated as data. They are each deployment's own, not Cade's: Markdown files in the
   deploy repo's `prompts/` (the cade-deploy template starts it with a task's summary and an executive summary), with

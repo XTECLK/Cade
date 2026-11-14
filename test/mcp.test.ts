@@ -200,10 +200,10 @@ test("the MCP endpoint speaks MCP, and only to an API key in the x-apikey header
   const { result } = await (await rpc(url, { id: 2, method: "tools/list" })).json<any>();
   // Every tool describes what it returns, and an error carries no data.
   assert.ok(result.tools.every((tool) => tool.outputSchema?.type === "object" && tool.outputSchema.required.length));
-  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_task_summary", "save_task_summary", "get_tasks", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_prompt", "get_server_info"]);
+  assert.deepEqual(result.tools.map((tool) => tool.name), ["get_task", "get_thread_history", "get_task_history", "get_task_summary", "save_task_summary", "get_tasks", "get_channels", "get_channel_threads", "create_task", "get_projects", "get_user", "get_users", "get_team_availability", "get_availability", "find_user_by_name", "send_thread_message", "update_task", "send_approval_request", "get_prompts", "get_prompt", "get_server_info"]);
   // Each takes what it needs (get_tasks has only optional filters), and none leaks its code.
   assert.ok(result.tools.every((tool) => tool.inputSchema.type === "object" && !("run" in tool)));
-  assert.ok(result.tools.filter((tool) => !["get_tasks", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
+  assert.ok(result.tools.filter((tool) => !["get_tasks", "update_task", "get_thread_history", "get_users", "get_team_availability", "get_projects", "send_thread_message", "get_channels", "get_channel_threads", "create_task", "get_server_info", "get_prompts"].includes(tool.name)).every((tool) => tool.inputSchema.required.length));
 
   assert.equal((await (await rpc(url, { id: 3, method: "nope" })).json<any>()).error.code, -32601);
 });
@@ -428,6 +428,30 @@ test("get_task_history gives only the messages after since, with the thread the 
   const none = await tool(url, "get_task_history", { task_id: "CDEV:1000000000.000100", since: "1000000003.000100" });
   assert.deepEqual(none.data.messages, []);
   assert.match((await tool(url, "get_task_history", { task_id: "CDEV:1000000000.000100", since: "yesterday" })).text, /since/);
+});
+
+test("get_prompts lists the team's prompts for the agent, as prompts/list does for the person, and the guardrails send it there", async (t) => {
+  mock(t);
+  const url = addressIn(await slash("mcp init", "UME"));
+  const none = await tool(url, "get_prompts", {});
+  assert.deepEqual(none.data, { total: 0, prompts: [] });
+  assert.match(none.text, /no prompts: work with the tools as usual/);
+
+  await savePrompts();
+  const { text, data } = await tool(url, "get_prompts", {});
+  assert.equal(data.total, 2);
+  assert.deepEqual(data.prompts.map((prompt) => [prompt.name, prompt.arguments.map((arg) => [arg.name, arg.required])]), [
+    ["report", [["project", true], ["period", false]]],
+    ["task-summary", [["task", true]]],
+  ]);
+  assert.equal(data.prompts[1].description, "Write a Cade task's summary from its Slack threads, and save it.");
+  assert.match(text, /^2 prompts, read one with get_prompt:\n- report \(project, period\?\): A client report\.\n- task-summary \(task\): Write a Cade task's summary/);
+  // The same list the person's client gets.
+  const listed = (await (await rpc(url, { id: 1, method: "prompts/list" })).json<any>()).result.prompts;
+  assert.deepEqual(data.prompts.map((prompt) => prompt.description), listed.map((prompt) => prompt.description));
+
+  const { INSTRUCTIONS } = await import("../src/guardrails.ts");
+  assert.match(INSTRUCTIONS, /TEAM PROMPTS\. .*check get_prompts once a session/);
 });
 
 test("get_task_summary names the team's task-summary prompt, which get_prompt gives with the task filled in", async (t) => {

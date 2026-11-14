@@ -42,6 +42,14 @@ export const GUARDRAILS = [
     ],
   },
   {
+    title: "TEAM PROMPTS",
+    rules: [
+      `The team keeps its own steps for some work, such as a task's summary or progress, or a client report: check get_prompts once a session, before such work.`,
+      `When one fits the request, read it with get_prompt and follow it, and say which one you follow; if the person wants it done otherwise, do as they say.`,
+      `Ask first only when more than one could fit, or it needs something they didn't give.`,
+    ],
+  },
+  {
     title: "KEEPING TASKS RIGHT",
     rules: [
       `Cade suggests nothing from what an agent posts, so when you post in a task's thread or work on a task (reading its thread, opening its pull requests, after a push), check whether its status or pull requests have fallen behind, and offer the fix with update_task in the same preview as the message, under one "Go ahead?"; if they want only the message, send only that.`,

@@ -18,7 +18,7 @@ import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
 import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
 import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
-import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetPromptArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTaskSummaryArgs, GetTasksArgs, SaveTaskSummaryArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
+import type { CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetPromptArgs, GetPromptsArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTaskSummaryArgs, GetTasksArgs, SaveTaskSummaryArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
 import type { AppEnv } from "./env.ts";
 import type { PromptRow } from "./db.ts";
 import type { Project } from "./channels.ts";
@@ -126,7 +126,7 @@ function apiKeyOf(request: Request) {
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 // The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
 // made from the same inputSchema they are checked against before it is called (see callTool).
-const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_task_summary: getTaskSummary, save_task_summary: saveTaskSummary, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool, get_prompt: getPromptTool };
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_task_summary: getTaskSummary, save_task_summary: saveTaskSummary, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool, get_prompts: getPromptsTool, get_prompt: getPromptTool };
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
   // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
@@ -277,6 +277,18 @@ async function getPromptTool(env: AppEnv, _user: string, args: GetPromptArgs) {
   const filled = promptWith(prompt, args.arguments ?? {});
   if (filled.problem !== undefined) throw new ToolError(`${filled.problem}.`);
   return { text: filled.text, data: { name: prompt.name, description: prompt.description, text: filled.text } };
+}
+
+// The deployment's prompts, as prompts/list gives them to the person's client, for the agent itself: the
+// guardrails tell it to check them, as it never sees that list.
+async function getPromptsTool(env: AppEnv, _user: string, _args: GetPromptsArgs) {
+  const all = (await prompts(env)).map((prompt) => ({ name: prompt.name, description: prompt.description, arguments: argumentsOf(prompt) }));
+  if (!all.length) return { text: "This deployment has no prompts: work with the tools as usual.", data: { total: 0, prompts: [] } };
+  const lines = all.map((prompt) => {
+    const args = prompt.arguments.map((arg) => (arg.required ? arg.name : `${arg.name}?`)).join(", ");
+    return `- ${prompt.name}${args ? ` (${args})` : ""}: ${prompt.description}`;
+  });
+  return { text: [`${all.length} prompt${all.length === 1 ? "" : "s"}, read one with get_prompt:`, ...lines].join("\n"), data: { total: all.length, prompts: all } };
 }
 
 // The prompt with the team's steps for a task's summary, when the deployment has one.

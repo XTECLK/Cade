@@ -202,6 +202,10 @@ export type SendApprovalRequestArgs = {
   message?: string;
 };
 
+export type GetPromptsArgs = {
+
+};
+
 export type GetPromptArgs = {
   // The prompt's name, such as task-summary
   name: string;
@@ -233,6 +237,7 @@ export interface ToolArgs {
   send_thread_message: SendThreadMessageArgs;
   update_task: UpdateTaskArgs;
   send_approval_request: SendApprovalRequestArgs;
+  get_prompts: GetPromptsArgs;
   get_prompt: GetPromptArgs;
   get_server_info: GetServerInfoArgs;
 }

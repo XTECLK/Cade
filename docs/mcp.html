@@ -679,10 +679,34 @@
   </div>
 </section>
 
+<section class="tool" id="get_prompts">
+  <div class="wrap">
+    <h2><code>get_prompts</code></h2>
+    <p>Lists this deployment's prompts: the team's own steps for kinds of work, such as a task's summary or a client report, each with what it is for and the arguments it takes. Read one with get_prompt.</p>
+    
+    <h3>Arguments <small>inputSchema</small></h3>
+    <p class="none">None.</p>
+    <h3>Result <small>outputSchema, in structuredContent</small></h3>
+    <div class="tablewrap"><table>
+<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>total</code></td><td>integer</td><td>yes</td><td>How many prompts the team has</td></tr>
+<tr><td><code>prompts</code></td><td>object[]</td><td>yes</td><td>By name · A prompt</td></tr>
+<tr><td><code>prompts[].name</code></td><td>string</td><td>yes</td><td>Its name, for get_prompt</td></tr>
+<tr><td><code>prompts[].description</code></td><td>string</td><td>yes</td><td>When to use it and what it does</td></tr>
+<tr><td><code>prompts[].arguments</code></td><td>object[]</td><td>yes</td><td>What it takes, for get_prompt's arguments · An argument</td></tr>
+<tr><td><code>prompts[].arguments[].name</code></td><td>string</td><td>yes</td><td>Its name</td></tr>
+<tr><td><code>prompts[].arguments[].description</code></td><td>string</td><td>yes</td><td>What to give</td></tr>
+<tr><td><code>prompts[].arguments[].required</code></td><td>boolean</td><td>yes</td><td>Whether it must be given</td></tr>
+</tbody>
+</table></div>
+  </div>
+</section>
+
 <section class="tool" id="get_prompt">
   <div class="wrap">
     <h2><code>get_prompt</code></h2>
-    <p>Gives one of this deployment's prompts, the team's own steps for a kind of work (such as task-summary for a task's summary), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.</p>
+    <p>Gives one of this deployment's prompts, the team's own steps for a kind of work (get_prompts lists them), with the arguments you give after them: the same text the person gets by picking the prompt. A tool's result names the prompt for its work when the team has one. The tools a prompt names keep their own rules, approval included.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>

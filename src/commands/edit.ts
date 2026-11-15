@@ -1,5 +1,5 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.ts";
-import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, pickerDate } from "../tasks.ts";
+import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, kindBlock, loadTask, pickerDate, readKind } from "../tasks.ts";
 import { applyChanges } from "./changes.ts";
 import { statusOption } from "./status.ts";
 import type { Handler } from "../types.ts";
@@ -18,11 +18,11 @@ const BLOCKED_OPTION = {
   value: "blocked",
 };
 
-// The Edit form: everything on a task in one place, its owners,
+// The Edit form: everything on a task in one place, whether it is a task or a bug, its owners,
 // reviewers and testers, status, priority and due date. Pull requests have a form of their own (see
 // prs.ts); a form opened before that still sends its box, which is ignored.
-// An incident's priority and due date never change, so its form leaves them
-// out. The task card's Edit button opens it as the task stands (see menu.ts),
+// An incident's priority and due date never change, and it stays an incident, so its form leaves them
+// and the type out. The task card's Edit button opens it as the task stands (see menu.ts),
 // and a suggestion's Edit filled in with what was suggested (see
 // ai-suggest.ts). Saving applies what changed as one change (see
 // changes.ts), so the thread hears it as one message.
@@ -47,6 +47,7 @@ export function editForm(
   const status = changes.status ?? task.status;
   const priority = changes.priority ?? task.priority;
   const dueDate = "dueDate" in changes ? changes.dueDate : task.dueDate;
+  const bug = changes.bug ?? task.bug;
   return {
     type: "modal",
     callback_id: EDIT_VIEW,
@@ -55,6 +56,7 @@ export function editForm(
     submit: plainText("Save"),
     close: plainText("Cancel"),
     blocks: [
+      ...(details ? [kindBlock(bug)] : []),
       ...(Object.keys(ROLES) as Role[]).map((role) => {
         const chosen = peopleAfter(role);
         return {
@@ -161,6 +163,9 @@ function saveEdit(payload: SlackPayload, context: Context) {
       const status = values.status!.value.selected_option!.value as Status;
       if (status !== task.status) changes.status = status;
       if (details) {
+        // A form opened before it had the Type leaves the task as it is.
+        const bug = readKind(values);
+        if (bug !== undefined) changes.bug = bug;
         changes.priority = (values.priority?.value.selected_option?.value ?? task.priority) as Priority;
         changes.dueDate = formatDueDate(values.due_date!.value.selected_date);
       }

@@ -68,7 +68,7 @@
 <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>
 <tbody>
 <tr><td><code>task_id</code></td><td>string</td><td>yes</td><td>The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at | original_thread | original_thread_state | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | bug | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at | original_thread | original_thread_state | subtasks</td><td></td><td>Only these fields, to keep the result small; task_id is always there. Default: all</td></tr>
 </tbody>
 </table></div>
     <h3>Result <small>outputSchema, in structuredContent</small></h3>
@@ -83,6 +83,7 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's priority</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td></td><td>Whether it is an incident: something broken now, always Urgent</td></tr>
+<tr><td><code>bug</code></td><td>boolean</td><td></td><td>Whether it is a bug rather than a task</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
@@ -277,12 +278,13 @@
 <tr><td><code>assignees</code></td><td>string[]</td><td></td><td>Only tasks one of these people is on, in one of roles. &quot;me&quot; is you, so [&quot;me&quot;] gives your own tasks · a Slack user ID such as U0123ABCD, or me</td></tr>
 <tr><td><code>roles</code></td><td>string[]: owner | reviewer | tester</td><td></td><td>With assignees: only the tasks where one of them has one of these roles. Default: all three · A role</td></tr>
 <tr><td><code>unassigned</code></td><td>boolean</td><td></td><td>Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees</td></tr>
+<tr><td><code>bug</code></td><td>boolean</td><td></td><td>true: only bugs; false: only what isn't a bug</td></tr>
 <tr><td><code>status</code></td><td>string: open | all | TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>open (default: everything not done), all, or one status</td></tr>
 <tr><td><code>project</code></td><td>string</td><td></td><td>Only this project's tasks, by the name get_projects gives</td></tr>
 <tr><td><code>completed_from</code></td><td>string</td><td></td><td>Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)</td></tr>
 <tr><td><code>completed_to</code></td><td>string</td><td></td><td>Only tasks marked Done on or before this day (YYYY-MM-DD)</td></tr>
 <tr><td><code>include_open</code></td><td>boolean</td><td></td><td>With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status</td></tr>
-<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but created_by, prs, completed_at</td></tr>
+<tr><td><code>fields</code></td><td>string[]: title | project | channel_id | status | priority | due_date | incident | bug | blocked | blocked_reason | link | owner | reviewer | tester | parent | created_by | prs | completed_at</td><td></td><td>The fields to give for each task, besides task_id which is always there. Default: all but created_by, prs, completed_at</td></tr>
 <tr><td><code>limit</code></td><td>integer</td><td></td><td>How many tasks to return, most urgent first. Default 20 · min 1, max 100</td></tr>
 </tbody>
 </table></div>
@@ -300,6 +302,7 @@
 <tr><td><code>tasks[].priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's priority</td></tr>
 <tr><td><code>tasks[].due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY, or empty for none</td></tr>
 <tr><td><code>tasks[].incident</code></td><td>boolean</td><td></td><td>Whether it is an incident: something broken now, always Urgent</td></tr>
+<tr><td><code>tasks[].bug</code></td><td>boolean</td><td></td><td>Whether it is a bug rather than a task</td></tr>
 <tr><td><code>tasks[].blocked</code></td><td>boolean</td><td></td><td>Whether it is blocked: it keeps its status and shows as blocked on its card</td></tr>
 <tr><td><code>tasks[].blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase, or empty</td></tr>
 <tr><td><code>tasks[].link</code></td><td>string</td><td></td><td>A link to the task's message</td></tr>
@@ -388,7 +391,7 @@
 <section class="tool" id="create_task">
   <div class="wrap">
     <h2><code>create_task</code></h2>
-    <p>Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. Suggest the title, priority and due date and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. Preview: kind (task or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.</p>
+    <p>Creates a task, a bug or an incident in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. Suggest the title, priority and due date and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. Preview: kind (task, bug or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -399,6 +402,7 @@
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>Default Medium. Not for an incident</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD. Use a date the thread gives or clearly implies, never an invented one; leave out for none. Not for an incident</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td></td><td>Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false</td></tr>
+<tr><td><code>bug</code></td><td>boolean</td><td></td><td>Make a bug: something that works wrongly and needs fixing, but isn't an incident. Not with incident. Default false (a task)</td></tr>
 <tr><td><code>thread_id</code></td><td>string</td><td></td><td>The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used</td></tr>
 <tr><td><code>link</code></td><td>string</td><td></td><td>Instead of thread_id: a link to a message in the thread</td></tr>
 <tr><td><code>parent_task_id</code></td><td>string</td><td></td><td>Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's</td></tr>
@@ -412,6 +416,7 @@
 <tr><td><code>link</code></td><td>string</td><td>yes</td><td>A link to the task's message</td></tr>
 <tr><td><code>project</code></td><td>string</td><td>yes</td><td>The project's name</td></tr>
 <tr><td><code>incident</code></td><td>boolean</td><td>yes</td><td>Whether it was made as an incident</td></tr>
+<tr><td><code>bug</code></td><td>boolean</td><td>yes</td><td>Whether it was made as a bug</td></tr>
 <tr><td><code>parent_task_id</code></td><td>string or null</td><td>yes</td><td>The task it is a subtask of, or null</td></tr>
 </tbody>
 </table></div>
@@ -627,7 +632,7 @@
 <section class="tool" id="update_task">
   <div class="wrap">
     <h2><code>update_task</code></h2>
-    <p>Changes a task in one call: its status, priority, due date, people and pull requests. Cade posts the changes in the task's thread. Its summary is save_task_summary's. Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, owner, reviewer, tester, pull requests), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
+    <p>Changes a task in one call: its status, priority, due date, people, pull requests, and whether it is a bug. Cade posts the changes in the task's thread. Its summary is save_task_summary's. Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying &quot;ready for review&quot;, &quot;QA passed&quot; or &quot;done&quot;); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. Preview: the task, then each field you change as old -&gt; new with the reason (status, priority, due date, bug, owner, reviewer, tester, pull requests), and nothing left unchanged. Call this only with changes the person has seen and approved.</p>
     
     <h3>Arguments <small>inputSchema</small></h3>
     <div class="tablewrap"><table>
@@ -637,6 +642,7 @@
 <tr><td><code>status</code></td><td>string: TODO | IN_PROGRESS | IN_REVIEW | IN_TESTING | CLIENT_REVIEW | DONE</td><td></td><td>The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first</td></tr>
 <tr><td><code>priority</code></td><td>string: Urgent | High | Medium | Low</td><td></td><td>The task's new priority. An incident's never changes, and a subtask has its task's: change the task's, and its subtasks follow</td></tr>
 <tr><td><code>due_date</code></td><td>string</td><td></td><td>DD/MM/YYYY or YYYY-MM-DD, or &quot;none&quot; to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes</td></tr>
+<tr><td><code>bug</code></td><td>boolean</td><td></td><td>true to make the task a bug, false to make a bug a task. An incident stays one</td></tr>
 <tr><td><code>blocked</code></td><td>boolean</td><td></td><td>true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens</td></tr>
 <tr><td><code>blocked_reason</code></td><td>string</td><td></td><td>Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason</td></tr>
 <tr><td><code>prs</code></td><td>object</td><td></td><td>Pull requests (GitHub, GitLab or Bitbucket) to link to and unlink from the task, as links. Adding gives suggested_message the request for its reviewers to review, while it is In review; only open ones can be unlinked, as merged and closed ones stay with the task. Cade reads no more of a repository than whether a GitHub pull request is open, merged or closed, so check one with your own tools first</td></tr>

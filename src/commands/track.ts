@@ -141,11 +141,11 @@ function readOrigin(payload: SlackPayload) {
 
 function submit(payload: SlackPayload, context: Context) {
   const { values } = payload.view.state;
-  const { title, dueDate, priority, errors } = readTaskForm(values, "Please give the task a title.");
+  const { title, dueDate, priority, bug, errors } = readTaskForm(values, "Please give the task a title.");
   const { origin, errors: noProject } = readOrigin(payload);
   if (errors || noProject) return { response_action: "errors", errors: { ...noProject, ...errors } };
 
-  const task: Task = { title, priority: priority!, status: "TODO", dueDate, people: noPeople(), createdBy: payload.user.id };
+  const task: Task = { title, priority: priority!, status: "TODO", dueDate, ...(bug && { bug }), people: noPeople(), createdBy: payload.user.id };
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
@@ -205,6 +205,7 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
     ts: message.ts,
     priority: task.priority,
     incident: Boolean(task.incident),
+    bug: Boolean(task.bug),
     createdBy: task.createdBy,
   });
   await addPages(env, message.channel, message.ts, task);

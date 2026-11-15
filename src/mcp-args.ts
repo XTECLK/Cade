@@ -5,7 +5,7 @@ export type GetTaskArgs = {
   // The task's ID, channel and message time joined by a colon, such as C0123ABCD:1700000000.000100
   task_id: string;
   // Only these fields, to keep the result small; task_id is always there. Default: all
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "subtasks")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "bug" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at" | "original_thread" | "original_thread_state" | "subtasks")[];
 };
 
 export type GetThreadHistoryArgs = {
@@ -54,6 +54,8 @@ export type GetTasksArgs = {
   roles?: ("owner" | "reviewer" | "tester")[];
   // Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees
   unassigned?: boolean;
+  // true: only bugs; false: only what isn't a bug
+  bug?: boolean;
   // open (default: everything not done), all, or one status
   status?: "open" | "all" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "IN_TESTING" | "CLIENT_REVIEW" | "DONE";
   // Only this project's tasks, by the name get_projects gives
@@ -65,7 +67,7 @@ export type GetTasksArgs = {
   // With completed_from or completed_to: give the tasks not done too, listed first, as well as those done in the days. Can't be combined with status
   include_open?: boolean;
   // The fields to give for each task, besides task_id which is always there. Default: all but created_by, prs, completed_at
-  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at")[];
+  fields?: ("title" | "project" | "channel_id" | "status" | "priority" | "due_date" | "incident" | "bug" | "blocked" | "blocked_reason" | "link" | "owner" | "reviewer" | "tester" | "parent" | "created_by" | "prs" | "completed_at")[];
   // How many tasks to return, most urgent first. Default 20
   limit?: number;
 };
@@ -97,6 +99,8 @@ export type CreateTaskArgs = {
   due_date?: string;
   // Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false
   incident?: boolean;
+  // Make a bug: something that works wrongly and needs fixing, but isn't an incident. Not with incident. Default false (a task)
+  bug?: boolean;
   // The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used
   thread_id?: string;
   // Instead of thread_id: a link to a message in the thread
@@ -168,6 +172,8 @@ export type UpdateTaskArgs = {
   priority?: "Urgent" | "High" | "Medium" | "Low";
   // DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident's never changes
   due_date?: string;
+  // true to make the task a bug, false to make a bug a task. An incident stays one
+  bug?: boolean;
   // true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens
   blocked?: boolean;
   // Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason

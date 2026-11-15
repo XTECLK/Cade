@@ -15,7 +15,7 @@ import { nameMap } from "./export.ts";
 import { approvalRequest, requestApproval, usualRequest } from "./commands/status.ts";
 import { INSTRUCTIONS } from "./guardrails.ts";
 import { SERVER_DESCRIPTION, SERVER_VERSION } from "./mcp-about.ts";
-import { INCIDENT, PRIORITIES, ROLES, STATUSES, loadTask, noPeople, parsePullRequest, statusName, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
+import { INCIDENT, PRIORITIES, ROLES, STATUSES, kindName, loadTask, noPeople, parsePullRequest, statusName, shownPeople, prState, waitsForSubtasks } from "./tasks.ts";
 import { newSubtask } from "./commands/subtask.ts";
 import { validate } from "./validate.ts";
 import type { AckTaskHistoryArgs, CreateTaskArgs, FindUserByNameArgs, GetAvailabilityArgs, GetChannelThreadsArgs, GetChannelsArgs, GetProjectsArgs, GetPromptArgs, GetPromptsArgs, GetServerInfoArgs, GetTaskArgs, GetTaskHistoryArgs, GetTaskSummaryArgs, GetTasksArgs, SaveTaskSummaryArgs, GetTeamAvailabilityArgs, GetThreadHistoryArgs, GetUserArgs, GetUsersArgs, SendApprovalRequestArgs, SendThreadMessageArgs, UpdateTaskArgs, ToolArgs } from "./mcp-args.ts";
@@ -662,6 +662,7 @@ function taskData(env: AppEnv, channel: string, ts: string, task: Task, link: st
     priority: task.priority,
     due_date: task.dueDate || "",
     incident: Boolean(task.incident),
+    bug: Boolean(task.bug),
     blocked: Boolean(task.blocked),
     blocked_reason: task.blockedReason || "",
     link,
@@ -715,8 +716,9 @@ async function getTaskView(env: AppEnv, user: string, args: GetTaskArgs) {
 
   const people = (Object.entries(ROLES) as [Role, string][]).map(([key, label]) => `${label.toLowerCase()}: ${task.people[key].join(", ") || "—"}`).join("; ");
   const lines = [`Task "${task.title}" in #${where}`, `Task ID: ${channel}:${ts}`];
-  if (want("status", "priority", "due_date", "incident")) {
-    lines.push(`Status: ${statusName(task.status)}  ·  Priority: ${task.priority}${task.incident ? " (incident)" : ""}  ·  Due: ${task.dueDate || "—"}`);
+  if (want("status", "priority", "due_date", "incident", "bug")) {
+    const kind = kindName(task).toLowerCase();
+    lines.push(`Status: ${statusName(task.status)}  ·  Priority: ${task.priority}${kind ? ` (${kind})` : ""}  ·  Due: ${task.dueDate || "—"}`);
   }
   if (want("owner", "reviewer", "tester", "created_by")) lines.push(`People: ${people}; raised by ${task.createdBy ?? "unknown"}`);
   if (want("link")) lines.push(`Links: ${task.link ? `thread ${task.link}` : "—"}`);
@@ -854,12 +856,14 @@ async function getChannelThreads(env: AppEnv, user: string, { channel_id: channe
   return { text: [`${people.length} thread${people.length === 1 ? "" : "s"} in #${name} not tracked by Cade, newest first:`, ...lines].join("\n") + more, data: { channel_id: channel, channel_name: name, total: people.length, threads } };
 }
 
-// Makes a task or incident for the person, from a thread or from scratch.
+// Makes a task, bug or incident for the person, from a thread or from scratch.
 async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
   const title = String(args.title ?? "").trim().replace(/\s+/g, " ");
   if (!title) throw new ToolError("The title is empty.");
   if (title.length > MAX_TITLE) throw new ToolError(`The title is ${title.length} characters; keep it to ${MAX_TITLE} or fewer.`);
   if (args.incident !== undefined && typeof args.incident !== "boolean") throw new ToolError("incident is true or false.");
+  if (args.bug !== undefined && typeof args.bug !== "boolean") throw new ToolError("bug is true or false.");
+  if (args.bug === true && args.incident === true) throw new ToolError("It is a bug or an incident, not both: an incident is something broken now, always Urgent; a bug is fixed as a task is.");
   // A subtask: in its parent's project, with its people, and its due date and priority unless given.
   let parent: { channel: string; ts: string; task: StoredTask } | undefined;
   if (args.parent_task_id !== undefined) {
@@ -872,6 +876,9 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
     parent = { channel, ts, task: found };
   }
   const incident = args.incident === true || Boolean(parent?.task.incident);
+  if (incident && args.bug === true) throw new ToolError("A subtask of an incident is an incident too, so it can't be a bug: leave out bug.");
+  const bug = args.bug === true;
+  const kind = incident ? "incident" : bug ? "bug" : "task";
   if (incident && (args.priority !== undefined || args.due_date !== undefined)) throw new ToolError(`${parent ? "A subtask of an incident is an incident too: it" : "An incident"} is always Urgent and due immediately, so leave out priority and due_date.`);
   if (args.priority !== undefined && !PRIORITIES[args.priority as Priority]) throw new ToolError(`priority is one of ${Object.keys(PRIORITIES).join(", ")}.`);
   if (parent && args.priority !== undefined) throw new ToolError("A subtask has its task's priority, so leave out priority. Its due date is its own.");
@@ -902,21 +909,21 @@ async function createTaskTool(env: AppEnv, user: string, args: CreateTaskArgs) {
 
   if (!source) {
     const same = (await tasksWithStatuses(env, OPEN)).find((entry) => entry.channel === project!.channel && entry.task.title.trim().toLowerCase() === title.toLowerCase());
-    if (same) throw new ToolError(`${project.name} already has an open ${same.task.incident ? "incident" : "task"} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
+    if (same) throw new ToolError(`${project.name} already has an open ${(kindName(same.task) || "task").toLowerCase()} called "${same.task.title}" (${same.channel}:${same.ts}). Use it, or give this one a different title.`);
   }
   const task: Task = parent
-    ? { ...newSubtask(parent.task, parent.ts, title, user, { dueDate: args.due_date !== undefined ? dueDate : undefined }), viaAgent: true }
-    : { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate }), people: noPeople(), createdBy: user, viaAgent: true };
+    ? { ...newSubtask(parent.task, parent.ts, title, user, { dueDate: args.due_date !== undefined ? dueDate : undefined, bug }), viaAgent: true }
+    : { title, status: "TODO", ...(incident ? { ...INCIDENT, incident: true } : { priority: (args.priority ?? "Medium") as Priority, dueDate, ...(bug && { bug }) }), people: noPeople(), createdBy: user, viaAgent: true };
   const ts = await createTask(env, task, { channel: project.channel, move: source });
-  if (!ts) throw new ToolError(`Slack wouldn't take the ${incident ? "incident" : "task"} just now. Cade tries again in a few minutes, so check ${project.name}'s channel before trying again.`);
+  if (!ts) throw new ToolError(`Slack wouldn't take the ${kind} just now. Cade tries again in a few minutes, so check ${project.name}'s channel before trying again.`);
 
-  const what = parent ? `subtask "${title}" of "${parent.task.title}"` : `${incident ? "incident" : "task"} "${title}"`;
+  const what = parent ? `subtask${bug ? " (a bug)" : ""} "${title}" of "${parent.task.title}"` : `${kind} "${title}"`;
   const told = [`Created the ${what} in ${project.name}${source ? ", and asked for the thread to be moved into it" : ""}.`];
   const made = await loadTask(env, project.channel, ts);
-  console.log("Task created by MCP", { channel: project.channel, ts, by: user, incident, fromThread: Boolean(source) });
+  console.log("Task created by MCP", { channel: project.channel, ts, by: user, kind, fromThread: Boolean(source) });
   return {
     text: `${told.join(" ")}${made?.link ? ` ${made.link}` : ""}`.trim(),
-    data: { task_id: `${project.channel}:${ts}`, link: made?.link ?? "", project: project.name, incident, parent_task_id: parent ? `${parent.channel}:${parent.ts}` : null },
+    data: { task_id: `${project.channel}:${ts}`, link: made?.link ?? "", project: project.name, incident, bug, parent_task_id: parent ? `${parent.channel}:${parent.ts}` : null },
   };
 }
 
@@ -979,13 +986,14 @@ const byOpenFirst = (a: { task: Task }, b: { task: Task }) => Number(!OPEN.inclu
 
 // The tasks in the projects whose channels you can read, most urgent first: everyone's, or those
 // `assigned` picks.
-async function getAllTasks(env: AppEnv, user: string, { limit, status, assigned, unassigned, channel, fields, completed, openFirst }: ListArgs) {
+async function getAllTasks(env: AppEnv, user: string, { limit, status, assigned, unassigned, bug, channel, fields, completed, openFirst }: ListArgs) {
   const { wanted, statuses } = statusFilter(status);
   const max = limit ?? DEFAULT_TASKS;
   const everyone = (task: Task) => (Object.keys(ROLES) as Role[]).flatMap((role) => task.people[role]);
   const found = (await tasksWithStatuses(env, statuses))
     .filter((entry) => !channel || entry.channel === channel)
     .filter(({ task }) => !completed || completed(task))
+    .filter(({ task }) => bug === undefined || Boolean(task.bug) === bug)
     // Only a task is unassigned, not a subtask: whoever takes the task takes its parts.
     .filter(({ task }) => (!assigned || assigned(task)) && (!unassigned || (!task.parent && !everyone(task).length)))
     .map(({ channel, ts, task }) => ({ channel, ts, task, incident: task.incident }))
@@ -1042,7 +1050,7 @@ async function taskLines(env: AppEnv, entries: ListedTask[], about: (entry: List
     if (!task.link && base === undefined) base = (await callSlack(env, "auth.test", {}).catch(() => ({}) as { url?: string })).url ?? "";
     const link = task.link || (base ? threadLink(base, channel, ts) : `${channel}/${ts}`);
     const due = task.dueDate ? `, due ${task.dueDate}` : "";
-    lines.push(`${n + 1}. [${task.priority}]${task.incident ? " [Incident]" : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
+    lines.push(`${n + 1}. [${task.priority}]${kindName(task) ? ` [${kindName(task)}]` : ""} ${task.title} — ${statusName(task.status)}${due} (${about(entry)})\n   Task ID: ${channel}:${ts}\n   ${link}`);
     const all: Record<string, unknown> = {
       ...taskData(env, channel, ts, task, link),
       created_by: task.createdBy ?? "",
@@ -1379,6 +1387,11 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     changes.priority = args.priority;
   }
   if (args.due_date !== undefined) changes.dueDate = dueDateOf(args.due_date);
+  if (args.bug !== undefined) {
+    if (typeof args.bug !== "boolean") throw new ToolError("bug is true or false.");
+    if (task.incident) throw new ToolError("This is an incident, and stays one: it can't be made a bug or a task. Leave out bug.");
+    changes.bug = args.bug;
+  }
   if (args.blocked !== undefined || args.blocked_reason !== undefined) {
     if (args.blocked !== undefined && typeof args.blocked !== "boolean") throw new ToolError("blocked is true or false.");
     if (args.blocked_reason !== undefined && typeof args.blocked_reason !== "string") throw new ToolError("blocked_reason is text.");
@@ -1405,7 +1418,7 @@ async function updateTask(env: AppEnv, user: string, args: UpdateTaskArgs) {
     if (settled.length) throw new ToolError(`${settled.join(", ")} ${settled.length === 1 ? "is" : "are"} merged or closed, and stay${settled.length === 1 ? "s" : ""} linked: only open pull requests can be unlinked.`);
     changes.prs = { add, remove };
   }
-  if (!Object.keys(changes).length) throw new ToolError("Nothing to change: give a status, priority, due_date, blocked, owner, reviewer, tester or prs. A summary is saved with save_task_summary.");
+  if (!Object.keys(changes).length) throw new ToolError("Nothing to change: give a status, priority, due_date, bug, blocked, owner, reviewer, tester or prs. A summary is saved with save_task_summary.");
 
   const skipped = task.incident && ("priority" in changes || "dueDate" in changes) ? " An incident's priority and due date never change, so those were left alone." : "";
   const told: string[] = [];

@@ -198,6 +198,7 @@ const TASK_ITEM = {
         priority: choice("The task's priority", PRIORITY_NAMES),
         due_date: str("DD/MM/YYYY, or empty for none"),
         incident: bool("Whether it is an incident: something broken now, always Urgent"),
+        bug: bool("Whether it is a bug rather than a task"),
         blocked: bool("Whether it is blocked: it keeps its status and shows as blocked on its card"),
         blocked_reason: str("Why it is blocked, in a short phrase, or empty"),
         link: str("A link to the task's message"),
@@ -206,7 +207,7 @@ const TASK_ITEM = {
         tester: strings("The task's testers, as Slack user IDs: show their names, not the IDs"),
         parent: PARENT,
     },
-    required: ["task_id", "title", "status", "priority", "due_date", "incident", "link", "owner", "reviewer", "tester"],
+    required: ["task_id", "title", "status", "priority", "due_date", "incident", "bug", "link", "owner", "reviewer", "tester"],
 };
 
 export const TASK_FIELDS = [...Object.keys(TASK_ITEM.properties).filter((key) => key !== "task_id"), ...Object.keys(EXTRA_FIELDS)];
@@ -386,6 +387,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 }),
                 roles: list("With assignees: only the tasks where one of them has one of these roles. Default: all three", choice("A role", ROLE_NAMES), {minItems: 1}),
                 unassigned: bool("Only tasks nobody is owner, reviewer or tester of. Can't be combined with assignees"),
+                bug: bool("true: only bugs; false: only what isn't a bug"),
                 status: choice("open (default: everything not done), all, or one status", TASK_STATUS_FILTER),
                 project: str("Only this project's tasks, by the name get_projects gives"),
                 completed_from: str("Only tasks marked Done on or after this day (status defaults to DONE then) (YYYY-MM-DD)"),
@@ -482,10 +484,10 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Create a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true},
         description:
-            "Creates a task, or an incident, in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. " +
+            "Creates a task, a bug or an incident in a project's channel as the person you act for: from a Slack thread (moved into the new task) or from scratch. An incident is always Urgent and due immediately. " +
             "Suggest the title, priority and due date and ask for the person's input, and call this only with a task the person has seen and approved. Check with get_tasks that the task doesn't exist already. Each call makes a new task. Offer to assign people afterwards with update_task. " +
             "With parent_task_id it makes a subtask of that task instead (a part of it, or an issue found while testing it): in the task's project, with its own card and thread, starting with the task's people and due date (give another if it is due earlier or later), and with its priority for good, which follows the task's; the task's thread is told, with a link. Subtasks go one level deep, and a subtask of an incident is an incident too. A task moves to Client review or Done only once all its subtasks are Done. " +
-            "Preview: kind (task or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.",
+            "Preview: kind (task, bug or incident), title, project, priority, due date (or none), the thread it comes from, and the task it is a subtask of, if any.",
         inputSchema: {
             type: "object",
             properties: {
@@ -494,6 +496,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 priority: choice("Default Medium. Not for an incident", PRIORITY_NAMES),
                 due_date: str("DD/MM/YYYY or YYYY-MM-DD. Use a date the thread gives or clearly implies, never an invented one; leave out for none. Not for an incident"),
                 incident: bool("Make an incident: only for something broken now that blocks people or the business, always Urgent and due immediately. When unsure, leave it false (a task). Default false"),
+                bug: bool("Make a bug: something that works wrongly and needs fixing, but isn't an incident. Not with incident. Default false (a task)"),
                 thread_id: str("The thread to make it from. One that is already a task, was moved into one, or is a bot's or a direct message can't be used"),
                 link: str("Instead of thread_id: a link to a message in the thread"),
                 parent_task_id: str("Make it a subtask of this task, by the ID get_tasks gives. Leave out project and priority (it has the task's); due_date defaults to the task's"),
@@ -505,6 +508,7 @@ export const TOOL_DEFS: ToolDef[] = [
             link: str("A link to the task's message"),
             project: str("The project's name"),
             incident: bool("Whether it was made as an incident"),
+            bug: bool("Whether it was made as a bug"),
             parent_task_id: {type: ["string", "null"], description: "The task it is a subtask of, or null"},
         }),
     },
@@ -659,11 +663,11 @@ export const TOOL_DEFS: ToolDef[] = [
         title: "Update a task",
         annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true},
         description:
-            "Changes a task in one call: its status, priority, due date, people and pull requests. Cade posts the changes in the task's thread. Its summary is save_task_summary's. " +
+            "Changes a task in one call: its status, priority, due date, people, pull requests, and whether it is a bug. Cade posts the changes in the task's thread. Its summary is save_task_summary's. " +
             "Cade doesn't ask anyone to do anything: when the change means asking people (picking it up, reviewing, testing), suggested_message has the request. Ask the person whether to send it, as it is, in their own words or not at all (they may know it isn't needed), and send their version with send_thread_message only after a clear yes. " +
             "A task with open subtasks can't move to Client review or Done: the call is refused, naming them. Ask the person whether to close them; if they agree, set each to DONE (with the usual preview), then move the task. " +
             "Keeping it in step with the thread and the work: a status the evidence has moved past (To do when work has started, In progress when a pull request is up for review, or a message saying \"ready for review\", \"QA passed\" or \"done\"); a pull request mentioned or opened for it and not linked, to add; one linked and still open but replaced by another, or for another task, to remove. Offer nothing from a plan, a question or a guess. " +
-            "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, owner, reviewer, tester, pull requests), and nothing left unchanged. " +
+            "Preview: the task, then each field you change as old -> new with the reason (status, priority, due date, bug, owner, reviewer, tester, pull requests), and nothing left unchanged. " +
             "Call this only with changes the person has seen and approved.",
         inputSchema: {
             type: "object",
@@ -672,6 +676,7 @@ export const TOOL_DEFS: ToolDef[] = [
                 status: choice("The task's new status. A task in Client review can't be changed here: its approver decides. CLIENT_REVIEW and DONE need all the task's subtasks Done first", STATUS_NAMES),
                 priority: choice("The task's new priority. An incident's never changes, and a subtask has its task's: change the task's, and its subtasks follow", PRIORITY_NAMES),
                 due_date: str('DD/MM/YYYY or YYYY-MM-DD, or "none" to remove the due date. Use a date the thread gives or clearly implies, never an invented one. An incident\'s never changes'),
+                bug: bool("true to make the task a bug, false to make a bug a task. An incident stays one"),
                 blocked: bool("true to mark the task blocked, false to unblock it. A blocked task keeps its status and shows as blocked on its card. Mark it only when the thread says it cannot go on until something else happens"),
                 blocked_reason: str("Why it is blocked, in a short phrase of at most 100 characters (with blocked: true). Replaces the earlier reason"),
                 prs: {

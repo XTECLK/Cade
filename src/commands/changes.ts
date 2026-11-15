@@ -27,7 +27,7 @@ type ChangeOptions = { from?: Status; told?: string[]; source?: string; quiet?: 
 //      shows its change on the task card, so it acknowledges with a ✅
 //      instead of the log (see acknowledged).
 // Changes are { people: { [role]: { add, remove } }, status, priority,
-// dueDate, prs: { add, remove }, blocked: { on, reason } }, each optional; pull requests are links.
+// dueDate, prs: { add, remove }, blocked: { on, reason }, bug }, each optional; pull requests are links.
 
 // The pull requests of `task` once `changes` are applied.
 export function prsAfter(task: Task, changes: Changes) {
@@ -60,7 +60,7 @@ export async function applyChanges(env: AppEnv, where: Where, changes: Changes, 
 // task, saved once, and returns what actually changed, as notify.ts reads
 // it, or null when nothing did or the task is gone. Only what differs is a
 // change: someone already an owner isn't added again, nor a status set
-// that it has. The priority and due date of an incident never change, and
+// that it has. The priority and due date of an incident never change, nor does it become a bug, and
 // the status is left alone when the task has moved on from `from` since a
 // suggestion was made. Nor does it move to Client review or Done while
 // subtasks are open: the rest is saved, and whoever made the change is warned
@@ -71,7 +71,7 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
   const told = Object.fromEntries(mentioned.map((id) => [id, null]));
-  const change: Change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, blocked: null };
+  const change: Change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, blocked: null, bug: null };
 
   // Only the roles there are now: a suggestion posted before owners were
   // called that names developers.
@@ -104,6 +104,12 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     }
   }
 
+  // A task made a bug, or a bug a task. An incident stays one.
+  if ("bug" in changes && !task.incident && Boolean(changes.bug) !== Boolean(task.bug)) {
+    task.bug = Boolean(changes.bug);
+    change.bug = { to: task.bug };
+  }
+
   // Blocked, or no longer, with a reason when blocking; a new reason on a blocked task is a change too.
   if (changes.blocked) {
     const on = Boolean(changes.blocked.on);
@@ -123,7 +129,7 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     setStatusFields(task, moving);
   }
 
-  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.blocked);
+  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.blocked || change.bug);
   if (changed) await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source, saw);
   if (change.status && !quiet) await tellMainTask(env, channel, ts, change.status, user);

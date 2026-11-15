@@ -198,7 +198,7 @@ function drafts(calls: Call[]): string[] {
 
 // The track form, submitted from `origin`: /cade task in the dev channel,
 // to begin with.
-const submission = (values: { title?: string; dueDate?: string; priority?: string }, origin: TrackForm = { channel: "CDEV" }) => ({
+const submission = (values: { title?: string; dueDate?: string; priority?: string; kind?: string }, origin: TrackForm = { channel: "CDEV" }) => ({
   type: "view_submission",
   user: { id: "UCREATOR" },
   view: {
@@ -213,6 +213,7 @@ const submission = (values: { title?: string; dueDate?: string; priority?: strin
             selected_option: values.priority ? { value: values.priority } : null,
           },
         },
+        ...(values.kind && { kind: { value: { selected_option: { value: values.kind } } } }),
       },
     },
   },
@@ -3922,7 +3923,7 @@ test("Make new task and Make new incident open their forms, with the project out
     assert.equal(view.callback_id, callback);
     assert.equal(view.blocks[0].block_id, "project");
     assert.deepEqual(projectOptions(view), [["acme", "CDEV"], ["test", "CTESTDEV"]]);
-    assert.equal(view.blocks[1].element.initial_value, "Customers can't pay");
+    assert.equal(view.blocks.find((block) => block.block_id === "title").element.initial_value, "Customers can't pay");
     const origin = JSON.parse(view.private_metadata);
     assert.equal(origin.channel, undefined);
     assert.deepEqual(origin.move, {
@@ -4190,7 +4191,10 @@ test("Track as task and Report incident open their forms, named from the message
     const { view } = calls.find((call) => call.method === "views.open").args;
     assert.equal(view.callback_id, callback);
     assert.equal(view.blocks[0].element.initial_option.value, "CDEV");
-    assert.equal(view.blocks[1].element.initial_value, "The login bug also hits SSO");
+    assert.equal(view.blocks.find((block) => block.block_id === "title").element.initial_value, "The login bug also hits SSO");
+    // A task asks whether it is a task or a bug, starting at Task; an incident is one already.
+    const kind = view.blocks.find((block) => block.block_id === "kind");
+    assert.equal(kind?.element.initial_option.value, callback === "track" ? "task" : undefined);
     assert.deepEqual(JSON.parse(view.private_metadata), {
       channel: "CDEV",
       move: { channel: "CDEV", ts: "100.7" },
@@ -4555,7 +4559,7 @@ test("Edit… on a suggestion opens the task's Edit form, filled in with it", as
   await send("/slack/interactions", answerSuggestion(question, 1));
   const form = calls.find((call) => call.method === "views.open").args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks[1].element.initial_users, ["URIA", "UMIA"]);
+  assert.deepEqual(form.blocks.find((block) => block.block_id === "reviewer").element.initial_users, ["URIA", "UMIA"]);
 });
 
 test("Accept leaves a suggested status alone once the task has moved, and Reject changes nothing", async (t) => {
@@ -5289,10 +5293,10 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason"]);
-  assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
-  assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
-  assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["kind", "owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason"]);
+  assert.deepEqual(form.blocks[3].element.initial_users, ["UTOM", "UTESS"]);
+  assert.equal(form.blocks[4].element.initial_option.value, "IN_TESTING");
+  assert.equal(form.blocks[6].element.initial_date, "2026-10-31");
 
   // Whoever saved it changed their mind about UTOM, and moved the due date.
   await send(
@@ -5515,9 +5519,10 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const form = calls[0].args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason"]);
-  assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
-  assert.equal(form.blocks[3].element.initial_option.value, "TODO");
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["kind", "owner", "reviewer", "tester", "status", "priority", "due_date", "blocked", "blocked_reason"]);
+  assert.equal(form.blocks[0].element.initial_option.value, "task");
+  assert.deepEqual(form.blocks[1].element.initial_users, ["UREX"]);
+  assert.equal(form.blocks[4].element.initial_option.value, "TODO");
 
   // A tester added with the status left alone keeps it. The pull requests box of a form opened
   // before they had a form of their own is ignored.
@@ -5538,6 +5543,71 @@ test("the card's Edit opens one form with everything, and saving it applies what
   const posts = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
   assert.equal(posts.length, 1);
   assert.equal(posts[0].args.text, "<@UACTOR> assigned <@UTESS> as tester.");
+});
+
+test("a task can be made a bug on the New task form, and changed between task and bug with Edit", async (t) => {
+  let calls = mockSlack(t, createdTask);
+  await send("/slack/interactions", interaction(submission({ title: "Login fails on Safari", priority: "High", kind: "bug" })));
+  assert.equal((await savedTask()).bug, true);
+  const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts);
+  assert.match(card.args.blocks[0].text.text, /^\[HIGH\] \[Bug\] \*Login fails on Safari\*/);
+  assert.equal(card.args.text, "High bug: Login fails on Safari");
+  assert.match(JSON.stringify(card.args.attachments), /Reported by <@UCREATOR>/);
+
+  // Its Edit form starts at Bug; saving it as Task makes it a task again, and the thread is told.
+  const bug = storedTask();
+  bug.task.bug = true;
+  calls = mockSlack(t, { stored: [bug] });
+  await send("/slack/interactions", cardMenuClick("edit"));
+  const form = calls[0].args.view;
+  assert.equal(form.blocks[0].element.initial_option.value, "bug");
+  const save = (kind?: string) => {
+    const values = {
+      ...(kind && { kind: { value: { selected_option: { value: kind } } } }),
+      owner: { value: { selected_users: [] } },
+      reviewer: { value: { selected_users: [] } },
+      tester: { value: { selected_users: [] } },
+      status: { value: { selected_option: { value: "TODO" } } },
+      priority: { value: { selected_option: { value: bug.task.priority } } },
+      due_date: { value: { selected_date: form.blocks.find((block) => block.block_id === "due_date").element.initial_date ?? null } },
+    };
+    return send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values } } }));
+  };
+  await save("task");
+  assert.equal((await savedTask()).bug, false);
+  const told = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
+  assert.equal(told.args.text, "<@UACTOR> marked this as a task, not a bug.");
+  const redrawn = calls.find((call) => call.method === "chat.update");
+  assert.doesNotMatch(redrawn.args.blocks[0].text.text, /\[Bug\]/);
+
+  await save("bug");
+  assert.equal((await savedTask()).bug, true);
+  assert.ok(calls.some((call) => call.args.text === "<@UACTOR> marked this as a bug."));
+  // A form opened before it had the Type leaves it as it is.
+  await save();
+  assert.equal((await savedTask()).bug, true);
+});
+
+test("a task made without choosing is a task, and an incident's Edit form has no Type and stays an incident", async (t) => {
+  mockSlack(t, createdTask);
+  await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "High" })));
+  assert.equal(Boolean((await savedTask()).bug), false);
+
+  const calls = mockSlack(t, { stored: [incidentTask()] });
+  await send("/slack/interactions", cardMenuClick("edit"));
+  const form = calls[0].args.view;
+  assert.equal(form.blocks.some((block) => block.block_id === "kind"), false);
+  // Even a Type sent anyway leaves it an incident.
+  const values = {
+    kind: { value: { selected_option: { value: "bug" } } },
+    owner: { value: { selected_users: [] } },
+    reviewer: { value: { selected_users: [] } },
+    tester: { value: { selected_users: [] } },
+    status: { value: { selected_option: { value: "TODO" } } },
+  };
+  await send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values } } }));
+  const task = await savedTask();
+  assert.deepEqual([task.incident, task.bug], [true, false]);
 });
 
 test("AI only adds the author to a role when their message speaks of themselves", async (t) => {

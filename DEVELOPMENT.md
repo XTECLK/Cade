@@ -183,7 +183,7 @@ five minutes (`retry.ts`, through `publishTask`), up to five tries in all.
 Once posted, a row is found by its channel and `ts`. `loadTask` and
 `saveTask` in `tasks.ts` read and write a task; `saveTask` stores the row
 first, then renders it to the root message in the dev channel
-(`taskMessage`). A row's `kind` is `task` or `incident`, and `parent_id` makes
+(`taskMessage`). A row's `kind` is `task`, `bug` (picked on the New task and Edit forms, and changed there either way) or `incident`, and `parent_id` makes
 it a subtask of another task in the same channel (one level deep, see
 `commands/subtask.ts`): a task is read with its parent's title and link and
 its subtasks' open and closed counts and where its pull requests stand (`TASK_SELECT` in `db.ts`), which its

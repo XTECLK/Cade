@@ -1,6 +1,6 @@
 import { tasksWithStatus } from "../db.ts";
 import { escapeSlack, mentions } from "../slack.ts";
-import { PRIORITIES, ROLES, STATUSES } from "../tasks.ts";
+import { PRIORITIES, ROLES, STATUSES, kindName } from "../tasks.ts";
 import type { AppEnv } from "../env.ts";
 import type { Project } from "../channels.ts";
 import type { Priority, Role, Status, Task } from "../types.ts";
@@ -20,7 +20,8 @@ export interface TaskEntry {
 export const OPEN: Status[] = (Object.keys(STATUSES) as Status[]).filter((status) => status !== "DONE");
 
 export function line({ task, link, incident }: Pick<TaskEntry, "task" | "link" | "incident">, { people = false } = {}) {
-  const label = incident ? "*Incident:* " : "";
+  const kind = kindName({ incident, bug: task.bug });
+  const label = kind ? `*${kind}:* ` : "";
   const parts = [
     `• ${label}<${link}|${escapeSlack(task.title)}>`,
     STATUSES[task.status],

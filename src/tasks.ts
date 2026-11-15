@@ -56,6 +56,31 @@ export const INCIDENT = { priority: "Urgent" as Priority, dueDate: "Immediate" }
 // A subtask's priority is its task's, set there and followed (see followParent); its due date is its own.
 export const SUBTASK_PRIORITY = "A subtask has its task's priority, so change it on the task. Its due date is its own.";
 
+// What a task is, as its card, the task lists and the summary name it: an incident, a bug, or a plain
+// task, which goes unnamed.
+export function kindName(task: Pick<Task, "incident" | "bug">) {
+  return task.incident ? "Incident" : task.bug ? "Bug" : "";
+}
+
+// The Type picker of the New task and Edit forms: a task or a bug (an incident is reported with
+// `/cade incident`, and stays one). Read back with readKind.
+export function kindBlock(bug: boolean | undefined) {
+  const option = (value: "task" | "bug") => ({ text: plainText(value === "bug" ? "Bug" : "Task"), value });
+  return {
+    type: "input",
+    block_id: "kind",
+    label: plainText("Type"),
+    element: { type: "static_select", action_id: "value", options: [option("task"), option("bug")], initial_option: option(bug ? "bug" : "task") },
+  };
+}
+
+// Whether a form's Type says bug, or undefined for a form without one (an incident's, or one opened
+// before forms had it).
+export function readKind(values: ViewValues): boolean | undefined {
+  const picked = values.kind?.value.selected_option?.value;
+  return picked === undefined ? undefined : picked === "bug";
+}
+
 export const INCIDENT_IS_FIXED =
   "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.";
 
@@ -137,16 +162,17 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   const card: SlackBlock[] = [
     [task.parent && parentLine(task.parent), links.length && links.join("  ·  "), subtasksLine(task), prsLine(task)],
     [status, people || "_Unassigned_"],
-    [`${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
+    [`${task.incident || task.bug ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
   ]
     .map((lines) => lines.filter(Boolean))
     .filter((lines) => lines.length)
     .map(smallText);
-  // Incidents share the dev channel with the rest of the work, so their
+  // Incidents and bugs share the dev channel with the rest of the work, so their
   // cards say which they are.
-  const label = `[${task.priority.toUpperCase()}] ${task.incident ? "[Incident] " : ""}`;
+  const kind = kindName(task);
+  const label = `[${task.priority.toUpperCase()}] ${kind ? `[${kind}] ` : ""}`;
   return {
-    text: `${task.priority} ${task.incident ? "incident" : "task"}: ${task.title}`,
+    text: `${task.priority} ${(kind || "task").toLowerCase()}: ${task.title}`,
     blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`) }, ...(archivedBy ? [] : [taskActions(task)])],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
@@ -328,10 +354,10 @@ export function statusName(status: Status) {
   return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
-// The title, due date and priority fields of the task form. `initial` fills
-// them in: { title, dueDate (DD/MM/YYYY), priority }. Without `details` the
+// The type, title, due date and priority fields of the task form. `initial` fills
+// them in: { title, dueDate (DD/MM/YYYY), priority, bug }. Without `details` the
 // form asks only for the title, for an incident, whose are fixed.
-export function taskFormBlocks(titleLabel: string, initial: { title?: string; dueDate?: string; priority?: string } = {}, { details = true } = {}): SlackBlock[] {
+export function taskFormBlocks(titleLabel: string, initial: { title?: string; dueDate?: string; priority?: string; bug?: boolean } = {}, { details = true } = {}): SlackBlock[] {
   const option = (priority: Priority) => ({
     text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
     value: priority,
@@ -349,6 +375,7 @@ export function taskFormBlocks(titleLabel: string, initial: { title?: string; du
   };
   if (!details) return [title];
   return [
+    kindBlock(initial.bug),
     title,
     {
       type: "input",
@@ -379,7 +406,7 @@ export function taskFormBlocks(titleLabel: string, initial: { title?: string; du
 
 // Reads the fields from taskFormBlocks. `errors` is keyed by block_id, as a
 // modal's response_action "errors" expects, or null when there are none. A
-// form without details gives no priority or due date.
+// form without details gives no type, priority or due date.
 export function readTaskForm(values: ViewValues, titleError: string) {
   const title = values.title!.value.value?.trim() ?? "";
   // The date picker gives YYYY-MM-DD, or null when no date was chosen.
@@ -389,7 +416,7 @@ export function readTaskForm(values: ViewValues, titleError: string) {
   const errors: Record<string, string> = {};
   if (!title) errors.title = titleError;
   if (values.priority && !PRIORITIES[priority!]) errors.priority = "Please pick a priority.";
-  return { title, dueDate, priority, errors: Object.keys(errors).length ? errors : null };
+  return { title, dueDate, priority, bug: readKind(values), errors: Object.keys(errors).length ? errors : null };
 }
 
 // Turns DD/MM/YYYY back into the date picker's YYYY-MM-DD (undefined when

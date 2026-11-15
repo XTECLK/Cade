@@ -177,24 +177,26 @@ export function subtaskForm(origin: TaskRef, parent: StoredTask) {
 async function submit(payload: SlackPayload, context: Context) {
   const { env } = context;
   const origin = readPayload<TaskRef>(TASK_BUTTON, payload.view.private_metadata, "Add subtask form");
-  const { title, dueDate, errors } = readTaskForm(payload.view.state.values, "Please give the subtask a title.");
+  const { title, dueDate, bug, errors } = readTaskForm(payload.view.state.values, "Please give the subtask a title.");
   if (errors) return { response_action: "errors", errors };
   const parent = await loadTask(env, origin.channel, origin.ts);
   if (!parent) return { response_action: "errors", errors: { title: "I'm not tracking that task any more." } };
   if (parent.parent) return { response_action: "errors", errors: { title: ONE_LEVEL } };
 
-  context.waitUntil(createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { dueDate }), { channel: origin.channel }));
+  context.waitUntil(createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { dueDate, bug }), { channel: origin.channel }));
   return { response_action: "clear" };
 }
 
 // A new subtask of `parent`, whose root message is `ts`, made by `user`: with the parent's people, and
-// its priority, and its due date unless `details` gives another. A subtask of an incident is an incident too,
-// Urgent and due Immediate, whatever `details` says.
-export function newSubtask(parent: StoredTask, ts: string, title: string, user: string, details: Partial<Pick<Task, "dueDate">> = {}): Task {
+// its priority, and its due date unless `details` gives another. It is a bug when `details` says so, whatever
+// its parent is. A subtask of an incident is an incident too, Urgent and due Immediate, whatever `details` says.
+export function newSubtask(parent: StoredTask, ts: string, title: string, user: string, details: Partial<Pick<Task, "dueDate" | "bug">> = {}): Task {
   return {
     title,
     status: "TODO",
-    ...(parent.incident ? { ...INCIDENT, incident: true } : { priority: parent.priority, dueDate: details.dueDate ?? parent.dueDate ?? "" }),
+    ...(parent.incident
+      ? { ...INCIDENT, incident: true }
+      : { priority: parent.priority, dueDate: details.dueDate ?? parent.dueDate ?? "", ...(details.bug && { bug: true }) }),
     people: structuredClone(parent.people),
     createdBy: user,
     parent: { ts, title: parent.title, link: parent.link, owner: parent.people.owner },

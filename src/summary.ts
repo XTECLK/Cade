@@ -15,7 +15,7 @@ import { byUrgency, groupTasks, threadLink } from "./commands/tasks.ts";
 import { nameMap } from "./export.ts";
 import { formatTime } from "./format.ts";
 import { callSlack } from "./slack.ts";
-import { PRIORITIES, STATUSES, shownPeople } from "./tasks.ts";
+import { PRIORITIES, STATUSES, kindName, shownPeople } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
 import type { Priority, Status, Task } from "./types.ts";
 
@@ -70,7 +70,7 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
   // again on every write. Names come from the ones kept in D1 (see nameMap).
   const people = (ids: string[]) => (ids.length ? ids.map((id) => `@${cell(names.get(id) ?? id)}`).join(", ") : "—");
   const row = ({ task, incident, link }: Listed, sub = false): Row => [
-    title(task.title, incident, link, sub),
+    title(task.title, kindName({ incident, bug: task.bug }), link, sub),
     unbroken(STATUSES[task.status]),
     priority(task.priority),
     task.dueDate || "—",
@@ -293,10 +293,10 @@ function table(columns: string[], rows: Row[]) {
 }
 
 // A title as a table cell linking to its thread: on one line, with what
-// would end the link or the cell escaped. A subtask's is led by ↳.
-function title(text: string, incident: boolean | undefined, link: string, sub = false) {
+// would end the link or the cell escaped. A subtask's is led by ↳, and an incident's or bug's by its `kind`.
+function title(text: string, kind: string, link: string, sub = false) {
   const cell = `[${text.replace(/\s+/g, " ").replace(/([[\]|\\])/g, "\\$1")}](${link})`;
-  return `${sub ? "↳ " : ""}${incident ? `\\[Incident\\] ${cell}` : cell}`;
+  return `${sub ? "↳ " : ""}${kind ? `\\[${kind}\\] ${cell}` : cell}`;
 }
 
 function priority(name: Priority) {

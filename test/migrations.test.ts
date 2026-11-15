@@ -29,7 +29,29 @@ test("0025 moves incidents from source_incident to kind, and every other task is
   );
   const columns = db.prepare("PRAGMA table_info(tasks)").all().map((row) => row.name);
   assert.ok(!columns.includes("source_incident"));
-  assert.throws(() => db.exec("UPDATE tasks SET kind = 'bug'"), /CHECK constraint failed/);
+  assert.throws(() => db.exec("UPDATE tasks SET kind = 'feature'"), /CHECK constraint failed/);
+});
+
+test("0034 lets a task be a bug, keeping every task's kind and subtasks", () => {
+  const { db, rest } = before("0034");
+  db.exec(`INSERT INTO tasks (id, channel, ts, title, priority, status, created_by, kind) VALUES
+    (1, 'CDEV', '1.1', 'Checkout is down', 'Urgent', 'TODO', 'U1', 'incident'),
+    (2, 'CDEV', '1.2', 'Fix login', 'High', 'TODO', 'U1', 'task')`);
+  db.exec(`INSERT INTO tasks (id, channel, ts, title, priority, status, created_by, kind, parent_id) VALUES (3, 'CDEV', '1.3', 'Roll back', 'Urgent', 'TODO', 'U1', 'incident', 1)`);
+  rest();
+  assert.deepEqual(
+    db.prepare("SELECT id, kind, parent_id FROM tasks ORDER BY id").all().map((row) => ({ ...row })),
+    [
+      { id: 1, kind: "incident", parent_id: null },
+      { id: 2, kind: "task", parent_id: null },
+      { id: 3, kind: "incident", parent_id: 1 },
+    ],
+  );
+  db.exec("UPDATE tasks SET kind = 'bug' WHERE id = 2");
+  db.exec("INSERT INTO tasks (channel, ts, title, priority, status, created_by) VALUES ('CDEV', '1.4', 'New', 'Low', 'TODO', 'U1')");
+  assert.equal(db.prepare("SELECT kind FROM tasks WHERE ts = '1.4'").get()!.kind, "task");
+  assert.throws(() => db.exec("UPDATE tasks SET kind = 'feature'"), /CHECK constraint failed/);
+  assert.ok(!db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "kind_new"));
 });
 
 test("0029 drops what was left from client channels, keeping the tasks", () => {

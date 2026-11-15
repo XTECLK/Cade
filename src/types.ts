@@ -28,6 +28,8 @@ export interface Task {
   viaAgent?: boolean;
   completedAt?: string;
   incident?: boolean;
+  // Whether it is a bug rather than a task, chosen on the New task and Edit forms. Never an incident too.
+  bug?: boolean;
   blocked?: boolean;
   blockedReason?: string;
   // The task's root message.
@@ -281,6 +283,8 @@ export interface Changes {
   dueDate?: string;
   prs?: { add?: string[]; remove?: string[] };
   blocked?: { on: boolean; reason?: string };
+  // true to make it a bug, false to make it a task. An incident stays one.
+  bug?: boolean;
 }
 
 // What a change actually did, as notify.ts reads it: only what changed is
@@ -296,4 +300,5 @@ export interface Change {
   dueDate: { from?: string; to: string } | null;
   status: { from: Status; to: Status } | null;
   blocked: { to: boolean; reason: string } | null;
+  bug: { to: boolean } | null;
 }

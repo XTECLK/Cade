@@ -1313,6 +1313,36 @@ test("create_task makes a task or incident from a thread or from scratch, and mo
   assert.match((await tool(url, "create_task", { title: "x", project: "acme", thread_id: "CDEV:1.1", link: "https://a.slack.com/archives/CDEV/p1000000" })).text, /not both/);
 });
 
+test("create_task makes a bug, get_tasks lists bugs, and update_task changes a task to a bug and back", async (t) => {
+  const calls = mock(t, { ...SLACK_FOR_TASKS, "conversations.info": { channel: { name: "dev" } }, "chat.update": {} });
+  const url = addressIn(await slash("mcp init", "UME"));
+
+  const made = await tool(url, "create_task", { title: "Login fails on Safari", project: "acme", bug: true });
+  assert.equal(made.isError, false, made.text);
+  assert.match(made.text, /Created the bug "Login fails on Safari"/);
+  assert.deepEqual([made.data.bug, made.data.incident], [true, false]);
+  assert.equal((await getTask(env, "CDEV", "100.1")).bug, true);
+  const card = calls.find((c) => c.method === "chat.postMessage" && c.args.channel === "CDEV" && !c.args.thread_ts);
+  assert.match(JSON.stringify(card?.args), /\[MEDIUM\] \[Bug\] \*Login fails on Safari/);
+  assert.match((await tool(url, "create_task", { title: "x", project: "acme", bug: true, incident: true })).text, /a bug or an incident, not both/);
+
+  await putTask(env, "CDEV", "1700000000.000100", stored({ title: "Add dark mode" }));
+  const bugs = await tool(url, "get_tasks", { bug: true });
+  assert.deepEqual(bugs.data.tasks.map((task) => [task.title, task.bug]), [["Login fails on Safari", true]]);
+  assert.match(bugs.text, /\[Bug\] Login fails on Safari/);
+  assert.deepEqual((await tool(url, "get_tasks", { bug: false })).data.tasks.map((task) => task.title), ["Add dark mode"]);
+
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1700000000.000100", bug: true })).text, /^Done\./);
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100")).bug, true);
+  assert.ok(calls.some((c) => c.method === "chat.postMessage" && /marked this as a bug/.test(JSON.stringify(c.args))));
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1700000000.000100", bug: false })).text, /^Done\./);
+  assert.equal((await getTask(env, "CDEV", "1700000000.000100")).bug, false);
+
+  // An incident stays one.
+  await putTask(env, "CDEV", "1700000000.000200", stored({ title: "Site down", priority: "Urgent", dueDate: "Immediate", incident: true }));
+  assert.match((await tool(url, "update_task", { task_id: "CDEV:1700000000.000200", bug: true })).text, /is an incident, and stays one/);
+});
+
 test("create_task won't make a task from a thread that is a task, was moved, or is in a channel you can't read", async (t) => {
   const TS = "1700000000.000100";
   await putTask(env, "CDEV", TS, stored({ title: "Login" }));

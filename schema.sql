@@ -1,4 +1,4 @@
--- Made by `npm run schema` from migrations/ (up to 0033_task_consumers.sql): don't edit it by hand.
+-- Made by `npm run schema` from migrations/ (up to 0034_task_bug.sql): don't edit it by hand.
 -- The database as the migrations leave it, for reference only: a change to the database is a new
 -- file in migrations/, then `npm run schema` to bring this up to date (a test fails until then).
 
@@ -113,7 +113,7 @@ CREATE TABLE tasks (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   -- Deleted tasks are kept, as the Sheet keeps their rows.
-  deleted_at TEXT, archived_at TEXT, archived_by TEXT, export_url TEXT, blocked INTEGER NOT NULL DEFAULT 0, blocked_reason TEXT NOT NULL DEFAULT '', via_agent INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'task' CHECK (kind IN ('task', 'incident')), parent_id INTEGER REFERENCES tasks (id),
+  deleted_at TEXT, archived_at TEXT, archived_by TEXT, export_url TEXT, blocked INTEGER NOT NULL DEFAULT 0, blocked_reason TEXT NOT NULL DEFAULT '', via_agent INTEGER NOT NULL DEFAULT 0, parent_id INTEGER REFERENCES tasks (id), kind TEXT NOT NULL DEFAULT 'task' CHECK (kind IN ('task', 'bug', 'incident')),
   UNIQUE (channel, ts)
 );
 CREATE INDEX tasks_open ON tasks (channel, status) WHERE deleted_at IS NULL;

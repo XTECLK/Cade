@@ -8,7 +8,7 @@ import { MCP_ACTION, WEB_ACTION, mcpLine, webLine } from "./commands/configure.t
 import { mcpEnabled } from "./mcp.ts";
 import { SETTINGS, isAdmin, settingOn } from "./settings.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
-import { PRIORITIES, blockedLine, parentLine, peopleLine, ROLES, shownPeople, STATUSES } from "./tasks.ts";
+import { PRIORITIES, blockedLine, kindName, parentLine, peopleLine, ROLES, shownPeople, STATUSES } from "./tasks.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
 import type { TaskEntry } from "./commands/tasks.ts";
@@ -519,7 +519,8 @@ function card({ entry, subs, context }: Row, today: string, viewer: string, budg
 // subtask.ts), where a task posted before it had a link has none.
 export function taskBlocks({ task, link, incident }: Pick<TaskEntry, "task" | "incident"> & { link?: string }, today: string, viewer?: string, { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {}): SlackBlock[] {
   const name = escapeSlack(task.title);
-  const title = `${sub ? ":arrow_right_hook: " : ""}${incident ? "[Incident] " : ""}*${link ? `<${link}|${name}>` : name}*`;
+  const kind = kindName({ incident, bug: task.bug });
+  const title = `${sub ? ":arrow_right_hook: " : ""}${kind ? `[${kind}] ` : ""}*${link ? `<${link}|${name}>` : name}*`;
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
   const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
   const text = [lines[0], details, people, ...lines.slice(1)].filter(Boolean).join("\n");

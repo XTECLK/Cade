@@ -39,7 +39,7 @@ interface TaskRow {
   created_by: string;
   via_agent: number;
   completed_at: string;
-  kind: "task" | "incident";
+  kind: "task" | "bug" | "incident";
   parent_id: number | null;
   blocked: number;
   blocked_reason: string | null;
@@ -444,7 +444,7 @@ function taskToRow(task: Task) {
     created_by: task.createdBy,
     via_agent: task.viaAgent ? 1 : 0,
     completed_at: task.completedAt ?? "",
-    kind: task.incident ? "incident" : "task",
+    kind: task.incident ? "incident" : task.bug ? "bug" : "task",
     blocked: task.blocked ? 1 : 0,
     blocked_reason: task.blocked ? task.blockedReason ?? "" : "",
     link: task.link ?? null,
@@ -469,6 +469,7 @@ function taskFromRow(row: ListedTaskRow): StoredTask {
     completedAt: row.completed_at,
     // Whether it is an incident: always urgent and due immediately.
     incident: row.kind === "incident",
+    bug: row.kind === "bug",
     // Whether it is blocked, and why (see blockedLine in tasks.ts).
     blocked: Boolean(row.blocked),
     blockedReason: row.blocked_reason ?? "",

@@ -96,6 +96,10 @@ export function blockedChanged(user: string, on: boolean, reason?: string) {
   return on ? `<@${user}> marked this as blocked${reason ? `: ${escapeSlack(reason)}` : "."}` : `<@${user}> unblocked this.`;
 }
 
+export function kindChanged(user: string, bug: boolean) {
+  return `<@${user}> marked this as ${bug ? "a bug" : "a task, not a bug"}.`;
+}
+
 // ---- From a change ----
 
 // A change is what changeTask (commands/changes.ts) says it actually did:
@@ -107,8 +111,9 @@ export function blockedChanged(user: string, on: boolean, reason?: string) {
 // nothing else.
 
 // The change log: a line for each thing that changed, who changed it.
-export function changeLog({ user, told, people, prs, priority, dueDate, status, blocked }: Change) {
+export function changeLog({ user, told, people, prs, priority, dueDate, status, blocked, bug }: Change) {
   return [
+    bug && kindChanged(user, bug.to),
     prs?.added.length && linked(user, prs.added),
     prs?.removed.length && unlinked(user, prs.removed),
     ...people.flatMap(({ role, added, removed }) => [

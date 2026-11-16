@@ -1,7 +1,7 @@
 // Posting for the person: send_thread_message, and send_approval_request.
 import { readableName } from "../access.ts";
 import { nameOf } from "../notify.ts";
-import { threadLink } from "../commands/tasks.ts";
+import { threadLink } from "../task-list.ts";
 import { MAX_MESSAGE } from "../mcp-tools.ts";
 import { callSlack, escapeSlack, sentBy, viaAgent } from "../slack.ts";
 import { requestApproval, usualRequest } from "../commands/status.ts";

@@ -1,6 +1,5 @@
-import { hashToken, newToken } from "./access.ts";
-import { deleteMcpToken, mcpTokenUser, putMcpToken, promptByName, promptHashes, prompts } from "./db.ts";
-import { publicUrl } from "./links.ts";
+import { promptByName, promptHashes, prompts } from "./db.ts";
+import { mcpEnabled, tokenUser } from "./mcp-keys.ts";
 import { MCP_CALLS_PER_MINUTE, mcpCallWait } from "./rate-limit.ts";
 import { MAX_NAMES, TOOL_DEFS } from "./mcp-tools.ts";
 import { nameMap } from "./export.ts";
@@ -81,35 +80,12 @@ type RpcMessage = { jsonrpc?: unknown; id?: RpcId; method?: unknown; params?: Rp
 // (see commands/configure.ts), so every action is theirs: a
 // private channel's thread is read only for someone in it. It is sent in the
 // `x-apikey` header with every request, never in the address, which ends up
-// in logs and histories. Only a hash of it is kept (see grantToken).
+// in logs and histories. Only a hash of it is kept (see grantToken in mcp-keys.ts).
 //
 // A task's summary is a working one that people's agents keep (task_summaries): each reads the one
 // saved and only the messages after it, and saves what it writes for the next (see getTaskSummary).
 // It is never shown in Slack or on a page, so saving it needs no approval.
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-
-// Makes a new API key for `user`, ending any they had, and returns it. It
-// can't be read again; revoking it ends it, and a new one follows.
-export async function grantToken(env: AppEnv, user: string) {
-  const token = newToken();
-  await putMcpToken(env, user, await hashToken(token));
-  return token;
-}
-
-// The address of the MCP endpoint, on the Worker.
-export function endpointUrl(env: AppEnv) {
-  return `${publicUrl(env)}/mcp`;
-}
-
-// Ends the user's token, and returns whether they had one.
-export function revokeToken(env: AppEnv, user: string) {
-  return deleteMcpToken(env, user);
-}
-
-// The user a token is for, or null.
-async function tokenUser(env: AppEnv, token: string) {
-  return /^[A-Za-z0-9_-]{43}$/.test(token) ? mcpTokenUser(env, await hashToken(token)) : null;
-}
 
 // The API key a request sends in its `x-apikey` header, or "".
 function apiKeyOf(request: Request) {
@@ -178,17 +154,6 @@ const loadedVersionOf = (request: Request) =>
   /^cade-([0-9a-f]{8})-/.exec(request.headers.get("mcp-session-id") ?? "")?.[1] ?? "";
 
 // The Worker's answer to a request for /mcp.
-// The names of the tools, for the AI agent modal.
-export function mcpCatalog() {
-  return { tools: TOOLS.map((tool) => tool.name) };
-}
-
-// Whether Cade's MCP endpoint is on. It is unless the Worker secret MCP is
-// "off" (`mcp: false` in cade.config.json).
-export function mcpEnabled(env: Pick<AppEnv, "MCP">) {
-  return env.MCP !== "off";
-}
-
 export async function handleMcp(request: Request, env: AppEnv) {
   const headers = {
     "access-control-allow-origin": "*",

@@ -4,9 +4,9 @@ import { projects, type Project } from "../channels.ts";
 import { applyChanges } from "../commands/changes.ts";
 import { changeRequests } from "../notify.ts";
 import { checkRoot } from "../commands/move.ts";
-import { parseStatus, approvalRequest } from "../commands/status.ts";
+import { approvalRequest } from "../commands/status.ts";
 import { createTask } from "../commands/track.ts";
-import { OPEN } from "../commands/tasks.ts";
+import { OPEN } from "../task-list.ts";
 import { subtasksOf, tasksWithStatuses } from "../db.ts";
 import { MAX_TITLE } from "../mcp-tools.ts";
 import {
@@ -18,6 +18,7 @@ import {
   loadTask,
   noPeople,
   parsePullRequest,
+  parseStatus,
   statusName,
   prState,
   waitsForSubtasks,

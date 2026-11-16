@@ -18,6 +18,7 @@ import {
   approverBlock,
   loadTask,
   notTheApprover,
+  parseStatus,
   prLink,
   readApprover,
   saveTask,
@@ -194,28 +195,6 @@ export function progressOptions(task: StoredTask, user: string, message: PlainMe
     ([...owner, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
   if (!finishing || ["CLIENT_REVIEW", "DONE"].includes(task.status)) return [];
   return ["DONE"];
-}
-
-// Short names people type for each status, besides its own name ("in
-// progress", "IN_PROGRESS"), in `@Cade status`.
-const STATUS_NAMES: Record<Status, string[]> = {
-  TODO: ["to do", "todo", "open"],
-  IN_PROGRESS: ["progress", "started", "doing", "wip"],
-  IN_REVIEW: ["review", "code review"],
-  IN_TESTING: ["testing", "test", "qa"],
-  CLIENT_REVIEW: ["client", "approval", "uat"],
-  DONE: ["complete", "completed", "finished", "closed"],
-};
-
-// The status `input` names, or undefined.
-export function parseStatus(input: string): Status | undefined {
-  const key = input.toUpperCase().replace(/[\s-]+/g, "_") as Status;
-  if (STATUSES[key]) return key;
-  const words = input
-    .toLowerCase()
-    .replace(/[\s_-]+/g, " ")
-    .trim();
-  return (Object.keys(STATUS_NAMES) as Status[]).find((status) => STATUS_NAMES[status].includes(words));
 }
 
 // A status menu's option.

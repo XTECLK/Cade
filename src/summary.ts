@@ -11,7 +11,7 @@ import {
   markCanvasDirty,
   putCanvas,
 } from "./db.ts";
-import { byUrgency, groupTasks, threadLink } from "./commands/tasks.ts";
+import { byUrgency, groupTasks, threadLink } from "./task-list.ts";
 import { nameMap } from "./export.ts";
 import { formatTime } from "./format.ts";
 import { callSlack } from "./slack.ts";

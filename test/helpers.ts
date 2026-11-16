@@ -1,5 +1,21 @@
 // What the tests share.
 
+// The Slack signing secret the tests' Workers have, and the headers Slack signs a request `body` with at
+// `timestamp` (now, unless a test is about an old one).
+export const SIGNING_SECRET = "test-signing-secret";
+export async function sign(body: string, timestamp = Math.floor(Date.now() / 1000)) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(SIGNING_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${body}`));
+  const hex = [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { "x-slack-request-timestamp": String(timestamp), "x-slack-signature": `v0=${hex}` };
+}
+
 // The ExecutionContext the Worker is given in a test: waitUntil, which is all Cade uses of it, with
 // what to do with the work handed to it (nothing, by default).
 export const context = (waitUntil: (promise: Promise<unknown>) => void = () => {}) =>

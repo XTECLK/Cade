@@ -1,9 +1,9 @@
-import { tasksWithStatus } from "../db.ts";
-import { escapeSlack, mentions } from "../slack.ts";
-import { PRIORITIES, ROLES, STATUSES, kindName } from "../tasks.ts";
-import type { AppEnv } from "../env.ts";
-import type { Project } from "../channels.ts";
-import type { Priority, Role, Status, Task } from "../types.ts";
+import { tasksWithStatus } from "./db.ts";
+import { escapeSlack, mentions } from "./slack.ts";
+import { PRIORITIES, ROLES, STATUSES, kindName } from "./tasks.ts";
+import type { AppEnv } from "./env.ts";
+import type { Project } from "./channels.ts";
+import type { Priority, Role, Status, Task } from "./types.ts";
 
 // An open task in a list, with a link to its thread (see groupTasks).
 export interface TaskEntry {

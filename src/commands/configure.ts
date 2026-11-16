@@ -1,5 +1,5 @@
 import { deleteWebTokensOf, hasMcpToken, mcpTokenCreated, webSessionsOf } from "../db.ts";
-import { endpointUrl, grantToken, mcpCatalog, mcpEnabled, revokeToken } from "../mcp.ts";
+import { endpointUrl, grantToken, mcpCatalog, mcpEnabled, revokeToken } from "../mcp-keys.ts";
 import { callSlack, mrkdwn, plainText } from "../slack.ts";
 import { loginLink } from "../web.ts";
 import type { AppEnv } from "../env.ts";
@@ -10,7 +10,7 @@ import type { Handler, SlackBlock, SlackPayload } from "../types.ts";
 //   Web pages  signs them in to the Worker's thread pages that task cards link to (see
 //              web.ts), or out of every browser: a link that works once for ten minutes, and keeps
 //              them signed in for thirty days.
-//   AI agent   whether Cade's MCP endpoint (see mcp.ts) is on, the endpoint, and their own API
+//   AI agent   whether Cade's MCP endpoint (see mcp-keys.ts) is on, the endpoint, and their own API
 //              key for it: made here, shown once, and ended here. With it their AI agent, whichever
 //              they use, reads the threads they can read and writes a task's summary as them. A
 //              key can't be shown again, and none is made while there is one: to change it,

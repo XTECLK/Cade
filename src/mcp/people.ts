@@ -1,7 +1,7 @@
 // The workspace's people for the MCP tools: get_user, get_users, find_user_by_name, get_availability and
 // get_team_availability.
 import { channelMembers } from "../access.ts";
-import { OPEN, todayIn } from "../commands/tasks.ts";
+import { OPEN, todayIn } from "../task-list.ts";
 import { tasksWithStatuses } from "../db.ts";
 import { AVAILABILITY_FIELDS, DEFAULT_USERS, MAX_MATCHES, MAX_PRESENCE, MAX_USERS, USER_FIELDS } from "../mcp-tools.ts";
 import { callSlack, type SlackUser } from "../slack.ts";

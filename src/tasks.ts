@@ -394,6 +394,28 @@ export function statusName(status: Status) {
   return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
+// Short names people type for each status, besides its own name ("in
+// progress", "IN_PROGRESS"), in `@Cade status`.
+const STATUS_NAMES: Record<Status, string[]> = {
+  TODO: ["to do", "todo", "open"],
+  IN_PROGRESS: ["progress", "started", "doing", "wip"],
+  IN_REVIEW: ["review", "code review"],
+  IN_TESTING: ["testing", "test", "qa"],
+  CLIENT_REVIEW: ["client", "approval", "uat"],
+  DONE: ["complete", "completed", "finished", "closed"],
+};
+
+// The status `input` names, or undefined.
+export function parseStatus(input: string): Status | undefined {
+  const key = input.toUpperCase().replace(/[\s-]+/g, "_") as Status;
+  if (STATUSES[key]) return key;
+  const words = input
+    .toLowerCase()
+    .replace(/[\s_-]+/g, " ")
+    .trim();
+  return (Object.keys(STATUS_NAMES) as Status[]).find((status) => STATUS_NAMES[status].includes(words));
+}
+
 // The type, title, due date and priority fields of the task form. `initial` fills
 // them in: { title, dueDate (DD/MM/YYYY), priority, bug }. Without `details` the
 // form asks only for the title, for an incident, whose are fixed.

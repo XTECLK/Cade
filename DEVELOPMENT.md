@@ -219,6 +219,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/rotate.ts` | The cron's job, hourly: giving an open task a new thread before Slack's free plan hides the old one (`threadRotationDays`) |
 | `src/github.ts` | The cron's job: reading whether tasks' GitHub pull requests are open, merged or closed |
 | `src/tasks.ts` | The task message: layout, saving |
+| `src/task-list.ts` | Lists of tasks: open statuses, most urgent first, grouped by project, today's date, thread links (for the Home tab, the summary, standups and MCP) |
 | `src/channels.ts` | `PROJECTS`: each project's dev channel |
 | `src/intents.ts` | Recognising intents in plain messages |
 | `src/slack.ts` | Calling Slack, Block Kit helpers, acknowledgements |
@@ -231,7 +232,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
-| `test/` | The tests, a file per feature (`prs.test.ts`, `home.test.ts`, `mcp.test.ts`, …), on `test/app.ts` (the Worker with a fake Slack) and `test/d1.ts`, a stand-in database on Node's SQLite |
+| `test/` | The tests, a file per feature (`prs.test.ts`, `home.test.ts`, `mcp-tasks.test.ts`, …), on `test/app.ts` (the Worker with a fake Slack), `test/mcp-app.ts` (the MCP server's) and `test/d1.ts`, a stand-in database on Node's SQLite |
 
 ### Adding a command
 
@@ -258,7 +259,8 @@ reads threads and tasks and works on them as that person. It speaks Streamable H
 one JSON-RPC message (or a batch), answered with JSON, with no sessions or streams.
 
 - **Keys.** Settings → AI agent on the Home tab (`src/commands/configure.ts`) makes the person's API key, shown once,
-  with the endpoint and a link to the setup guide; revoking it there ends it. Only a hash is kept, in `mcp_tokens`. The
+  with the endpoint and a link to the setup guide; revoking it there ends it (`src/mcp-keys.ts`, which the rest of Cade
+  uses rather than the server itself). Only a hash is kept, in `mcp_tokens`. The
   key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
 - **Access.** Everything runs as the key's owner: a channel's threads and tasks only for the people in it, public or
   private (`readableName` in `src/access.ts`, `readableChannel` in `src/mcp/common.ts`), and never a direct message.
@@ -311,10 +313,14 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
 
 ## Tests
 
-`npm test` runs every file in `test/`: one per feature (`commands`, `cards`, `prs`, `approval`, `suggestions`, `ai`,
-`changes`, `home`, `messages`, `subtasks`, `summary`, `standup`, `posting`, `pages`, `admin`, `config`, `worker`,
-`track`, and `mcp` for the MCP server), each run on its own. They run against the real Worker, with `fetch` replaced
-by a fake Slack API: `mockSlack` in `test/app.ts` returns canned results and records every call, so tests check
-exactly what Cade would send. Like Slack, the fake rejects a message whose buttons share an action ID. Shared fixtures
-in `test/app.ts`, such as `storedTask` and `incidentTask`, build the records Cade would have stored; a helper only one
-file uses stays in that file, and moves to `app.ts` once a second needs it.
+`npm test` runs every file in `test/`, each on its own and in parallel: one per feature of the Slack side (`commands`,
+`track`, `cards`, `prs`, `pr-reviewers`, `pr-pasted`, `approval`, `suggestions`, `ai`, `changes`, `home`, `messages`,
+`subtasks`, `summary`, `standup`, `posting`, `pages`, `admin`, `config`, `worker`), and one per part of the MCP
+server, as `src/mcp/` is split (`mcp-server`, `mcp-tasks`, `mcp-task-updates`, `mcp-history`, `mcp-threads`,
+`mcp-messages`, `mcp-people`). They run against the real Worker, with `fetch` replaced by a fake Slack API:
+`mockSlack` in `test/app.ts` returns canned results and records every call, so tests check exactly what Cade would
+send. Like Slack, the fake rejects a message whose buttons share an action ID. Shared fixtures in `test/app.ts`, such
+as `storedTask` and `incidentTask`, build the records Cade would have stored; a helper only one file uses stays in
+that file, and moves to `app.ts` once a second needs it. The MCP tests share `test/mcp-app.ts` instead: their own
+environment, a simpler fake Slack whose methods can answer with an error, and calls to the endpoint and its tools.
+What both use, such as signing a request as Slack does, is in `test/helpers.ts`.

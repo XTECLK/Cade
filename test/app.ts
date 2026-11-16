@@ -9,10 +9,11 @@ import type { AppEnv } from "../src/env.ts";
 import type { TestContext } from "node:test";
 import type { PrState, Status, StoredTask } from "../src/types.ts";
 import type { TrackForm } from "../src/payloads.ts";
-import { context, fake } from "./helpers.ts";
+import { SIGNING_SECRET, context, fake, sign } from "./helpers.ts";
+// The tests sign their requests as Slack does (see helpers.ts).
+export { sign };
 import type { Change } from "../src/types.ts";
 
-const SIGNING_SECRET = "test-signing-secret";
 // Every environment shares this database; it is emptied for each test, and
 // again by mockSlack.
 export const DB = fakeD1();
@@ -33,22 +34,6 @@ export const env = {
   // Whoever sends the commands in these tests is an admin, for the admin commands.
   ADMINS: JSON.stringify(["UACTOR"]),
 } as unknown as AppEnv;
-
-export async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(SIGNING_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${body}`));
-  const hex = [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return {
-    "x-slack-request-timestamp": String(timestamp),
-    "x-slack-signature": `v0=${hex}`,
-  };
-}
 
 // Sends a signed request and waits for any background work it started.
 export async function send(path, body, headers = {}, environment = env) {
@@ -743,3 +728,14 @@ export const [T1, T2, T3] = ["1700000000.000100", "1700000000.000200", "17000000
 export const cardLink = (ts: string) => `<${messageLink("CDEV", ts)}>`;
 // As an admin may send them.
 export const asAdmin = { ...env, ADMINS: JSON.stringify(["UACTOR"]) } as AppEnv;
+
+// Clicks a button on Cade's private "link these PRs?" question.
+export const suggestionClick = (actionId, urls) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    container: { is_ephemeral: true },
+    response_url: RESPONSE_URL,
+    actions: [{ action_id: actionId, value: JSON.stringify({ channel: "CDEV", ts: "100.1", urls }) }],
+  });

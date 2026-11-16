@@ -4,10 +4,10 @@ import { assigned, changeLog, changeRequests, onTheirPlate, request, unmentioned
 import { offerAsk } from "./ask.ts";
 import { STATUSES, loadTask, saveTask } from "../tasks.ts";
 import { setStatus, statusOption } from "./status.ts";
-import { OPEN, byUrgency, groupTasks, line } from "./tasks.ts";
+import { OPEN, byUrgency, groupTasks, line } from "../task-list.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
-import type { TaskEntry } from "./tasks.ts";
+import type { TaskEntry } from "../task-list.ts";
 import type { SlackBlock, SlackPayload, Status } from "../types.ts";
 import { nameMap } from "../export.ts";
 import { STANDUP_TASK, STANDUP_WALK, readPayload } from "../payloads.ts";

@@ -398,7 +398,7 @@ test("assign-style words without a mention are left alone", async (t) => {
 });
 
 test("@Cade status takes short names for each status", async () => {
-  const { parseStatus } = await import("../src/commands/status.ts");
+  const { parseStatus } = await import("../src/tasks.ts");
   for (const [input, status] of [
     ["to do", "TODO"],
     ["todo", "TODO"],

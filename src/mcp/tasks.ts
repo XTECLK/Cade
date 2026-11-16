@@ -1,7 +1,7 @@
 // Reading tasks for the MCP tools: get_task, get_tasks and get_projects.
 import { readableName } from "../access.ts";
 import { projects } from "../channels.ts";
-import { OPEN, byUrgency, threadLink, type TaskEntry } from "../commands/tasks.ts";
+import { OPEN, byUrgency, threadLink, type TaskEntry } from "../task-list.ts";
 import { subtasksOf, tasksWithStatuses, threadMessages } from "../db.ts";
 import { DEFAULT_TASKS, EXTRA_FIELDS, MAX_TASKS, TASK_FIELDS, TASK_VIEW_FIELDS } from "../mcp-tools.ts";
 import { callSlack } from "../slack.ts";

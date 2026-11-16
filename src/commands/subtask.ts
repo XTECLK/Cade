@@ -13,7 +13,7 @@ import {
   taskFormBlocks,
 } from "../tasks.ts";
 import { taskBlocks } from "../home.ts";
-import { todayIn } from "./tasks.ts";
+import { todayIn } from "../task-list.ts";
 import { createTask } from "./track.ts";
 import { linkCommand } from "./subtask-link.ts";
 import type { AppEnv } from "../env.ts";

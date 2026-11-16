@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.ts";
 import { insertTask, markTaskPosted, putTask } from "../src/db.ts";
-import { todayIn } from "../src/commands/tasks.ts";
+import { todayIn } from "../src/task-list.ts";
 import type { Status } from "../src/types.ts";
 import { context } from "./helpers.ts";
 import {

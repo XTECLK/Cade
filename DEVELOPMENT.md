@@ -43,7 +43,7 @@ the tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is wha
 runs it before the tests. The layout is Prettier's (`.prettierrc.json`), not anyone's by hand: `npm run format`
 writes it, and `npm run check` fails while a file isn't formatted. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
 it), and imports name the `.ts` file. The shapes the modules share (a task, a command, Slack's payloads,
-a handler) are in `src/types.ts`; D1's rows are in `src/db.ts`; the Worker's bindings and settings in `src/env.ts`.
+a handler) are in `src/types.ts`; D1's rows are in `src/db/` (imported through `src/db.ts`); the Worker's bindings and settings in `src/env.ts`.
 After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
 
 For a change that shouldn't change what the Worker does, such as a refactor or new types, `npm run bundle-diff`
@@ -188,7 +188,7 @@ first, then renders it to the root message in the dev channel
 (`taskMessage`). A row's `kind` is `task`, `bug` (picked on the New task and Edit forms, and changed there either way) or `incident`, and `parent_id` makes
 it a subtask of another task in the same channel (one level deep, see
 `commands/subtask.ts`): a task is read with its parent's title and link and
-its subtasks' open and closed counts and where its pull requests stand (`TASK_SELECT` in `db.ts`), which its
+its subtasks' open and closed counts and where its pull requests stand (`TASK_SELECT` in `db/tasks.ts`), which its
 card shows, and saving a subtask redraws its parent's card. Slack is only written to, never read back: the task lists are a query of
 open tasks. An incident is a task of `kind` `incident`: always urgent
 and due immediately. A task's pull requests are links in its `prs`; where each
@@ -214,7 +214,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/registry.ts` | The list of handlers, and the handler shape |
 | `src/commands/*.ts` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `move` (and the message shortcuts), `standup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `retry`; and the card's ⋯ menu (`menu`), with its forms: `edit`, `prs` (the Pull requests button), and `subtask` (Add subtask, View subtasks, `@Cade subtask`), with `subtask-link` for the admins' hidden `/cade subtask link` and `unlink` |
 | `src/notify.ts`, `src/commands/ask.ts` | What a change posts in its thread, the change log, and what it asks of people, offered to whoever made it as a private draft to Send, Edit or leave (an AI agent gets it as `update_task`'s `suggested_message`, to ask the person) |
-| `src/db.ts` | Reading and writing tasks in D1 |
+| `src/db.ts`, `src/db/` | Reading and writing D1, one module per part (`tasks`, `threads`, `people`, `canvases`, `tokens`, `projects`, `prs`, `prompts`), all imported through `src/db.ts` |
 | `src/retry.ts` | The cron's job: posting tasks Slack refused |
 | `src/rotate.ts` | The cron's job, hourly: giving an open task a new thread before Slack's free plan hides the old one (`threadRotationDays`) |
 | `src/github.ts` | The cron's job: reading whether tasks' GitHub pull requests are open, merged or closed |

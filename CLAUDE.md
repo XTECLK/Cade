@@ -22,7 +22,8 @@ people's own AI agents (`src/mcp.ts`). How it works, and where each part lives: 
 - No build step of its own: wrangler bundles `src/`, and Node runs the tests and scripts by stripping the types. So
   only erasable syntax (no `enum`, `namespace` or parameter properties), and imports name the `.ts` file.
 - Use the shared types: `src/types.ts` (task, release, change, command, handler, Slack's payloads), `src/env.ts`
-  (the Worker's settings and secrets), `src/db.ts` (D1's rows). Add to them rather than redefining a shape locally.
+  (the Worker's settings and secrets), `src/db/` (D1's rows, imported through `src/db.ts`). Add to them rather than
+  redefining a shape locally.
 - After changing `wrangler.toml`, run `npm run types`.
 - Slack's and Google's answers are typed by what Cade reads of them: calling a Slack method Cade hasn't called before
   means adding it to `SlackAnswers` in `src/slack.ts`, with only the fields read (and the same for a Google web app

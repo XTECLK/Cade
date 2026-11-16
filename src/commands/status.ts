@@ -1,4 +1,5 @@
 import { isQuestion, phraseTest } from "../intents.ts";
+import { nameOf, unmentioned } from "../notify.ts";
 import { acknowledged, changeTask } from "./changes.ts";
 import { AGENT_FOOTER, AGENT_FOOTER_ID, agentFooter, callSlack, dismiss, escapeSlack, mrkdwn, plainText, sentBy } from "../slack.ts";
 import {
@@ -360,7 +361,7 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
     return;
   }
   await dismiss(responseUrl);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(user, channel, ts, approver, toApprover(approver, request, task.prs)) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(await nameOf(env, user), channel, ts, approver, toApprover(approver, request, task.prs)) });
 }
 
 // Asks `approver` to review the task, in its thread, for `user`, who asked through their AI agent:
@@ -370,7 +371,7 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
 export async function requestApproval(env: AppEnv, channel: string, ts: string, approver: string, user: string, request?: string) {
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
-  const prompt = reviewPrompt(user, channel, ts, approver, request ? toApprover(approver, request, task.prs) : approvalRequest(approver, task.prs));
+  const prompt = reviewPrompt(await nameOf(env, user), channel, ts, approver, request ? toApprover(approver, request, task.prs) : approvalRequest(approver, task.prs));
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
@@ -380,18 +381,18 @@ export async function requestApproval(env: AppEnv, channel: string, ts: string, 
   return null;
 }
 
-// The request `user` sends, led by who it's from, as any message sent for someone is (see sentBy), and
+// The request `who` sends, led by their name, as any message sent for someone is (see sentBy), and
 // the approver's Approve and Not approve buttons. `request` mentions them, so they are notified, and
 // lists the task's pull requests unless whoever sent it took them out (see approvalRequest). The buttons
 // carry the message, to keep it when they are replaced, and who may click them.
-function reviewPrompt(user: string, channel: string, ts: string, approver: string, request: string) {
-  const text = sentBy(user, request);
+function reviewPrompt(who: string, channel: string, ts: string, approver: string, request: string) {
+  const text = sentBy(who, request);
   const value = (kept: string) => JSON.stringify({ channel, ts, text: kept, approver });
   // A button's value holds 2000 characters at most: a long request is cut short there, not in the thread.
   let kept = text;
   for (let cut = [...request].length; value(kept).length > MAX_BUTTON_VALUE && cut > 0; ) {
     cut -= value(kept).length - MAX_BUTTON_VALUE;
-    kept = sentBy(user, `${[...request].slice(0, Math.max(cut, 0)).join("").trimEnd()}…`);
+    kept = sentBy(who, `${[...request].slice(0, Math.max(cut, 0)).join("").trimEnd()}…`);
   }
   const buttons = value(kept);
   return {
@@ -444,7 +445,7 @@ async function review(payload: SlackPayload, env: AppEnv, approved: boolean) {
     await callSlack(env, "chat.postMessage", {
       channel: request.channel,
       thread_ts: request.ts,
-      ...asMessage(text),
+      ...asMessage(await unmentioned(env, text)),
     });
     outcome = approved
       ? `<@${user}> approved it.`

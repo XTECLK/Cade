@@ -1,4 +1,5 @@
 import { markTaskArchived } from "../db.ts";
+import { unmentioned } from "../notify.ts";
 import { callSlack } from "../slack.ts";
 import { NOT_A_TASK, loadTask, redrawParent, refreshSummary, taskMessage } from "../tasks.ts";
 import type { Handler } from "../types.ts";
@@ -33,5 +34,5 @@ export async function archiveTask(env: AppEnv, channel: string, ts: string, user
   await redrawParent(env, channel, task);
   await refreshSummary(env, channel);
   console.log("Task archived", { ts, user });
-  return `<@${user}> archived this task.`;
+  return unmentioned(env, `<@${user}> archived this task.`);
 }

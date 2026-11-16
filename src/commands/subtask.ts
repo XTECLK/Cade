@@ -1,4 +1,5 @@
 import { subtasksOf } from "../db.ts";
+import { unmentioned } from "../notify.ts";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { applyChanges } from "./changes.ts";
 import { INCIDENT, NOT_A_TASK, PRIORITIES, STATUSES, loadTask, readTaskForm, subtasksLine, taskFormBlocks } from "../tasks.ts";
@@ -121,7 +122,7 @@ export async function tellMainTask(env: AppEnv, channel: string, ts: string, { f
   if (!main) return;
   const title = task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`;
   const text = `<@${user}> ${to === "DONE" ? "closed" : "reopened"} the subtask ${title}. ${subtasksLine(main)}.`;
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent.ts, text }).catch((error) => {
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent.ts, text: await unmentioned(env, text) }).catch((error) => {
     console.warn("Could not tell the main task's thread", { ts: task.parent!.ts, error: error.message });
   });
 }
@@ -140,7 +141,7 @@ async function closeAll(payload: SlackPayload, { env }: Context) {
   for (const { ts } of open) await applyChanges(env, { channel: request.channel, ts }, { status: "DONE" }, user, { quiet: true });
   if (open.length) {
     const names = open.map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`)).join(", ");
-    await callSlack(env, "chat.postMessage", { channel: request.channel, thread_ts: request.ts, text: `<@${user}> closed all its subtasks: ${names}.` });
+    await callSlack(env, "chat.postMessage", { channel: request.channel, thread_ts: request.ts, text: await unmentioned(env, `<@${user}> closed all its subtasks: ${names}.`) });
   }
   await applyChanges(env, { channel: request.channel, ts: request.ts }, { status: request.status }, user);
   const closed = `Closed ${open.length} subtask${open.length === 1 ? "" : "s"}`;

@@ -111,6 +111,11 @@ export function kindChanged(user: string, bug: boolean) {
 // that names someone by ID says nothing.
 const MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
+// `user` by name, "@Ann", for a message that says who did something without notifying them (see unmentioned).
+export function nameOf(env: AppEnv, user: string) {
+  return unmentioned(env, `<@${user}>`);
+}
+
 export async function unmentioned(env: AppEnv, text: string) {
   const ids = new Set([...text.matchAll(MENTION)].map((match) => match[1]!)); // the group always matches
   if (!ids.size) return text;

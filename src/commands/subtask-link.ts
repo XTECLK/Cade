@@ -1,4 +1,5 @@
 import { setTaskParent } from "../db.ts";
+import { unmentioned } from "../notify.ts";
 import { callSlack, escapeSlack, linkedThread, respondLater } from "../slack.ts";
 import { AFTER_SUBTASKS, INCIDENT, loadTask, redrawParent, saveTask, statusName, subtaskAdded } from "../tasks.ts";
 import type { AppEnv } from "../env.ts";
@@ -74,7 +75,7 @@ async function link(env: AppEnv, child: Ref, parent: Ref, user: string) {
   // Saving redraws its card, the main task's, which counts it, and the summary.
   await saveTask(env, child.channel, child.ts, linked);
   if (before) await redrawParent(env, child.channel, { parent: before });
-  await callSlack(env, "chat.postMessage", { channel: parent.channel, thread_ts: parent.ts, text: subtaskAdded(user, linked) });
+  await callSlack(env, "chat.postMessage", { channel: parent.channel, thread_ts: parent.ts, text: await unmentioned(env, subtaskAdded(user, linked)) });
   console.log("Subtask linked", { channel: child.channel, ts: child.ts, parent: parent.ts, by: user });
   return `Made ${named(linked)} a subtask of ${named(main)}.${made ? " It's an incident now, like its main task: Urgent and due Immediate." : ""}`;
 }
@@ -89,7 +90,7 @@ async function unlink(env: AppEnv, child: Ref, user: string) {
   const alone = (await loadTask(env, child.channel, child.ts))!;
   await saveTask(env, child.channel, child.ts, alone);
   await redrawParent(env, child.channel, { parent: before });
-  await callSlack(env, "chat.postMessage", { channel: child.channel, thread_ts: before.ts, text: `<@${user}> made ${named(alone)} a task of its own.` });
+  await callSlack(env, "chat.postMessage", { channel: child.channel, thread_ts: before.ts, text: await unmentioned(env, `<@${user}> made ${named(alone)} a task of its own.`) });
   console.log("Subtask unlinked", { channel: child.channel, ts: child.ts, parent: before.ts, by: user });
   return `Made ${named(alone)} a task of its own again.`;
 }

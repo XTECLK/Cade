@@ -1,7 +1,7 @@
 import { channelMembers, hashToken, isMember, newToken, readableName } from "./access.ts";
 import { projects } from "./channels.ts";
 import { applyChanges } from "./commands/changes.ts";
-import { changeRequests } from "./notify.ts";
+import { changeRequests, nameOf } from "./notify.ts";
 import { checkRoot, MOVED_REACTION } from "./commands/move.ts";
 import { parseStatus } from "./commands/status.ts";
 import { createTask } from "./commands/track.ts";
@@ -1279,7 +1279,7 @@ async function sendThreadMessage(env: AppEnv, user: string, args: SendThreadMess
   await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
   if (!task) await reachableThread(env, user, channel, ts);
   const body = plainMessage(message);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(sentBy(user, body)) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(sentBy(await nameOf(env, user), body)) });
   console.log(task ? "Task message sent" : "Thread message sent", { channel, ts, by: user, characters: message.length });
   // The person is told where it was posted, so a thread named by its ID gets a link too.
   const link = (task ? task.link : args.link) || (await linkToThread(env, channel, ts));

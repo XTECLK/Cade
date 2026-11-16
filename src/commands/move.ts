@@ -1,4 +1,5 @@
 import { groupDisabled, knownProject, roleOf } from "../channels.ts";
+import { unmentioned } from "../notify.ts";
 import { tasksWithStatus } from "../db.ts";
 import { findIntent, intent, intentsOn, plainMessage } from "../intents.ts";
 import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.ts";
@@ -545,7 +546,8 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
   const copy = await callSlack(env, "chat.postMessage", {
     channel: target.channel,
     thread_ts: target.ts,
-    text: `Moved from <@${message.author}>'s <${original}|message>:\n${quoted}${files}`,
+    // Only the lead is named in plain text: the quote is the message as written, mentions and all.
+    text: `${await unmentioned(env, `Moved from <@${message.author}>'s <${original}|message>:`)}\n${quoted}${files}`,
   });
 
   const { permalink: moved } = await callSlack(env, "chat.getPermalink", { channel: target.channel, message_ts: copy.ts });
@@ -554,7 +556,7 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
     await callSlack(env, "chat.postMessage", {
       channel: from.channel,
       thread_ts: message.threadTs,
-      text: `<@${user}> moved this message to the ${noun} thread <${moved}|${escapeSlack(task.title)}>. Please carry on the conversation there.`,
+      text: await unmentioned(env, `<@${user}> moved this message to the ${noun} thread <${moved}|${escapeSlack(task.title)}>. Please carry on the conversation there.`),
     });
     await callSlack(env, "reactions.add", { channel: from.channel, timestamp: from.ts, name: MOVED_REACTION });
   } catch (error) {

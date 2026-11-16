@@ -1,4 +1,5 @@
 import { CLOSE_ALL, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respondLater, sentBy } from "../slack.ts";
+import { nameOf } from "../notify.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, Handler, RichText, SlackPayload } from "../types.ts";
 import { ASK_BUTTON, ASK_FORM, readPayload, type AskButton, type AskForm, type TaskRef } from "../payloads.ts";
@@ -55,7 +56,7 @@ function quoted(text: string) {
 
 // Posts `text` in the task's thread for `user`: Cade posts it, so it says whose it is.
 export async function sendAsk(env: AppEnv, { channel, ts }: TaskRef, user: string, text: string) {
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: sentBy(user, text) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: sentBy(await nameOf(env, user), text) });
 }
 
 // The form for changing a draft before it's sent, in a rich text box, so people show as people and more

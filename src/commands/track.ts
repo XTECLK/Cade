@@ -1,4 +1,5 @@
 import { knownProject } from "../channels.ts";
+import { unmentioned } from "../notify.ts";
 import { POST_ATTEMPTS, countPostAttempt, insertTask, markTaskPosted } from "../db.ts";
 import { callSlack, escapeSlack, plainText, type SlackAnswers } from "../slack.ts";
 import { moveMessage, offerStart } from "./move.ts";
@@ -227,7 +228,7 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
 // link to the subtask's own thread. Both are conveniences, so a failure is only logged.
 async function announceSubtask(env: AppEnv, channel: string, task: Task) {
   await redrawParent(env, channel, task);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text: subtaskAdded(task.createdBy, task) }).catch((error) => {
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text: await unmentioned(env, subtaskAdded(task.createdBy, task)) }).catch((error) => {
     console.warn("Could not tell the parent's thread about its subtask", { ts: task.parent!.ts, error: error.message });
   });
 }

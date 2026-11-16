@@ -403,12 +403,13 @@ test("the draft of what a change asks of people is sent, edited or left by whoev
   const click = (button, user = "UACTOR") =>
     interaction({ type: "block_actions", user: { id: user }, channel: { id: "CDEV" }, container: { is_ephemeral: true }, trigger_id: "trigger", response_url: RESPONSE_URL, actions: [{ action_id: button.action_id, value: button.value }] });
 
-  // Send posts it in the task's thread, saying whose it is, and removes the draft.
-  let calls = mockSlack(t, { stored: [storedTask()] });
+  // Send posts it in the task's thread, saying whose it is by name, so only those it asks are notified,
+  // and removes the draft.
+  let calls = mockSlack(t, { stored: [storedTask()], "users.info": (args) => ({ user: { real_name: { UACTOR: "Ann", UBOB: "Bob" }[args.user] } }) });
   let sent = recordResponses(t);
   await send("/slack/interactions", click(buttons[0]));
   const post = calls.find((call) => call.method === "chat.postMessage").args;
-  assert.deepEqual([post.channel, post.thread_ts, post.text], ["CDEV", "100.1", "<@UACTOR> sent:\n<@UBOB>, could you pick this up?"]);
+  assert.deepEqual([post.channel, post.thread_ts, post.text], ["CDEV", "100.1", "@Ann sent:\n<@UBOB>, could you pick this up?"]);
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 
   // Not now removes it and posts nothing.
@@ -1647,19 +1648,22 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
   const calls = mockSlack(t, {
     stored: [withStatus("CLIENT_REVIEW")],
     "chat.getPermalink": { permalink: "https://slack.example/review" },
+    "users.info": { user: { real_name: "Cleo" } },
   });
   const response = await send("/slack/interactions", reviewClick("status:approve"));
   assert.equal(response.status, 200);
 
-  assert.deepEqual(calls.map((call) => [call.method, call.args.ts ?? call.args.thread_ts ?? call.args.timestamp]), [
+  const slack = calls.filter((call) => call.method !== "users.info");
+  assert.deepEqual(slack.map((call) => [call.method, call.args.ts ?? call.args.thread_ts ?? call.args.timestamp]), [
     ["chat.update", "100.1"],
     ["chat.postMessage", "100.1"],
     ["chat.update", "100.9"],
   ]);
   assert.deepEqual((await savedTask()).status, "DONE");
   assert.ok((await savedTask()).completedAt);
-  assert.equal(calls[1].args.text, "<@UCLIENT> approved this, so it's now :white_check_mark: Done.");
-  assert.deepEqual(calls[2].args, {
+  // The thread hears who approved it by name, notifying no one.
+  assert.equal(slack[1].args.text, "@Cleo approved this, so it's now :white_check_mark: Done.");
+  assert.deepEqual(slack[2].args, {
     channel: "CDEV",
     ts: "100.9",
     text: "<@UACTOR> says this is ready for you to review.\n<@UCLIENT> approved it.",
@@ -6234,6 +6238,7 @@ test("Add subtask, under the card's list of subtasks, makes a subtask with the t
     "chat.postMessage": (args) => (args.thread_ts ? { ts: "300.1" } : { channel: args.channel, ts: "200.1" }),
     "chat.getPermalink": { permalink: "https://slack.example/p200" },
     "conversations.replies": { messages: [] },
+    "users.info": (args) => ({ user: { real_name: { UTESS: "Tess" }[args.user] } }),
   });
   // Subtasks opens the list, empty for now, with Add subtask under it.
   await send("/slack/interactions", subtasksClick());
@@ -6266,9 +6271,9 @@ test("Add subtask, under the card's list of subtasks, makes a subtask with the t
   assert.deepEqual(menuChoices(card), ["Archive"]);
   const subtask = (await getTask(env, "CDEV", "200.1"))!;
   assert.deepEqual([subtask.parent?.ts, subtask.priority, subtask.dueDate, subtask.people.owner, subtask.people.tester], ["100.1", "High", "20/11/2026", ["UREX"], ["UTESS"]]);
-  // The task's thread hears of it, and its card counts it.
+  // The task's thread hears of it, by name, notifying no one, and its card counts it.
   const told = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
-  assert.equal(told.text, "<@UTESS> added a subtask: <https://slack.example/p200|Fails on Safari>. It's tracked in its own thread.");
+  assert.equal(told.text, "@Tess added a subtask: <https://slack.example/p200|Fails on Safari>. It's tracked in its own thread.");
   const parent = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
   assert.match(cardText(parent), /\nSubtasks: 1 open  ·  0 closed\n/);
   assert.deepEqual(menuChoices(parent), ["Archive"]);
@@ -6557,15 +6562,19 @@ test("/cade subtask link keeps the rules a new subtask follows", async (t) => {
 });
 
 test("closing or reopening a subtask tells its task's thread how its subtasks stand; other moves don't", async (t) => {
-  const calls = mockSlack(t, { stored: [ownTask({ status: "IN_TESTING" }), subtaskOf("100.2", { link: "https://slack.example/p2" }), subtaskOf("100.3", { title: "Wrong total" })] });
+  const calls = mockSlack(t, {
+    stored: [ownTask({ status: "IN_TESTING" }), subtaskOf("100.2", { link: "https://slack.example/p2" }), subtaskOf("100.3", { title: "Wrong total" })],
+    "users.info": { user: { real_name: "Ann" } },
+  });
   const told = () => calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").map((call) => call.args.text);
   await send("/slack/events", threadEvent("<@UBOT> status in progress", { thread_ts: "100.2" }));
   assert.deepEqual(told(), []);
   await send("/slack/events", threadEvent("<@UBOT> status done", { thread_ts: "100.2" }));
-  assert.deepEqual(told(), ["<@UACTOR> closed the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 1 open  ·  1 closed."]);
+  // By name, notifying no one.
+  assert.deepEqual(told(), ["@Ann closed the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 1 open  ·  1 closed."]);
   calls.length = 0;
   await send("/slack/events", threadEvent("<@UBOT> status in testing", { thread_ts: "100.2" }));
-  assert.deepEqual(told(), ["<@UACTOR> reopened the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 2 open  ·  0 closed."]);
+  assert.deepEqual(told(), ["@Ann reopened the subtask <https://slack.example/p2|Fails on Safari>. Subtasks: 2 open  ·  0 closed."]);
 });
 
 test("the admin commands, and their buttons, are only for Cade's admins", async (t) => {

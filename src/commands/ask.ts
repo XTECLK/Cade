@@ -19,7 +19,7 @@ const MAX_MESSAGE = 3000;
 // it's from, as an AI agent's message is (see sentBy); Edit opens it in a form to change first; Not now, or leaving it, sends nothing.
 //
 // A change made through someone's AI agent isn't offered here: the agent is given the draft and asks
-// them (see updateTask in mcp.ts).
+// them (see updateTask in mcp/task-updates.ts).
 
 // Shows `user` the draft of `lines` about the task at `task`, privately. In the task's thread, unless
 // `at` says where they are instead, such as the channel of `/cade standup`: then it links the task, by

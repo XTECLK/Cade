@@ -528,7 +528,7 @@ export async function threadMessages(env: DbEnv, channel: string, taskTs: string
   }));
 }
 
-// The task's working summary, which AI agents keep (see get_task_summary in mcp.ts): { summary,
+// The task's working summary, which AI agents keep (see get_task_summary in mcp/history.ts): { summary,
 // through, by, at }, `through` being the ts of the last message of the task's thread it covers, or null
 // for a task with none yet.
 export async function getSummary(env: DbEnv, channel: string, taskTs: string) {
@@ -554,7 +554,7 @@ export async function putSummary(env: DbEnv, channel: string, taskTs: string, su
   return Boolean(result);
 }
 
-// How far `consumer` has read the task's thread (see get_task_history in mcp.ts): { through, by, at },
+// How far `consumer` has read the task's thread (see get_task_history in mcp/history.ts): { through, by, at },
 // `through` being the ts of the last message it acknowledged, or null for one that never did.
 export async function getConsumer(env: DbEnv, channel: string, taskTs: string, consumer: string) {
   const row = await env.DB.prepare("SELECT through_ts, acked_by, acked_at FROM task_consumers WHERE channel = ? AND task_ts = ? AND consumer = ?")

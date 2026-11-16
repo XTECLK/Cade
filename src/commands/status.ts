@@ -274,7 +274,7 @@ async function openApproverForm(payload: SlackPayload, env: AppEnv) {
 
 // The request to the approver, as the form starts it, with the task's pull requests, `prs`: to them,
 // once chosen. All of it is theirs to change. An AI agent is given it too, to offer the person (see
-// updateTask in mcp.ts).
+// updateTask in mcp/task-updates.ts).
 const ASKS_APPROVAL = "ould you take a look and approve it, or let us know what needs to change?";
 export function approvalRequest(approver: string | null, prs: string[]) {
   const request = approver ? `<@${approver}>, c${ASKS_APPROVAL}` : `C${ASKS_APPROVAL}`;

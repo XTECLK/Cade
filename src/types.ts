@@ -24,7 +24,7 @@ export interface Task {
   prs?: string[];
   // A Slack user ID.
   createdBy: string;
-  // Whether it was made through the person's AI agent (create_task in mcp.ts), which its card says.
+  // Whether it was made through the person's AI agent (create_task in mcp/task-updates.ts), which its card says.
   viaAgent?: boolean;
   completedAt?: string;
   incident?: boolean;

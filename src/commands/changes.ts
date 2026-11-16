@@ -44,7 +44,7 @@ export function prsAfter(task: Task, changes: Changes) {
 // names them. `source` is "mcp" for a change made through someone's AI agent,
 // by their MCP key: the thread says so, and no private prompt is shown to the
 // person (see afterStatusChange), since they are not looking at Slack; the agent
-// is given the asks to offer them instead (see updateTask in mcp.ts). A change
+// is given the asks to offer them instead (see updateTask in mcp/task-updates.ts). A change
 // made in Slack has no source.
 export async function applyChanges(env: AppEnv, where: Where, changes: Changes, user: string, options?: ChangeOptions) {
   const change = await changeTask(env, where, changes, user, options);

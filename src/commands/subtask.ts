@@ -26,7 +26,7 @@ import { SUBTASKS_CLOSE, TASK_BUTTON, readPayload, type SubtasksClose, type Task
 // whole of it. Moving it there with some open, by a command, Edit, a suggestion or anything else,
 // leaves its status as it is and warns whoever did it, privately, naming them, with Close all
 // subtasks, which moves each to Done and then the task where it was going, and Cancel. An AI agent is
-// refused, with the same reason (see updateTask in mcp.ts).
+// refused, with the same reason (see updateTask in mcp/task-updates.ts).
 
 const SUBTASK_USAGE = "Give the subtask a title: `@Cade subtask Payment fails with a saved card`.";
 

@@ -259,7 +259,7 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   with the endpoint and a link to the setup guide; revoking it there ends it. Only a hash is kept, in `mcp_tokens`. The
   key is sent in the `x-apikey` header, never in the address. `mcp: false` in `cade.config.json` turns the endpoint off.
 - **Access.** Everything runs as the key's owner: a channel's threads and tasks only for the people in it, public or
-  private (`readableName` in `src/access.ts`, `readableChannel` in `src/mcp.ts`), and never a direct message.
+  private (`readableName` in `src/access.ts`, `readableChannel` in `src/mcp/common.ts`), and never a direct message.
 - **Rate limit.** Each person's agent can make 60 tool calls a minute (`MCP_CALLS_PER_MINUTE` in `src/rate-limit.ts`,
   counted in `mcp_calls`); over it, the call is refused with how many seconds to wait.
 - **Tools.** Each is defined in `src/mcp-tools.ts`: its name, description, `inputSchema` (checked before it runs; see
@@ -282,9 +282,10 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
   prompt's text is sent only when it's picked, so it costs nothing in a session that doesn't use it.
 - **The tool list.** The full list, with every argument, is
   [docs/mcp.html](docs/mcp.html), generated from `src/mcp-tools.ts`: run `npm run docs` after changing a tool (a test
-  fails while it is stale). Add a tool's function to `RUNNERS` in `src/mcp.ts`: it takes its arguments as
-  `src/mcp-args.ts` types them, which `npm run docs` also makes from the `inputSchema`, so the schema the agent
-  sees, the check its arguments pass and the code's types can't disagree.
+  fails while it is stale). Write a tool's function in `src/mcp/`, in the file for what it works on, and add it to
+  `RUNNERS` in `src/mcp.ts`: it takes its arguments as `src/mcp-args.ts` types them, which `npm run docs` also makes
+  from the `inputSchema`, so the schema the agent sees, the check its arguments pass and the code's types can't
+  disagree.
 - **Rules for the agent.** What it is told when it connects is in `src/guardrails.ts`: above all, to show the person
   exactly what it will write and get their approval before any tool that changes something. They are the rules for
   every tool, kept under `MAX_INSTRUCTIONS` (clients cut a longer text short); what one tool needs, such as what its

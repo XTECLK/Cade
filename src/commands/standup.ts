@@ -1,6 +1,6 @@
 import { projects, findProject } from "../channels.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
-import { assigned, changeLog, changeRequests, onTheirPlate, request } from "../notify.ts";
+import { assigned, changeLog, changeRequests, onTheirPlate, request, unmentioned } from "../notify.ts";
 import { offerAsk } from "./ask.ts";
 import { STATUSES, loadTask, saveTask } from "../tasks.ts";
 import { setStatus, statusOption } from "./status.ts";
@@ -103,7 +103,7 @@ async function changeStatus(payload: SlackPayload, env: AppEnv) {
   const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup status menu");
   const change = await setStatus(env, channel, ts, action.selected_option.value as Status, payload.user.id);
   if (change) {
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: changeLog(change).join("\n") });
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, changeLog(change).join("\n")) });
     await offerAsk(env, { channel, ts }, payload.user.id, changeRequests(change), here(payload, change.task.link));
   }
   await show(payload, env, walk);
@@ -122,7 +122,7 @@ async function assignOwner(payload: SlackPayload, env: AppEnv) {
     const user = payload.user.id;
     // Picking yourself needs no request, nor does a task past To do and In progress.
     const asked = owner !== user && onTheirPlate(task, "owner") ? [request([owner], "owner")] : [];
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: assigned(user, [owner], "owner") });
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, assigned(user, [owner], "owner")) });
     await offerAsk(env, { channel, ts }, user, asked, here(payload, task.link));
   }
   await show(payload, env, walk);

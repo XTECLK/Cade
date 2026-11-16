@@ -1,4 +1,4 @@
-import { changeLog, changeRequests } from "../notify.ts";
+import { changeLog, changeRequests, unmentioned } from "../notify.ts";
 import { offerAsk } from "./ask.ts";
 import { knowPrStates } from "../github.ts";
 import { acknowledge, callSlack, viaAgent } from "../slack.ts";
@@ -41,7 +41,7 @@ export function prsAfter(task: Task, changes: Changes) {
 //
 // `told` lists who the message a suggestion came from mentioned: it
 // notified them already, so they aren't asked again; the change log still
-// mentions them. `source` is "mcp" for a change made through someone's AI agent,
+// names them. `source` is "mcp" for a change made through someone's AI agent,
 // by their MCP key: the thread says so, and no private prompt is shown to the
 // person (see afterStatusChange), since they are not looking at Slack; the agent
 // is given the asks to offer them instead (see updateTask in mcp.ts). A change
@@ -49,7 +49,7 @@ export function prsAfter(task: Task, changes: Changes) {
 export async function applyChanges(env: AppEnv, where: Where, changes: Changes, user: string, options?: ChangeOptions) {
   const change = await changeTask(env, where, changes, user, options);
   if (!change) return null;
-  const text = changeLog(change).join("\n");
+  const text = await unmentioned(env, changeLog(change).join("\n"));
   const agent = options?.source === "mcp";
   await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, ...(agent ? viaAgent(text) : { text }) });
   if (!agent) await offerAsk(env, where, user, changeRequests(change));

@@ -1,4 +1,4 @@
-import { assigned, autoLinked, onTheirPlate, request, toAsk } from "../notify.ts";
+import { assigned, autoLinked, onTheirPlate, request, toAsk, unmentioned } from "../notify.ts";
 import { acknowledged, applyChanges, changeTask } from "./changes.ts";
 import { offerAsk } from "./ask.ts";
 import { knowPrStates } from "../github.ts";
@@ -257,8 +257,8 @@ async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
   await respondLater(payload.response_url, { delete_original: true });
 }
 
-// Assigns the chosen people as reviewers, posts who did as a new reply, since an edited message
-// notifies no one, and offers whoever chose them the request to review (see offerAsk). The
+// Assigns the chosen people as reviewers, posts who did as a new reply in the change log, and
+// offers whoever chose them the request to review (see offerAsk). The
 // picker keeps what happened before its question, or goes if there was
 // nothing. It is a reply in the task's thread.
 async function chooseReviewers(payload: SlackPayload, env: AppEnv) {
@@ -290,7 +290,7 @@ async function chooseReviewers(payload: SlackPayload, env: AppEnv) {
   const others = chosen.filter((id) => id !== payload.user.id);
   // Asked while it is In review; otherwise when it gets there.
   const asked = others.length && onTheirPlate(task, "reviewer") ? [request(others, "reviewer", urls)] : [];
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: assigned(payload.user.id, chosen, "reviewer") });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, assigned(payload.user.id, chosen, "reviewer")) });
   await offerAsk(env, { channel, ts }, payload.user.id, asked);
 }
 

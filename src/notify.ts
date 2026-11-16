@@ -1,5 +1,7 @@
+import { nameMap } from "./export.ts";
 import { escapeSlack, mentions } from "./slack.ts";
 import { PRIORITIES, STATUSES, openPrs, prLink } from "./tasks.ts";
+import type { AppEnv } from "./env.ts";
 import type { Change, Priority, Role, Status, Task } from "./types.ts";
 
 // Who was told already, by the message a suggestion came from (see above).
@@ -8,17 +10,19 @@ type Told = Record<string, null>;
 // What Cade says in a task's thread when its people, pull requests or
 // status change, in one place so they read alike. Each change is one
 // message, the record of what changed and who changed it, "<@ann> assigned
-// <@rex> as owner.", which keeps a log of every change in the thread, and its
-// mention notifies them. What it means for those it names, "<@rex>, could you
-// pick this up?", isn't posted with it: whoever made the change is offered it
-// privately, to send, edit or leave (see commands/ask.ts), as they may know
-// it's not needed, or want to say it their own way.
+// <@rex> as owner.", which keeps a log of every change in the thread. It is
+// posted with people's names as plain text, "@Ann assigned @Rex as owner.",
+// notifying no one (see unmentioned): what it means for those it names,
+// "<@rex>, could you pick this up?", is the one message that notifies, and
+// isn't posted with it: whoever made the change is offered it privately, to
+// send, edit or leave (see commands/ask.ts), as they may know it's not
+// needed, or want to say it their own way.
 //
 // Someone who assigns or removes themselves is named as "themselves", and
 // isn't asked or told anything: they made the change. Nor is anyone `told`
 // already, by the message a suggested change came from, { [id]: null }: they
-// are still named by mention in the change log, but get no request of their
-// own, as that message was one.
+// are still named in the change log, but get no request of their own, as that
+// message was one.
 //
 // People are only asked when there's something for them to do now (see
 // onTheirPlate): owners while the task is To do or In progress, reviewers
@@ -98,6 +102,23 @@ export function blockedChanged(user: string, on: boolean, reason?: string) {
 
 export function kindChanged(user: string, bug: boolean) {
   return `<@${user}> marked this as ${bug ? "a bug" : "a task, not a bug"}.`;
+}
+
+// `text`, a change log, with each mention as the person's name in plain text, "@Rex", so posting it
+// notifies no one: a mention in Cade's message would ping everyone it names, whoever made the change
+// included, though only the draft offered to them (see commands/ask.ts) has anything to ask. Names
+// are kept, as the export's are (see nameMap); a person who can't be named stays a mention, as a log
+// that names someone by ID says nothing.
+const MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
+
+export async function unmentioned(env: AppEnv, text: string) {
+  const ids = new Set([...text.matchAll(MENTION)].map((match) => match[1]!)); // the group always matches
+  if (!ids.size) return text;
+  const names = await nameMap(env, ids);
+  return text.replace(MENTION, (mention, id: string) => {
+    const name = names.get(id);
+    return name && name !== id ? `@${escapeSlack(name)}` : mention;
+  });
 }
 
 // ---- From a change ----

@@ -1,0 +1,36 @@
+# Runs `npm run check` (the type check, the formatting and the whole test suite) on every pull request and every
+# push to main, as CONTRIBUTING.md asks of each change. It needs no secrets: the tests run without Slack or
+# Cloudflare, against a fake Slack and an in-memory database.
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request or branch stops the run it replaces.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Node package.json's engines allows, and the current one.
+        node: ["22.18", "24"]
+    name: npm run check (Node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check

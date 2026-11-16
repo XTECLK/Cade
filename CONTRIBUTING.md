@@ -15,7 +15,8 @@ first so the design can be agreed before you write code. Security problems go th
 3. Make the change. Keep it focused: one thing per pull request.
 4. Add or update tests in `test/` for what you changed, and update the docs it touches (the [website](docs/), [GETTING_STARTED.md](GETTING_STARTED.md), [DEVELOPMENT.md](DEVELOPMENT.md)).
 5. Run `npm run format`, then `npm run check`: the type check, the formatting and the whole suite, in a few seconds
-   without Slack. All must pass.
+   without Slack. All must pass. GitHub runs `npm run check` again on the pull request (`.github/workflows/check.yml`),
+   on the oldest Node Cade supports and the current one.
 6. Open the pull request, saying what it changes and why, and link its issue.
 
 ## Style

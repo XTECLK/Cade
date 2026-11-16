@@ -231,7 +231,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply`: a change is always a new file |
 | `schema.sql` | Every table and index as the migrations leave them, for reading; made by `npm run schema`, and a test fails while it is stale |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
-| `test/index.test.ts` | The tests, with `test/d1.ts`, a stand-in database on Node's SQLite |
+| `test/` | The tests, a file per feature (`prs.test.ts`, `home.test.ts`, `mcp.test.ts`, …), on `test/app.ts` (the Worker with a fake Slack) and `test/d1.ts`, a stand-in database on Node's SQLite |
 
 ### Adding a command
 
@@ -311,9 +311,10 @@ one JSON-RPC message (or a batch), answered with JSON, with no sessions or strea
 
 ## Tests
 
-`npm test` runs `test/index.test.ts` against the real Worker, with `fetch`
-replaced by a fake Slack API: `mockSlack` returns canned results and records
-every call, so tests check exactly what Cade would send. Like Slack, the
-fake rejects a message whose buttons share an action ID. Shared fixtures,
-such as `storedTask` and `incidentTask`, build the records Cade would have
-stored.
+`npm test` runs every file in `test/`: one per feature (`commands`, `cards`, `prs`, `approval`, `suggestions`, `ai`,
+`changes`, `home`, `messages`, `subtasks`, `summary`, `standup`, `posting`, `pages`, `admin`, `config`, `worker`,
+`track`, and `mcp` for the MCP server), each run on its own. They run against the real Worker, with `fetch` replaced
+by a fake Slack API: `mockSlack` in `test/app.ts` returns canned results and records every call, so tests check
+exactly what Cade would send. Like Slack, the fake rejects a message whose buttons share an action ID. Shared fixtures
+in `test/app.ts`, such as `storedTask` and `incidentTask`, build the records Cade would have stored; a helper only one
+file uses stays in that file, and moves to `app.ts` once a second needs it.

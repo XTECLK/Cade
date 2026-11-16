@@ -1,0 +1,5 @@
+# Commits that only reformat code, skipped by `git blame` so it shows who wrote each line.
+# GitHub reads this file itself; locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Prettier: the first pass over src/, test/ and scripts/.
+423b438a98f6b14ff85882059163d62eb2513947

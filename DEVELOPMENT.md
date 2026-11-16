@@ -38,13 +38,15 @@ npm run check       # then the type check, the formatting and the tests
 npm run deploy      # puts your change on your Worker, and applies new migrations
 ```
 
-The code is TypeScript, with no build step of its own: wrangler bundles `src/` when it deploys, and Node runs
-the tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is what checks them, and `npm run check`
-runs it before the tests. The layout is Prettier's (`.prettierrc.json`), not anyone's by hand: `npm run format`
-writes it, and `npm run check` fails while a file isn't formatted. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
-it), and imports name the `.ts` file. The shapes the modules share (a task, a command, Slack's payloads,
-a handler) are in `src/types.ts`; D1's rows are in `src/db/` (imported through `src/db.ts`); the Worker's bindings and settings in `src/env.ts`.
-After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
+The code is TypeScript, with no build step of its own: wrangler bundles `src/` when it deploys, and Node runs the
+tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is what checks them, and `npm run check` runs it
+before the tests. The layout is Prettier's (`.prettierrc.json`), not anyone's by hand: `npm run format` writes it, and
+`npm run check` fails while a file isn't formatted. A commit that only reformats goes in `.git-blame-ignore-revs`, so
+`git blame` looks past it (locally, once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`). Only syntax that
+strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces it), and imports name the `.ts` file. The
+shapes the modules share (a task, a command, Slack's payloads, a handler) are in `src/types.ts`; D1's rows are in
+`src/db/` (imported through `src/db.ts`); the Worker's bindings and settings in `src/env.ts`. After changing
+`wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.
 
 For a change that shouldn't change what the Worker does, such as a refactor or new types, `npm run bundle-diff`
 (or `npm run bundle-diff -- <ref>`) builds the Worker as wrangler deploys it, now and at the last commit (or the

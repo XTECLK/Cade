@@ -35,7 +35,10 @@ export function readSessions() {
   const names = existsSync(SESSIONS_FILE) ? JSON.parse(readFileSync(SESSIONS_FILE, "utf8")) : {};
   const profiles = existsSync(PROFILE_DIR) ? readdirSync(PROFILE_DIR) : [];
   return Object.fromEntries(
-    [...new Set([...Object.keys(names), ...profiles])].map((key) => [key, { name: names[key]?.name ?? capitalise(key) }]),
+    [...new Set([...Object.keys(names), ...profiles])].map((key) => [
+      key,
+      { name: names[key]?.name ?? capitalise(key) },
+    ]),
   );
 }
 
@@ -54,7 +57,10 @@ export function loadConfig() {
     workspaceUrl: "https://app.slack.com/client",
     team: null,
     sessions: readSessions(),
-    channels: { dev: group?.channel ?? group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL ?? group?.channel ?? group?.tasks },
+    channels: {
+      dev: group?.channel ?? group?.tasks,
+      client: process.env.DEMO_CLIENT_CHANNEL ?? group?.channel ?? group?.tasks,
+    },
     leadDm: process.env.DEMO_LEAD_DM,
   };
 }
@@ -89,7 +95,10 @@ export class Cast {
 
   async #open(key) {
     if (!existsSync(profilePath(key))) throw new Error(`No profile for "${key}": run npm run demo:login -- ${key}`);
-    const context = await launchProfile(key, this.videoDir ? { recordVideo: { dir: this.videoDir, size: VIEWPORT } } : {});
+    const context = await launchProfile(
+      key,
+      this.videoDir ? { recordVideo: { dir: this.videoDir, size: VIEWPORT } } : {},
+    );
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(this.config.workspaceUrl);
     await page.waitForURL(/\/client\/T[A-Z0-9]+/);
@@ -172,7 +181,8 @@ export class Cast {
 
   // The task card (or any bot message with replies) whose text contains `title`.
   card(page, title) {
-    return page.getByRole("listitem")
+    return page
+      .getByRole("listitem")
       .filter({ hasText: title })
       .filter({ has: page.getByRole("button", { name: /repl/i }) })
       .last();
@@ -182,7 +192,9 @@ export class Cast {
   async openTask(key, channelId, title) {
     const page = await this.as(key);
     await this.open(page, channelId, { fresh: true });
-    await this.card(page, title).getByRole("button", { name: /\d+ repl/i }).click();
+    await this.card(page, title)
+      .getByRole("button", { name: /\d+ repl/i })
+      .click();
     await page.getByRole("textbox", { name: /^Reply/ }).waitFor();
     await pause();
   }

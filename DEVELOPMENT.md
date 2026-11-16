@@ -21,7 +21,7 @@ them. Both are free.
 git clone https://github.com/XTECLK/Cade.git   # or your fork
 cd Cade
 npm install
-npm run check       # the type check, then the whole suite, in a few seconds, without Slack
+npm run check       # the type check, the formatting, then the whole suite, in a few seconds, without Slack
 npm run setup       # Cloudflare login, the Worker, the Slack app, your first admin, a GitHub token
 ```
 
@@ -33,13 +33,15 @@ When you work in this repo, your settings (`cade.config.json`, `.cade/`) stay in
 ### 3. Change, deploy, try
 
 ```sh
-npm run check       # after each change: the type check and the tests
+npm run format      # after each change: lays the code out (Prettier)
+npm run check       # then the type check, the formatting and the tests
 npm run deploy      # puts your change on your Worker, and applies new migrations
 ```
 
 The code is TypeScript, with no build step of its own: wrangler bundles `src/` when it deploys, and Node runs
 the tests and scripts by stripping the types. `npm run typecheck` (`tsc`) is what checks them, and `npm run check`
-runs it before the tests. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
+runs it before the tests. The layout is Prettier's (`.prettierrc.json`), not anyone's by hand: `npm run format`
+writes it, and `npm run check` fails while a file isn't formatted. Only syntax that strips away is used (no `enum` or `namespace`; `tsconfig.json` enforces
 it), and imports name the `.ts` file. The shapes the modules share (a task, a command, Slack's payloads,
 a handler) are in `src/types.ts`; D1's rows are in `src/db.ts`; the Worker's bindings and settings in `src/env.ts`.
 After changing `wrangler.toml`, run `npm run types` to regenerate `worker-configuration.d.ts`.

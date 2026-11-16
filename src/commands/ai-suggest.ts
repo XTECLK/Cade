@@ -43,7 +43,10 @@ function turnOffOffer(rejects: number) {
           { type: "button", action_id: KEEP_ACTION, text: plainText("Keep them"), value: "{}" },
         ],
       },
-      { type: "context", elements: [mrkdwn("You can change this any time in Cade's Home tab → Settings → Suggestions.")] },
+      {
+        type: "context",
+        elements: [mrkdwn("You can change this any time in Cade's Home tab → Settings → Suggestions.")],
+      },
     ],
   };
 }
@@ -66,20 +69,30 @@ export async function changesFromAi(env: AppEnv, message: PlainMessage, { task }
     roles: handOffs ? (Object.keys(ROLES) as Role[]) : [],
     // A task done in parts only gets DONE, and only for a message about the whole (see checkChanges):
     // a message about one part says nothing about the whole.
-    status: (suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel)),
+    status: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
     details: suggesting(env, "details", message.channel) && !task.incident,
     // Blocked and unblocked are progress on a task, so they follow the same setting as its status.
     blocked: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
   };
   // Pull requests aren't suggested: those pasted are linked already (see linkPasted in pr.ts).
   const read = allowed.roles!.length || allowed.status || allowed.details || allowed.blocked;
-  return withReviewers(message, task, read ? await readChanges(env, { message, task, today: today(env), allowed }) : null, linked);
+  return withReviewers(
+    message,
+    task,
+    read ? await readChanges(env, { message, task, today: today(env), allowed }) : null,
+    linked,
+  );
 }
 
 // `changes` with the people the message mentions added as reviewers, when it linked pull requests
 // (`linked`): pasting a link and mentioning someone asks them to review it. Shared with the fallback in
 // suggest.ts. Null when there's nothing to change.
-export function withReviewers(message: PlainMessage, task: StoredTask, changes: Changes | null, linked: string[]): Changes | null {
+export function withReviewers(
+  message: PlainMessage,
+  task: StoredTask,
+  changes: Changes | null,
+  linked: string[],
+): Changes | null {
   const reviewers = linked.length ? message.mentions.filter((id) => !task.people.reviewer.includes(id)) : [];
   if (!reviewers.length) return changes;
   const current = changes?.people?.reviewer;
@@ -137,10 +150,19 @@ export function suggestionMessage(
         : [{ type: "section", text: mrkdwn(nobody!) }]),
       {
         type: "actions",
-        elements: changes ? [{ type: "button", action_id: ACCEPT_ACTION, text: plainText("Accept"), style: "primary", value }, edit, reject] : [edit, reject],
+        elements: changes
+          ? [
+              { type: "button", action_id: ACCEPT_ACTION, text: plainText("Accept"), style: "primary", value },
+              edit,
+              reject,
+            ]
+          : [edit, reject],
       },
       // Where to turn these off, as there's no button for it here (see suggestionsRow in home.ts).
-      { type: "context", elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Settings → Suggestions.")] },
+      {
+        type: "context",
+        elements: [mrkdwn("Don't want these? Turn them off in Cade's Home tab → Settings → Suggestions.")],
+      },
     ],
   };
 }
@@ -149,10 +171,14 @@ export function suggestionMessage(
 // marked (Add) and (Remove), then pull requests, then the status, priority and due date, from what they are now.
 // Mentions in a message only one person sees notify no one.
 export function summary(task: StoredTask, changes: Changes) {
-  const lines = (Object.entries(changes.people ?? {}) as [Role, { add: string[]; remove: string[] }][]).map(([role, { add, remove }]) => {
-    const parts = [add.length && `${mentions(add)} (Add)`, remove.length && `${mentions(remove)} (Remove)`].filter(Boolean);
-    return `*${ROLES[role]}s:* ${parts.join(" · ")}`;
-  });
+  const lines = (Object.entries(changes.people ?? {}) as [Role, { add: string[]; remove: string[] }][]).map(
+    ([role, { add, remove }]) => {
+      const parts = [add.length && `${mentions(add)} (Add)`, remove.length && `${mentions(remove)} (Remove)`].filter(
+        Boolean,
+      );
+      return `*${ROLES[role]}s:* ${parts.join(" · ")}`;
+    },
+  );
   if (changes.prs) {
     const links = (urls: string[]) => urls.map(prLink).join(", ");
     const { add = [], remove = [] } = changes.prs;
@@ -160,11 +186,18 @@ export function summary(task: StoredTask, changes: Changes) {
     if (parts.length) lines.push(`*PRs:* ${parts.join(" · ")}`);
   }
   if (changes.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[changes.status]}`);
-  if (changes.priority) lines.push(`*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`);
+  if (changes.priority)
+    lines.push(
+      `*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`,
+    );
   if ("dueDate" in changes) lines.push(`*Due:* ${task.dueDate || "none"} → ${changes.dueDate || "none"}`);
   if (changes.blocked) {
     const { on, reason } = changes.blocked;
-    lines.push(on ? `*Blocked:* ${task.blocked ? "yes" : "no"} → yes${reason ? ` (${escapeSlack(reason)})` : ""}` : "*Blocked:* yes → no");
+    lines.push(
+      on
+        ? `*Blocked:* ${task.blocked ? "yes" : "no"} → yes${reason ? ` (${escapeSlack(reason)})` : ""}`
+        : "*Blocked:* yes → no",
+    );
   }
   return lines.join("\n");
 }
@@ -172,7 +205,11 @@ export function summary(task: StoredTask, changes: Changes) {
 export default {
   actions: {
     [ACCEPT_ACTION]: async (payload, context) => {
-      const { changes, from, told, ...target } = readPayload<Suggestion>(SUGGESTION, payload.actions[0].value, "suggestion's Change button");
+      const { changes, from, told, ...target } = readPayload<Suggestion>(
+        SUGGESTION,
+        payload.actions[0].value,
+        "suggestion's Change button",
+      );
       context.waitUntil(
         (async () => {
           // The private message goes first, so the click shows at once:
@@ -185,7 +222,11 @@ export default {
     },
     // Opening a form must happen within Slack's three seconds of the click.
     [EDIT_ACTION]: async (payload, { env }) => {
-      const { channel, ts, changes, told } = readPayload<Suggestion>(SUGGESTION, payload.actions[0].value, "suggestion's Edit button");
+      const { channel, ts, changes, told } = readPayload<Suggestion>(
+        SUGGESTION,
+        payload.actions[0].value,
+        "suggestion's Edit button",
+      );
       const task = await loadTask(env, channel, ts);
       if (!task) return;
       await callSlack(env, "views.open", {
@@ -204,11 +245,17 @@ export default {
     [TURN_OFF_ACTION]: async (payload, { env }) => {
       await setSuggestions(env, payload.user.id, false);
       console.log("Suggestions turned off", { user: payload.user.id, from: "offer" });
-      await respondLater(payload.response_url, { replace_original: true, text: "Done. I won't suggest changes from your messages. To get them back, open Cade's Home tab → Settings → Suggestions." });
+      await respondLater(payload.response_url, {
+        replace_original: true,
+        text: "Done. I won't suggest changes from your messages. To get them back, open Cade's Home tab → Settings → Suggestions.",
+      });
     },
     [KEEP_ACTION]: async (payload, { env }) => {
       await pauseRejects(env, payload.user.id, KEEP_DAYS);
-      await respondLater(payload.response_url, { replace_original: true, text: `OK, I'll keep suggesting changes, and won't ask about this for ${KEEP_DAYS} days.` });
+      await respondLater(payload.response_url, {
+        replace_original: true,
+        text: `OK, I'll keep suggesting changes, and won't ask about this for ${KEEP_DAYS} days.`,
+      });
     },
   },
 } satisfies Handler;

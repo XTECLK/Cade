@@ -1,7 +1,17 @@
 import { isQuestion, phraseTest } from "../intents.ts";
 import { nameOf, unmentioned } from "../notify.ts";
 import { acknowledged, changeTask } from "./changes.ts";
-import { AGENT_FOOTER, AGENT_FOOTER_ID, agentFooter, callSlack, dismiss, escapeSlack, mrkdwn, plainText, sentBy } from "../slack.ts";
+import {
+  AGENT_FOOTER,
+  AGENT_FOOTER_ID,
+  agentFooter,
+  callSlack,
+  dismiss,
+  escapeSlack,
+  mrkdwn,
+  plainText,
+  sentBy,
+} from "../slack.ts";
 import {
   NOT_A_TASK,
   STATUSES,
@@ -18,8 +28,27 @@ import { fromRichText, toRichText } from "./ask.ts";
 import { suggestionMessage } from "./ai-suggest.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
-import type { Changes, Context, PlainMessage, Role, SlackBlock, SlackPayload, Status, StoredTask, Task, ViewValues } from "../types.ts";
-import { TASK_APPROVAL, TASK_BUTTON, TASK_FORM, readPayload, type TaskApproval, type TaskForm, type TaskRef } from "../payloads.ts";
+import type {
+  Changes,
+  Context,
+  PlainMessage,
+  Role,
+  SlackBlock,
+  SlackPayload,
+  Status,
+  StoredTask,
+  Task,
+  ViewValues,
+} from "../types.ts";
+import {
+  TASK_APPROVAL,
+  TASK_BUTTON,
+  TASK_FORM,
+  readPayload,
+  type TaskApproval,
+  type TaskForm,
+  type TaskRef,
+} from "../payloads.ts";
 
 // Where a task is: its channel and its root message.
 type Origin = { channel: string; ts: string };
@@ -73,7 +102,14 @@ const STATUS_USAGE = "Try `@Cade status in review`: to do, in progress, in revie
 // The words that say how the work is going (see soundsLikeProgress): a
 // reviewer approving, a tester passing it, or anyone on the task finishing it.
 // See intents.ts for how phrases match.
-const APPROVED = phraseTest(["lgtm", "approv(ed|ing)", "looks good", "review(ed)? (is )?done", "done review*", "ship it"]);
+const APPROVED = phraseTest([
+  "lgtm",
+  "approv(ed|ing)",
+  "looks good",
+  "review(ed)? (is )?done",
+  "done review*",
+  "ship it",
+]);
 const PASSED = phraseTest([
   "qa (passed|done|ok)",
   "passed qa",
@@ -96,7 +132,9 @@ const HEDGED =
 // status that means depends on who said it (see progressOptions); Cade
 // suggests it in a task's thread (see suggest.ts).
 export function soundsLikeProgress(message: PlainMessage) {
-  return !isQuestion(message) && !HEDGED.test(message.text) && [APPROVED, PASSED, FINISHED].some((test) => test(message));
+  return (
+    !isQuestion(message) && !HEDGED.test(message.text) && [APPROVED, PASSED, FINISHED].some((test) => test(message))
+  );
 }
 
 export default {
@@ -125,7 +163,9 @@ export default {
 
     // A status typed in the command needs only a ✅, since the task card shows
     // it, plus the testers' request when it reached In testing.
-    return acknowledged(await changeTask(env, { channel: command.channel, ts: command.threadTs! }, { status }, command.user));
+    return acknowledged(
+      await changeTask(env, { channel: command.channel, ts: command.threadTs! }, { status }, command.user),
+    );
   },
   actions: {
     [APPROVE_ACTION]: async (payload, context) => {
@@ -171,7 +211,10 @@ const STATUS_NAMES: Record<Status, string[]> = {
 export function parseStatus(input: string): Status | undefined {
   const key = input.toUpperCase().replace(/[\s-]+/g, "_") as Status;
   if (STATUSES[key]) return key;
-  const words = input.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  const words = input
+    .toLowerCase()
+    .replace(/[\s_-]+/g, " ")
+    .trim();
   return (Object.keys(STATUS_NAMES) as Status[]).find((status) => STATUS_NAMES[status].includes(words));
 }
 
@@ -203,7 +246,15 @@ export function setStatusFields(task: StoredTask, status: Status) {
 // `source` is "mcp": the change was made by an AI agent, and the person isn't looking at
 // Slack, so the private prompt would only be missed; the agent asks them, and then asks the approver
 // with requestApproval.
-export async function afterStatusChange(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string, source?: string, saw?: boolean) {
+export async function afterStatusChange(
+  env: AppEnv,
+  channel: string,
+  ts: string,
+  { from, to }: { from: Status; to: Status },
+  user: string,
+  source?: string,
+  saw?: boolean,
+) {
   if (source === "mcp") return;
   if (to === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
   const role = WAITS_ON[to];
@@ -217,7 +268,12 @@ export async function afterStatusChange(env: AppEnv, channel: string, ts: string
 export async function askForPerson(env: AppEnv, channel: string, ts: string, role: Role, user: string) {
   const task = await loadTask(env, channel, ts);
   if (!task || task.people[role].length) return;
-  await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user, ...suggestionMessage({ channel, ts }, task, null, { from: task.status, missing: role }) });
+  await callSlack(env, "chat.postEphemeral", {
+    channel,
+    thread_ts: ts,
+    user,
+    ...suggestionMessage({ channel, ts }, task, null, { from: task.status, missing: role }),
+  });
 }
 
 // Saves the new status, made by `user`; a subtask's main task hears it closed or reopened.
@@ -264,12 +320,20 @@ async function openApproverForm(payload: SlackPayload, env: AppEnv) {
   const { channel, ts } = readPayload<TaskRef>(TASK_BUTTON, payload.actions[0].value, "Ask for approval button");
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") {
-    await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user: payload.user.id, text: notInReview(task) });
+    await callSlack(env, "chat.postEphemeral", {
+      channel,
+      thread_ts: ts,
+      user: payload.user.id,
+      text: notInReview(task),
+    });
     return;
   }
   // The private button goes once the form is sent (see dismiss).
   const origin = { channel, ts, responseUrl: payload.response_url };
-  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: approverForm(origin, null, approvalRequest(null, task.prs), MESSAGE_BLOCK) });
+  await callSlack(env, "views.open", {
+    trigger_id: payload.trigger_id,
+    view: approverForm(origin, null, approvalRequest(null, task.prs), MESSAGE_BLOCK),
+  });
 }
 
 // The request to the approver, as the form starts it, with the task's pull requests, `prs`: to them,
@@ -305,7 +369,10 @@ function approverForm(origin: TaskForm, approver: string | null, message: string
         label: plainText("Message"),
         element: { type: "rich_text_input", action_id: "value", initial_value: toRichText(message) },
       },
-      { type: "context", elements: [mrkdwn("Posted in the task's thread with Approve and Not approve, which only they can click.")] },
+      {
+        type: "context",
+        elements: [mrkdwn("Posted in the task's thread with Approve and Not approve, which only they can click.")],
+      },
     ],
   };
 }
@@ -334,7 +401,12 @@ async function followApprover(payload: SlackPayload, env: AppEnv) {
   await callSlack(env, "views.update", {
     view_id: payload.view.id,
     hash: payload.view.hash,
-    view: approverForm(origin, approver, approvalRequest(approver, prs), block === `${MESSAGE_BLOCK}-${approver}` ? `${block}-` : `${MESSAGE_BLOCK}-${approver}`),
+    view: approverForm(
+      origin,
+      approver,
+      approvalRequest(approver, prs),
+      block === `${MESSAGE_BLOCK}-${approver}` ? `${block}-` : `${MESSAGE_BLOCK}-${approver}`,
+    ),
   });
 }
 
@@ -345,7 +417,8 @@ function submitApprover(payload: SlackPayload, context: Context) {
   const { block, text } = messageIn(values);
   if (!text) return { response_action: "errors", errors: { [block]: "Write the message, or cancel." } };
   // The approver's mention may still be added in front (see toApprover), so it is left room.
-  if (text.length > MAX_REQUEST - 20) return { response_action: "errors", errors: { [block]: `Keep it to ${MAX_REQUEST - 20} characters or fewer.` } };
+  if (text.length > MAX_REQUEST - 20)
+    return { response_action: "errors", errors: { [block]: `Keep it to ${MAX_REQUEST - 20} characters or fewer.` } };
   const origin = readPayload<TaskForm>(TASK_FORM, payload.view.private_metadata || "{}", "approver form");
   context.waitUntil(requestReview(context.env, origin, approver, payload.user.id, text));
   return { response_action: "clear" };
@@ -353,7 +426,13 @@ function submitApprover(payload: SlackPayload, context: Context) {
 
 // Asks the approver to review the task, in its thread, with `request`, its PRs and the Approve and
 // Not approve buttons.
-async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: string }, approver: string, user: string, request: string) {
+async function requestReview(
+  env: AppEnv,
+  origin: Origin & { responseUrl?: string },
+  approver: string,
+  user: string,
+  request: string,
+) {
   const { channel, ts, responseUrl } = origin;
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") {
@@ -361,17 +440,34 @@ async function requestReview(env: AppEnv, origin: Origin & { responseUrl?: strin
     return;
   }
   await dismiss(responseUrl);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(await nameOf(env, user), channel, ts, approver, toApprover(approver, request, task.prs)) });
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: ts,
+    ...reviewPrompt(await nameOf(env, user), channel, ts, approver, toApprover(approver, request, task.prs)),
+  });
 }
 
 // Asks `approver` to review the task, in its thread, for `user`, who asked through their AI agent:
 // the same request, with the Approve and Not approve buttons, as the form in Slack gives, in the
 // person's words when they changed it (`request`). Returns a problem to tell them, or null once it is
 // posted.
-export async function requestApproval(env: AppEnv, channel: string, ts: string, approver: string, user: string, request?: string) {
+export async function requestApproval(
+  env: AppEnv,
+  channel: string,
+  ts: string,
+  approver: string,
+  user: string,
+  request?: string,
+) {
   const task = await loadTask(env, channel, ts);
   if (task?.status !== "CLIENT_REVIEW") return notInReview(task);
-  const prompt = reviewPrompt(await nameOf(env, user), channel, ts, approver, request ? toApprover(approver, request, task.prs) : approvalRequest(approver, task.prs));
+  const prompt = reviewPrompt(
+    await nameOf(env, user),
+    channel,
+    ts,
+    approver,
+    request ? toApprover(approver, request, task.prs) : approvalRequest(approver, task.prs),
+  );
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
@@ -390,7 +486,7 @@ function reviewPrompt(who: string, channel: string, ts: string, approver: string
   const value = (kept: string) => JSON.stringify({ channel, ts, text: kept, approver });
   // A button's value holds 2000 characters at most: a long request is cut short there, not in the thread.
   let kept = text;
-  for (let cut = [...request].length; value(kept).length > MAX_BUTTON_VALUE && cut > 0; ) {
+  for (let cut = [...request].length; value(kept).length > MAX_BUTTON_VALUE && cut > 0;) {
     cut -= value(kept).length - MAX_BUTTON_VALUE;
     kept = sentBy(who, `${[...request].slice(0, Math.max(cut, 0)).join("").trimEnd()}…`);
   }
@@ -447,9 +543,7 @@ async function review(payload: SlackPayload, env: AppEnv, approved: boolean) {
       thread_ts: request.ts,
       ...asMessage(await unmentioned(env, text)),
     });
-    outcome = approved
-      ? `<@${user}> approved it.`
-      : `<@${user}> didn't approve it, so the team will pick it up again.`;
+    outcome = approved ? `<@${user}> approved it.` : `<@${user}> didn't approve it, so the team will pick it up again.`;
   }
   // A request sent through someone's AI agent keeps its footer.
   const text = `${request.text}\n${outcome}`;
@@ -457,14 +551,14 @@ async function review(payload: SlackPayload, env: AppEnv, approved: boolean) {
   await callSlack(env, "chat.update", {
     channel: payload.channel.id,
     ts: payload.message.ts,
-    ...(footer ? { text: `${text}\n${AGENT_FOOTER}`, blocks: [{ type: "section", text: mrkdwn(text) }, footer] } : asMessage(text)),
+    ...(footer
+      ? { text: `${text}\n${AGENT_FOOTER}`, blocks: [{ type: "section", text: mrkdwn(text) }, footer] }
+      : asMessage(text)),
   });
 }
 
 // chat.update keeps a message's old blocks unless new ones are sent, so text
 // replies are wrapped in a section.
 function asMessage(reply: string | SlackBlock) {
-  return typeof reply === "string"
-    ? { text: reply, blocks: [{ type: "section", text: mrkdwn(reply) }] }
-    : reply;
+  return typeof reply === "string" ? { text: reply, blocks: [{ type: "section", text: mrkdwn(reply) }] } : reply;
 }

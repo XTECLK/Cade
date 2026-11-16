@@ -21,7 +21,12 @@ import { resolveUserName, findUser, getUsers, getAvailability, getTeamAvailabili
 // What a tool gives: its text, or its text and its data (structuredContent).
 type ToolResult = string | { text: string; data: Record<string, unknown> };
 // `loaded` is the version of the tool set the session loaded, `current` the server's (see toolsetVersion).
-type ToolRunner<Args> = (env: AppEnv, user: string, args: Args, extra: { loaded: string; current: string }) => Promise<ToolResult>;
+type ToolRunner<Args> = (
+  env: AppEnv,
+  user: string,
+  args: Args,
+  extra: { loaded: string; current: string },
+) => Promise<ToolResult>;
 // A JSON-RPC request's id.
 type RpcId = string | number | null;
 // A JSON-RPC message as an agent sends it. Nothing in it is trusted until answer and callTool have
@@ -117,7 +122,30 @@ function apiKeyOf(request: Request) {
 // Each tool's definition is in mcp-tools.ts; this adds the function that runs it.
 // The function that runs each tool. Each takes its tool's arguments as src/mcp-args.ts types them,
 // made from the same inputSchema they are checked against before it is called (see callTool).
-const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = { get_task: getTaskView, get_thread_history: getThreadHistory, get_task_history: getTaskHistory, get_task_summary: getTaskSummary, save_task_summary: saveTaskSummary, ack_task_history: ackTaskHistory, get_tasks: getTasks, get_channels: getChannels, get_channel_threads: getChannelThreads, create_task: createTaskTool, get_projects: getProjects, get_user: resolveUserName, get_users: getUsers, get_availability: getAvailability, get_team_availability: getTeamAvailability, find_user_by_name: findUser, send_thread_message: sendThreadMessage, update_task: updateTask, get_server_info: getServerInfo, send_approval_request: requestApprovalTool, get_prompts: getPromptsTool, get_prompt: getPromptTool };
+const RUNNERS: { [Tool in keyof ToolArgs]: ToolRunner<ToolArgs[Tool]> } = {
+  get_task: getTaskView,
+  get_thread_history: getThreadHistory,
+  get_task_history: getTaskHistory,
+  get_task_summary: getTaskSummary,
+  save_task_summary: saveTaskSummary,
+  ack_task_history: ackTaskHistory,
+  get_tasks: getTasks,
+  get_channels: getChannels,
+  get_channel_threads: getChannelThreads,
+  create_task: createTaskTool,
+  get_projects: getProjects,
+  get_user: resolveUserName,
+  get_users: getUsers,
+  get_availability: getAvailability,
+  get_team_availability: getTeamAvailability,
+  find_user_by_name: findUser,
+  send_thread_message: sendThreadMessage,
+  update_task: updateTask,
+  get_server_info: getServerInfo,
+  send_approval_request: requestApprovalTool,
+  get_prompts: getPromptsTool,
+  get_prompt: getPromptTool,
+};
 // A tool with no function to run it is a mistake made here, so the Worker refuses to start.
 const TOOLS = TOOL_DEFS.map((tool) => {
   // Called only with arguments checked against the tool's own inputSchema (see callTool), which is
@@ -146,7 +174,8 @@ async function toolsetVersion(env: AppEnv) {
 // A session ID holds the tool set the session loaded (the client sends it back on every request), so the
 // server, which keeps nothing, can tell a session that is out of date.
 const sessionIdFor = (current: string) => `cade-${current}-${crypto.randomUUID()}`;
-const loadedVersionOf = (request: Request) => /^cade-([0-9a-f]{8})-/.exec(request.headers.get("mcp-session-id") ?? "")?.[1] ?? "";
+const loadedVersionOf = (request: Request) =>
+  /^cade-([0-9a-f]{8})-/.exec(request.headers.get("mcp-session-id") ?? "")?.[1] ?? "";
 
 // The Worker's answer to a request for /mcp.
 // The names of the tools, for the AI agent modal.
@@ -169,7 +198,8 @@ export async function handleMcp(request: Request, env: AppEnv) {
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   // There is no stream to open, as MCP lets a server say.
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { ...headers, allow: "POST" } });
+  if (request.method !== "POST")
+    return new Response("Method not allowed", { status: 405, headers: { ...headers, allow: "POST" } });
 
   if (!mcpEnabled(env)) return new Response("The MCP endpoint is turned off", { status: 404, headers });
   const user = await tokenUser(env, apiKeyOf(request));
@@ -189,14 +219,17 @@ export async function handleMcp(request: Request, env: AppEnv) {
   if (!answers.length) return new Response(null, { status: 202, headers });
   // A session that connects is given an ID that names the tool set it loads.
   const connecting = messages.some((message) => (message as RpcMessage | null)?.method === "initialize");
-  return Response.json(batch ? answers : answers[0], { headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor(versions.current) }) } });
+  return Response.json(batch ? answers : answers[0], {
+    headers: { ...headers, ...(connecting && { "mcp-session-id": sessionIdFor(versions.current) }) },
+  });
 }
 
 const success = (id: RpcId, result: unknown) => ({ jsonrpc: "2.0", id, result });
 const failure = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
 async function answer(env: AppEnv, user: string, raw: unknown, versions: { loaded: string; current: string }) {
-  if (!raw || typeof raw !== "object" || (raw as RpcMessage).jsonrpc !== "2.0") return failure(null, -32600, "Invalid request");
+  if (!raw || typeof raw !== "object" || (raw as RpcMessage).jsonrpc !== "2.0")
+    return failure(null, -32600, "Invalid request");
   const message = raw as RpcMessage;
   // No id: a notification, or an answer to a request of ours (there are none).
   if (message.id === undefined || message.id === null) return null;
@@ -204,9 +237,17 @@ async function answer(env: AppEnv, user: string, raw: unknown, versions: { loade
   switch (method) {
     case "initialize":
       return success(id, {
-        protocolVersion: typeof params?.protocolVersion === "string" && PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
+        protocolVersion:
+          typeof params?.protocolVersion === "string" && PROTOCOLS.includes(params.protocolVersion)
+            ? params.protocolVersion
+            : PROTOCOLS[0],
         capabilities: { tools: {}, prompts: {} },
-        serverInfo: { name: "cade", title: "Cade", version: `${SERVER_VERSION}+${versions.current}`, description: SERVER_DESCRIPTION },
+        serverInfo: {
+          name: "cade",
+          title: "Cade",
+          version: `${SERVER_VERSION}+${versions.current}`,
+          description: SERVER_DESCRIPTION,
+        },
         instructions: INSTRUCTIONS,
       });
     case "ping":
@@ -216,7 +257,9 @@ async function answer(env: AppEnv, user: string, raw: unknown, versions: { loade
     case "tools/call":
       return callTool(env, user, id, params, versions);
     case "prompts/list":
-      return success(id, { prompts: (await prompts(env)).map(({ text, ...prompt }) => ({ ...prompt, arguments: argumentsOf(prompt) })) });
+      return success(id, {
+        prompts: (await prompts(env)).map(({ text, ...prompt }) => ({ ...prompt, arguments: argumentsOf(prompt) })),
+      });
     case "prompts/get":
       return getPrompt(env, id, params);
     default:
@@ -232,7 +275,10 @@ async function getPrompt(env: AppEnv, id: RpcId, params: RpcParams | undefined) 
   if (!prompt) return failure(id, -32602, `Unknown prompt: ${params?.name}`);
   const filled = promptWith(prompt, params?.arguments ?? {});
   if (filled.problem !== undefined) return failure(id, -32602, filled.problem);
-  return success(id, { description: prompt.description, messages: [{ role: "user", content: { type: "text", text: filled.text } }] });
+  return success(id, {
+    description: prompt.description,
+    messages: [{ role: "user", content: { type: "text", text: filled.text } }],
+  });
 }
 
 // Said at the end of a tool's text while the session has an older tool set than the server (get_server_info
@@ -242,16 +288,30 @@ const staleNotice = ({ loaded, current }: { loaded: string; current: string }) =
     ? `\n\nCade's tools were updated after this session started (it loaded ${loaded}, the server has ${current}). Tell the person to disconnect and connect Cade again to load them.`
     : "";
 
-async function callTool(env: AppEnv, user: string, id: RpcId, params: RpcParams | undefined, versions: { loaded: string; current: string }) {
+async function callTool(
+  env: AppEnv,
+  user: string,
+  id: RpcId,
+  params: RpcParams | undefined,
+  versions: { loaded: string; current: string },
+) {
   const tool = TOOLS.find((candidate) => candidate.name === params?.name);
   if (!tool) return failure(id, -32602, `Unknown tool: ${params?.name}`);
   const notice = tool.name === "get_server_info" ? "" : staleNotice(versions);
-  const reply = (text: string, isError?: boolean, data?: Record<string, unknown>) => success(id, { content: [{ type: "text", text: text + notice }], ...(data && { structuredContent: data }), ...(isError && { isError: true }) });
+  const reply = (text: string, isError?: boolean, data?: Record<string, unknown>) =>
+    success(id, {
+      content: [{ type: "text", text: text + notice }],
+      ...(data && { structuredContent: data }),
+      ...(isError && { isError: true }),
+    });
   // Each person's agent has a limit of calls a minute (see rate-limit.ts); over it, it is told how long to wait.
   const wait = await mcpCallWait(env, user);
   if (wait) {
     console.log("MCP rate limit reached", { tool: tool.name, user });
-    return reply(`Too many calls: your AI agent can make ${MCP_CALLS_PER_MINUTE} a minute. Wait ${wait} second${wait === 1 ? "" : "s"}, then try again.`, true);
+    return reply(
+      `Too many calls: your AI agent can make ${MCP_CALLS_PER_MINUTE} a minute. Wait ${wait} second${wait === 1 ? "" : "s"}, then try again.`,
+      true,
+    );
   }
   // The arguments are checked against the tool's inputSchema, the one the agent was shown, before it
   // runs: an unknown argument, a wrong type or a value out of range is refused, saying which, so the
@@ -300,20 +360,39 @@ async function withUserNames(env: AppEnv, result: { text: string; data: Record<s
   // The names kept in the database; Slack is asked only for a person not seen before. An ID with no name
   // (not a person Slack knows) stands in for itself there, and is left out here.
   const kept = await nameMap(env, ids);
-  const user_names = Object.fromEntries(ids.filter((id) => kept.get(id) && kept.get(id) !== id).map((id) => [id, kept.get(id)])) as Record<string, string>;
-  const text = result.text.replace(/<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>|\b([UW][A-Z0-9]{8,})\b/g, (all: string, mention: string | undefined, bare: string) => {
-    const id = mention ?? bare;
-    return user_names[id] ? `${mention ? "@" : ""}${user_names[id]} (${id})` : all;
-  });
+  const user_names = Object.fromEntries(
+    ids.filter((id) => kept.get(id) && kept.get(id) !== id).map((id) => [id, kept.get(id)]),
+  ) as Record<string, string>;
+  const text = result.text.replace(
+    /<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>|\b([UW][A-Z0-9]{8,})\b/g,
+    (all: string, mention: string | undefined, bare: string) => {
+      const id = mention ?? bare;
+      return user_names[id] ? `${mention ? "@" : ""}${user_names[id]} (${id})` : all;
+    },
+  );
   return { text, data: { ...result.data, user_names } };
 }
 
 // Which version of the tool set this session loaded, against the one the server has now.
-async function getServerInfo(env: AppEnv, user: string, args: GetServerInfoArgs, { loaded, current }: { loaded: string; current: string }) {
+async function getServerInfo(
+  env: AppEnv,
+  user: string,
+  args: GetServerInfoArgs,
+  { loaded, current }: { loaded: string; current: string },
+) {
   const status = !loaded ? "UNKNOWN" : loaded === current ? "CURRENT" : "OUTDATED";
   const text = [`Cade ${SERVER_VERSION}, tool set ${current}.`];
   if (status === "CURRENT") text.push("This session has the latest tools.");
-  else if (status === "OUTDATED") text.push(`This session loaded tool set ${loaded}, so it doesn't have the latest tools. Tell the person to disconnect and connect Cade again to load them.`);
-  else text.push("This client doesn't say which tool set it loaded, so I can't tell if it is the latest. Disconnecting and connecting Cade again loads the latest.");
-  return { text: text.join(" "), data: { server_version: SERVER_VERSION, toolset_version: current, session_toolset_version: loaded, status } };
+  else if (status === "OUTDATED")
+    text.push(
+      `This session loaded tool set ${loaded}, so it doesn't have the latest tools. Tell the person to disconnect and connect Cade again to load them.`,
+    );
+  else
+    text.push(
+      "This client doesn't say which tool set it loaded, so I can't tell if it is the latest. Disconnecting and connecting Cade again loads the latest.",
+    );
+  return {
+    text: text.join(" "),
+    data: { server_version: SERVER_VERSION, toolset_version: current, session_toolset_version: loaded, status },
+  };
 }

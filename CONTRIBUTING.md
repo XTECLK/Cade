@@ -14,7 +14,8 @@ first so the design can be agreed before you write code. Security problems go th
 2. Set up the code as in the [development guide](DEVELOPMENT.md): `npm install`, then `npm run check`.
 3. Make the change. Keep it focused: one thing per pull request.
 4. Add or update tests in `test/` for what you changed, and update the docs it touches (the [website](docs/), [GETTING_STARTED.md](GETTING_STARTED.md), [DEVELOPMENT.md](DEVELOPMENT.md)).
-5. Run `npm run check`: the type check and the whole suite, in a few seconds without Slack. Both must pass.
+5. Run `npm run format`, then `npm run check`: the type check, the formatting and the whole suite, in a few seconds
+   without Slack. All must pass.
 6. Open the pull request, saying what it changes and why, and link its issue.
 
 ## Style

@@ -2,7 +2,16 @@ import { subtasksOf } from "../db.ts";
 import { unmentioned } from "../notify.ts";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.ts";
 import { applyChanges } from "./changes.ts";
-import { INCIDENT, NOT_A_TASK, PRIORITIES, STATUSES, loadTask, readTaskForm, subtasksLine, taskFormBlocks } from "../tasks.ts";
+import {
+  INCIDENT,
+  NOT_A_TASK,
+  PRIORITIES,
+  STATUSES,
+  loadTask,
+  readTaskForm,
+  subtasksLine,
+  taskFormBlocks,
+} from "../tasks.ts";
 import { taskBlocks } from "../home.ts";
 import { todayIn } from "./tasks.ts";
 import { createTask } from "./track.ts";
@@ -38,7 +47,8 @@ const CANCEL_ACTION = "subtasks:cancel";
 // The most subtasks the modal lists in each of Open and Closed, two blocks each: a modal holds 100 blocks.
 const MAX_LISTED = 20;
 
-export const ONE_LEVEL = "This is a subtask already, and subtasks don't have their own. Add it to the main task instead.";
+export const ONE_LEVEL =
+  "This is a subtask already, and subtasks don't have their own. Add it to the main task instead.";
 
 // `@Cade subtask <title>` in a task's thread does what Add subtask does, with the task's due date, and
 // reacts ✅; the thread hears it was added as from the form.
@@ -70,7 +80,14 @@ export default {
       const origin = readPayload<TaskRef>(TASK_BUTTON, payload.actions[0].value, "Add subtask button");
       const parent = await loadTask(env, origin.channel, origin.ts);
       const problem = !parent ? NOT_A_TASK : parent.parent ? ONE_LEVEL : null;
-      const view = problem ? { type: "modal", title: plainText("Add subtask"), close: plainText("Back"), blocks: [{ type: "section", text: mrkdwn(problem) }] } : subtaskForm(origin, parent!);
+      const view = problem
+        ? {
+            type: "modal",
+            title: plainText("Add subtask"),
+            close: plainText("Back"),
+            blocks: [{ type: "section", text: mrkdwn(problem) }],
+          }
+        : subtaskForm(origin, parent!);
       await callSlack(env, "views.push", { trigger_id: payload.trigger_id, view });
     },
     [CLOSE_ALL_ACTION]: (payload, context) => {
@@ -85,10 +102,18 @@ export default {
 // Warns `user`, privately in the task's thread, that it can't move to `status` while its subtasks
 // are open, naming them, with Close all subtasks and Cancel. `saved`: whether the rest of what they
 // changed was saved, such as other fields on the Edit form.
-export async function warnOpenSubtasks(env: AppEnv, origin: TaskRef, status: Status, user: string, { saved = false } = {}) {
+export async function warnOpenSubtasks(
+  env: AppEnv,
+  origin: TaskRef,
+  status: Status,
+  user: string,
+  { saved = false } = {},
+) {
   const open = (await subtasksOf(env, origin.channel, origin.ts)).filter(({ task }) => task.status !== "DONE");
   if (!open.length) return;
-  const names = open.map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`)).join(", ");
+  const names = open
+    .map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`))
+    .join(", ");
   const count = `${open.length} subtask${open.length === 1 ? " is" : "s are"}`;
   const text = `:warning: ${count} still open: ${names}. A task moves to ${STATUSES[status]} only once all its subtasks are done, so I left its status as it is.${saved ? " Your other changes are saved." : ""}`;
   const value = JSON.stringify({ ...origin, status });
@@ -102,7 +127,13 @@ export async function warnOpenSubtasks(env: AppEnv, origin: TaskRef, status: Sta
       {
         type: "actions",
         elements: [
-          { type: "button", action_id: CLOSE_ALL_ACTION, style: "primary", text: plainText("Close all subtasks"), value },
+          {
+            type: "button",
+            action_id: CLOSE_ALL_ACTION,
+            style: "primary",
+            text: plainText("Close all subtasks"),
+            value,
+          },
           { type: "button", action_id: CANCEL_ACTION, text: plainText("Cancel") },
         ],
       },
@@ -114,7 +145,13 @@ export async function warnOpenSubtasks(env: AppEnv, origin: TaskRef, status: Sta
 // is told in its main task's thread, with how its subtasks now stand. Other moves aren't, as only its
 // own thread needs them. Not for a task that isn't a subtask, nor while Close all subtasks closes
 // them one after another (`quiet`), which tells the thread once.
-export async function tellMainTask(env: AppEnv, channel: string, ts: string, { from, to }: { from: Status; to: Status }, user: string) {
+export async function tellMainTask(
+  env: AppEnv,
+  channel: string,
+  ts: string,
+  { from, to }: { from: Status; to: Status },
+  user: string,
+) {
   if ((from === "DONE") === (to === "DONE")) return;
   const task = await loadTask(env, channel, ts);
   if (!task?.parent) return;
@@ -122,7 +159,11 @@ export async function tellMainTask(env: AppEnv, channel: string, ts: string, { f
   if (!main) return;
   const title = task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`;
   const text = `<@${user}> ${to === "DONE" ? "closed" : "reopened"} the subtask ${title}. ${subtasksLine(main)}.`;
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent.ts, text: await unmentioned(env, text) }).catch((error) => {
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: task.parent.ts,
+    text: await unmentioned(env, text),
+  }).catch((error) => {
     console.warn("Could not tell the main task's thread", { ts: task.parent!.ts, error: error.message });
   });
 }
@@ -138,14 +179,24 @@ async function closeAll(payload: SlackPayload, { env }: Context) {
     return;
   }
   const open = (await subtasksOf(env, request.channel, request.ts)).filter(({ task }) => task.status !== "DONE");
-  for (const { ts } of open) await applyChanges(env, { channel: request.channel, ts }, { status: "DONE" }, user, { quiet: true });
+  for (const { ts } of open)
+    await applyChanges(env, { channel: request.channel, ts }, { status: "DONE" }, user, { quiet: true });
   if (open.length) {
-    const names = open.map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`)).join(", ");
-    await callSlack(env, "chat.postMessage", { channel: request.channel, thread_ts: request.ts, text: await unmentioned(env, `<@${user}> closed all its subtasks: ${names}.`) });
+    const names = open
+      .map(({ task }) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`))
+      .join(", ");
+    await callSlack(env, "chat.postMessage", {
+      channel: request.channel,
+      thread_ts: request.ts,
+      text: await unmentioned(env, `<@${user}> closed all its subtasks: ${names}.`),
+    });
   }
   await applyChanges(env, { channel: request.channel, ts: request.ts }, { status: request.status }, user);
   const closed = `Closed ${open.length} subtask${open.length === 1 ? "" : "s"}`;
-  await respondLater(payload.response_url, { replace_original: true, text: `${closed} and moved the task to ${STATUSES[request.status]}.` });
+  await respondLater(payload.response_url, {
+    replace_original: true,
+    text: `${closed} and moved the task to ${STATUSES[request.status]}.`,
+  });
 }
 
 // The form for a subtask of `parent`, at `origin`.
@@ -170,7 +221,9 @@ export function subtaskForm(origin: TaskRef, parent: StoredTask) {
         ],
       },
       // The task's due date to begin with, as a part of it is usually due with it. No priority: it is the task's.
-      ...taskFormBlocks("Subtask title", { dueDate: parent.dueDate }, { details: !parent.incident }).filter((block) => block.block_id !== "priority"),
+      ...taskFormBlocks("Subtask title", { dueDate: parent.dueDate }, { details: !parent.incident }).filter(
+        (block) => block.block_id !== "priority",
+      ),
     ],
   };
 }
@@ -184,20 +237,34 @@ async function submit(payload: SlackPayload, context: Context) {
   if (!parent) return { response_action: "errors", errors: { title: "I'm not tracking that task any more." } };
   if (parent.parent) return { response_action: "errors", errors: { title: ONE_LEVEL } };
 
-  context.waitUntil(createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { dueDate, bug }), { channel: origin.channel }));
+  context.waitUntil(
+    createTask(env, newSubtask(parent, origin.ts, title, payload.user.id, { dueDate, bug }), {
+      channel: origin.channel,
+    }),
+  );
   return { response_action: "clear" };
 }
 
 // A new subtask of `parent`, whose root message is `ts`, made by `user`: with the parent's people, and
 // its priority, and its due date unless `details` gives another. It is a bug when `details` says so, whatever
 // its parent is. A subtask of an incident is an incident too, Urgent and due Immediate, whatever `details` says.
-export function newSubtask(parent: StoredTask, ts: string, title: string, user: string, details: Partial<Pick<Task, "dueDate" | "bug">> = {}): Task {
+export function newSubtask(
+  parent: StoredTask,
+  ts: string,
+  title: string,
+  user: string,
+  details: Partial<Pick<Task, "dueDate" | "bug">> = {},
+): Task {
   return {
     title,
     status: "TODO",
     ...(parent.incident
       ? { ...INCIDENT, incident: true }
-      : { priority: parent.priority, dueDate: details.dueDate ?? parent.dueDate ?? "", ...(details.bug && { bug: true }) }),
+      : {
+          priority: parent.priority,
+          dueDate: details.dueDate ?? parent.dueDate ?? "",
+          ...(details.bug && { bug: true }),
+        }),
     people: structuredClone(parent.people),
     createdBy: user,
     parent: { ts, title: parent.title, link: parent.link, owner: parent.people.owner },
@@ -215,19 +282,45 @@ export async function subtasksView(env: AppEnv, origin: TaskRef, parent: StoredT
   const heading = parent.link ? `<${parent.link}|${escapeSlack(parent.title)}>` : escapeSlack(parent.title);
   const blocks: SlackBlock[] = [
     { type: "section", text: mrkdwn(`*${heading}*`) },
-    { type: "context", elements: [mrkdwn(subtasksLine({ subtaskCounts: { open: open.length, closed: closed.length } }) || "No subtasks yet.")] },
+    {
+      type: "context",
+      elements: [
+        mrkdwn(subtasksLine({ subtaskCounts: { open: open.length, closed: closed.length } }) || "No subtasks yet."),
+      ],
+    },
     ...group("Open", open, today),
     ...group("Closed", closed, today),
     // Under the list, Add subtask; a subtask has none of its own, so it can't add one.
-    ...(parent.parent ? [] : [{ type: "divider" }, { type: "actions", elements: [{ type: "button", action_id: ADD_ACTION, text: plainText("Add subtask"), style: "primary", value: JSON.stringify({ channel: origin.channel, ts: origin.ts }) }] }]),
+    ...(parent.parent
+      ? []
+      : [
+          { type: "divider" },
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                action_id: ADD_ACTION,
+                text: plainText("Add subtask"),
+                style: "primary",
+                value: JSON.stringify({ channel: origin.channel, ts: origin.ts }),
+              },
+            ],
+          },
+        ]),
   ];
   return { type: "modal", title: plainText("Subtasks"), close: plainText("Close"), blocks };
 }
 
 function group(name: string, entries: { ts: string; task: StoredTask }[], today: string): SlackBlock[] {
   if (!entries.length) return [];
-  const blocks: SlackBlock[] = [{ type: "divider" }, { type: "section", text: mrkdwn(`*${name} (${entries.length})*`) }];
-  for (const { task } of entries.slice(0, MAX_LISTED)) blocks.push(...taskBlocks({ task, link: task.link, incident: task.incident }, today));
-  if (entries.length > MAX_LISTED) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
+  const blocks: SlackBlock[] = [
+    { type: "divider" },
+    { type: "section", text: mrkdwn(`*${name} (${entries.length})*`) },
+  ];
+  for (const { task } of entries.slice(0, MAX_LISTED))
+    blocks.push(...taskBlocks({ task, link: task.link, incident: task.incident }, today));
+  if (entries.length > MAX_LISTED)
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
   return blocks;
 }

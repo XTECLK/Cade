@@ -24,7 +24,10 @@ export function threadOf(link: unknown) {
 // The channel and ts a thread ID names, or a ToolError.
 export function threadIdOf(threadId: unknown) {
   const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(threadId).trim());
-  if (!match) throw new ToolError("A thread ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100.");
+  if (!match)
+    throw new ToolError(
+      "A thread ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100.",
+    );
   return { channel: match[1]!, ts: match[2]! };
 }
 
@@ -49,14 +52,22 @@ export async function readableChannel(env: AppEnv, user: string, channel: string
 export function taskRef({ task_id: taskId }: { task_id?: string }) {
   if (taskId === undefined) throw new ToolError("Give a task_id, as get_tasks gives it.");
   const match = /^([CGD][A-Z0-9]+):(\d+\.\d+)$/.exec(String(taskId).trim());
-  if (!match) throw new ToolError("A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them.");
+  if (!match)
+    throw new ToolError(
+      "A task ID is the channel and the message time joined by a colon, such as C0123ABCD:1700000000.000100. get_tasks gives them.",
+    );
   return { channel: match[1]!, ts: match[2]! };
 }
 
 // The channel of the project called `name` (any case), or a ToolError.
 export function projectChannel(env: AppEnv, name: unknown) {
   const found = projects(env).find((project) => project.name.toLowerCase() === String(name).trim().toLowerCase());
-  if (!found) throw new ToolError(`There is no project called "${name}". get_projects lists them: ${projects(env).map((project) => project.name).join(", ")}.`);
+  if (!found)
+    throw new ToolError(
+      `There is no project called "${name}". get_projects lists them: ${projects(env)
+        .map((project) => project.name)
+        .join(", ")}.`,
+    );
   return found.channel;
 }
 
@@ -78,7 +89,11 @@ export function dueDateOf(value: unknown) {
 export function userIds(role: string, list: unknown): string[] {
   if (list === undefined) return [];
   if (!Array.isArray(list)) throw new ToolError(`${role} takes lists of user IDs.`);
-  const ids = list.map((id) => String(id).trim().replace(/^<@([^>|]+).*>$/, "$1"));
+  const ids = list.map((id) =>
+    String(id)
+      .trim()
+      .replace(/^<@([^>|]+).*>$/, "$1"),
+  );
   const bad = ids.find((id) => !/^[UW][A-Z0-9]{2,}$/.test(id));
   if (bad) throw new ToolError(`"${bad}" isn't a Slack user ID for ${role}. find_user_by_name gives them.`);
   return [...new Set(ids)];
@@ -87,13 +102,16 @@ export function userIds(role: string, list: unknown): string[] {
 // A ToolError unless every ID is an active person of the workspace: not a made-up ID, a bot or a
 // deactivated account, which would be saved on a task or mentioned and notify no one.
 export async function requireActiveUsers(env: AppEnv, ids: string[]) {
-  await Promise.all([...new Set(ids)].map(async (id) => {
-    const found = await callSlack(env, "users.info", { user: id }).catch((error) => {
-      if (!/user_not_found/.test(error.message)) throw new ToolError(`I couldn't check ${id} (${error.message}).`);
-      return null;
-    });
-    if (!found?.user || found.user.deleted || found.user.is_bot) throw new ToolError(`${id} isn't an active person in the workspace. find_user_by_name gives the IDs.`);
-  }));
+  await Promise.all(
+    [...new Set(ids)].map(async (id) => {
+      const found = await callSlack(env, "users.info", { user: id }).catch((error) => {
+        if (!/user_not_found/.test(error.message)) throw new ToolError(`I couldn't check ${id} (${error.message}).`);
+        return null;
+      });
+      if (!found?.user || found.user.deleted || found.user.is_bot)
+        throw new ToolError(`${id} isn't an active person in the workspace. find_user_by_name gives the IDs.`);
+    }),
+  );
 }
 
 // What a credential looks like, by the name it is refused under.

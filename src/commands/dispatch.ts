@@ -27,9 +27,17 @@ export async function dispatch(command: Command, context: Context): Promise<Repl
 export async function dispatchSlash(command: SlashCommand, context: Context): Promise<Reply> {
   const handler = commands[command.name];
   if (!handler) return usage();
-  if (!handler.slash) return `For that one, send \`${[handler.usage].flat()[0]}\`${handler.inThread ? " in a task thread" : ""}.`;
+  if (!handler.slash)
+    return `For that one, send \`${[handler.usage].flat()[0]}\`${handler.inThread ? " in a task thread" : ""}.`;
   if ((handler.admin || handler.slashAdmin) && !isAdmin(context.env, command.user)) return ADMINS_ONLY;
-  return runHandler(handler, handler.slash as NonNullable<Handler["run"]>, [handler.slashUsage].flat()[0], slashScope(handler), command, context);
+  return runHandler(
+    handler,
+    handler.slash as NonNullable<Handler["run"]>,
+    [handler.slashUsage].flat()[0],
+    slashScope(handler),
+    command,
+    context,
+  );
 }
 
 // Slash commands are never in a thread, and can work in other channels than
@@ -69,9 +77,7 @@ async function runHandler(
 function checkScope(scope: Scope, usage: string | undefined, command: Command, env: AppEnv) {
   const channels = channelsFor(scope, env);
   const inThread = Boolean(command.threadTs) && command.threadTs !== command.ts;
-  const allowed =
-    (!channels.length || channels.includes(command.channel)) &&
-    (!scope.inThread || inThread);
+  const allowed = (!channels.length || channels.includes(command.channel)) && (!scope.inThread || inThread);
   if (allowed) return undefined;
   const where = scope.inThread ? " in a task thread" : "";
   return `That one works with \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
@@ -99,7 +105,8 @@ function usage() {
   const all: Handler[] = [...new Set(Object.values(commands))];
   const handlers = all.filter((handler) => !handler.admin);
   const slash = handlers.filter((handler) => handler.slashUsage).flatMap((handler) => handler.slashUsage!);
-  const messages = (section: Handler["section"]) => handlers.filter((handler) => handler.section === section && handler.usage).flatMap((handler) => handler.usage!);
+  const messages = (section: Handler["section"]) =>
+    handlers.filter((handler) => handler.section === section && handler.usage).flatMap((handler) => handler.usage!);
   const list = (forms: string[]) => forms.map((form) => `\`${form}\``).join(" · ");
   return [
     "Here's what I can do:",

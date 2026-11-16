@@ -86,7 +86,10 @@ const workIntent = intent({
   kinds: ["pr-links", "hand-offs", "started", "progress", "details"],
   needs: { thread: true },
   match: (message) =>
-    message.mentions.length > 0 || pullRequestsIn(message.text).length > 0 || MIGHT_CHANGE(message) || soundsLikeProgress(message),
+    message.mentions.length > 0 ||
+    pullRequestsIn(message.text).length > 0 ||
+    MIGHT_CHANGE(message) ||
+    soundsLikeProgress(message),
   handle: (message, { env }) => suggestWork(message, env),
 });
 
@@ -113,12 +116,19 @@ async function suggestWork(message: PlainMessage, env: AppEnv) {
 
 // What the message asks to change, read with AI, or, without it or when it fails, only the people it
 // mentions as reviewers of the pull requests it linked; null for nothing.
-async function readSuggestion(env: AppEnv, message: PlainMessage, about: { target: { channel: string; ts: string }; task: StoredTask }, linked: string[]) {
+async function readSuggestion(
+  env: AppEnv,
+  message: PlainMessage,
+  about: { target: { channel: string; ts: string }; task: StoredTask },
+  linked: string[],
+) {
   if (aiModel(env)) {
     try {
       return await changesFromAi(env, message, about, linked);
     } catch (error) {
-      console.warn("AI couldn't read the message, so only who it asks to review a pull request is read", { error: error.message });
+      console.warn("AI couldn't read the message, so only who it asks to review a pull request is read", {
+        error: error.message,
+      });
     }
   }
   return withReviewers(message, about.task, null, linked);

@@ -22,17 +22,26 @@ export const NEW_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo
 // What GitHub says of `token`: whose it is, or why Cade can't use it. A fine-grained token
 // (github_pat_…) has no scopes to read, so it's let through with `narrow`, to warn that it reads one
 // owner's repositories only.
-export async function checkToken(token: string, fetcher: typeof fetch = fetch): Promise<{ login?: string; narrow?: boolean; problem?: string }> {
+export async function checkToken(
+  token: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ login?: string; narrow?: boolean; problem?: string }> {
   const response = await fetcher("https://api.github.com/user", {
     headers: { authorization: `bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "Cade" },
   });
-  if (response.status === 401) return { problem: "GitHub doesn't accept that token: check it was copied whole, and hasn't expired." };
+  if (response.status === 401)
+    return { problem: "GitHub doesn't accept that token: check it was copied whole, and hasn't expired." };
   if (!response.ok) return { problem: `GitHub answered HTTP ${response.status}; try again in a moment.` };
   const body: unknown = await response.json();
-  const login = typeof body === "object" && body !== null && "login" in body && typeof body.login === "string" ? body.login : "";
+  const login =
+    typeof body === "object" && body !== null && "login" in body && typeof body.login === "string" ? body.login : "";
   if (token.startsWith("github_pat_")) return { login, narrow: true };
   const scopes = (response.headers.get("x-oauth-scopes") ?? "").split(",").map((scope) => scope.trim());
-  if (!scopes.includes("repo")) return { problem: "That token doesn't have the repo scope, so it can't read private repositories' pull requests. Make one with repo ticked." };
+  if (!scopes.includes("repo"))
+    return {
+      problem:
+        "That token doesn't have the repo scope, so it can't read private repositories' pull requests. Make one with repo ticked.",
+    };
   return { login };
 }
 
@@ -54,7 +63,10 @@ async function main() {
   }
   const checked = await checkToken(token);
   if (checked.problem) throw new Error(checked.problem);
-  if (checked.narrow) log.warn("That's a fine-grained token: it reads one owner's repositories only, and pull requests elsewhere count as open.");
+  if (checked.narrow)
+    log.warn(
+      "That's a fine-grained token: it reads one owner's repositories only, and pull requests elsewhere count as open.",
+    );
   await putSecret("GITHUB_TOKEN", token);
   console.log(`Stored. Cade reads pull requests as ${checked.login || "that account"} from the cron's next run.`);
 }

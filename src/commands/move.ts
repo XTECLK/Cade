@@ -7,7 +7,17 @@ import { STATUSES, chosenProject, loadTask, projectBlock, statusName } from "../
 import { awayWarning, incidentView, trackView } from "./track.ts";
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
-import type { Command, Context, PlainMessage, SlackBlock, SlackEvent, SlackMessage, SlackPayload, Status, StoredTask } from "../types.ts";
+import type {
+  Command,
+  Context,
+  PlainMessage,
+  SlackBlock,
+  SlackEvent,
+  SlackMessage,
+  SlackPayload,
+  Status,
+  StoredTask,
+} from "../types.ts";
 
 // Where a task is: its channel and its root message.
 type Origin = { channel: string; ts: string };
@@ -15,7 +25,16 @@ import type { FormOrigin } from "./track.ts";
 import { MESSAGE_BUTTON, MOVE_FORM, TASK_BUTTON, readPayload, type MessageButton, type TaskRef } from "../payloads.ts";
 // The message to move (see moveMessage): where it is, and, from a message shortcut, the message too,
 // with `away` when Cade isn't in its channel.
-type From = { channel: string; ts: string; threadTs?: string; author?: string; text?: string; files?: boolean; link?: string; away?: boolean };
+type From = {
+  channel: string;
+  ts: string;
+  threadTs?: string;
+  author?: string;
+  text?: string;
+  files?: boolean;
+  link?: string;
+  away?: boolean;
+};
 // An open task, with the ts of its root message.
 type OpenTask = StoredTask & { ts: string };
 // What Move's form carries: the message, the shortcut's response_url, and the project, if known.
@@ -137,11 +156,17 @@ export default {
   ],
   actions: {
     [INCIDENT_ACTION]: async (payload, { env }) => {
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: incidentView(env, prompted(env, payload)) });
+      await callSlack(env, "views.open", {
+        trigger_id: payload.trigger_id,
+        view: incidentView(env, prompted(env, payload)),
+      });
       await respondLater(payload.response_url, { delete_original: true });
     },
     [TRACK_ACTION]: async (payload, { env }) => {
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: trackView(env, prompted(env, payload)) });
+      await callSlack(env, "views.open", {
+        trigger_id: payload.trigger_id,
+        view: trackView(env, prompted(env, payload)),
+      });
       await respondLater(payload.response_url, { delete_original: true });
     },
     // The form must open within Slack's three seconds of the click.
@@ -189,7 +214,10 @@ async function shortcutMessage(payload: SlackPayload, env: AppEnv) {
   const channel = payload.channel.id;
   const { ts, thread_ts: threadTs, text = "", user, files } = payload.message;
   if (roleOf(env, channel) === "channel") {
-    let problem = threadTs && threadTs !== ts && "I can only do that with messages posted in the channel itself, not replies in a thread.";
+    let problem =
+      threadTs &&
+      threadTs !== ts &&
+      "I can only do that with messages posted in the channel itself, not replies in a thread.";
     if (!problem) {
       const checked = await checkRoot(env, channel, ts);
       problem = checked.problem ?? checked.moved;
@@ -245,7 +273,11 @@ async function tell(env: AppEnv, payload: SlackPayload, text: string) {
 
 // New task and New incident: their form, named from the message's first
 // line, with the known project chosen, or asking for it.
-async function openStartForm(payload: SlackPayload, env: AppEnv, view: (env: AppEnv, origin: FormOrigin) => SlackBlock) {
+async function openStartForm(
+  payload: SlackPayload,
+  env: AppEnv,
+  view: (env: AppEnv, origin: FormOrigin) => SlackBlock,
+) {
   const from = await shortcutMessage(payload, env);
   if (!from) return;
   await callSlack(env, "views.open", {
@@ -302,7 +334,11 @@ async function moveForm(env: AppEnv, meta: MoveMeta, project: string | undefined
 // Moves the message as Move on the picker would, telling only whoever chose
 // it if it couldn't.
 function submitMoveForm(payload: SlackPayload, context: Context) {
-  const { from, responseUrl, channel = chosenProject(payload.view.state.values) } = readPayload<MoveMeta>(MOVE_FORM, payload.view.private_metadata, "Move form");
+  const {
+    from,
+    responseUrl,
+    channel = chosenProject(payload.view.state.values),
+  } = readPayload<MoveMeta>(MOVE_FORM, payload.view.private_metadata, "Move form");
   const targetTs = payload.view.state.values.target?.value.selected_option?.value;
   if (!targetTs) return { response_action: "errors", errors: { project: "Choose a project with open tasks." } };
   const user = payload.user.id;
@@ -379,7 +415,11 @@ function optionText(text: string) {
 // `@Cade <kind>` offers, and the action that opens its form.
 const STARTS = {
   task: { question: "Shall I track this message as a task?", button: "New task", action: TRACK_ACTION },
-  incident: { question: "Shall I report an incident from this message?", button: "New incident", action: INCIDENT_ACTION },
+  incident: {
+    question: "Shall I report an incident from this message?",
+    button: "New incident",
+    action: INCIDENT_ACTION,
+  },
 };
 
 // The question to start a `kind` from the message `value` ({ channel, ts,
@@ -408,7 +448,13 @@ async function offerThread(env: AppEnv, message: PlainMessage) {
   if (roleOf(env, message.channel) !== "channel") return;
   if (groupDisabled(env, message.channel, "newTaskDetection", "NEW_TASK_DETECTION")) return;
   const value = JSON.stringify({ channel: message.channel, ts: message.ts, title: firstLine(message.text) });
-  const button = (action_id: string, text: string, style?: string) => ({ type: "button", action_id, text: plainText(text), value, style });
+  const button = (action_id: string, text: string, style?: string) => ({
+    type: "button",
+    action_id,
+    text: plainText(text),
+    value,
+    style,
+  });
   const open = await openTasks(env, message.channel);
   const text = "Is this a new task, a new incident, or part of an existing one?";
   const buttons = [
@@ -421,7 +467,10 @@ async function offerThread(env: AppEnv, message: PlainMessage) {
     channel: message.channel,
     user: message.user,
     text,
-    blocks: [{ type: "section", text: mrkdwn(text) }, { type: "actions", elements: buttons }],
+    blocks: [
+      { type: "section", text: mrkdwn(text) },
+      { type: "actions", elements: buttons },
+    ],
   });
 }
 
@@ -432,7 +481,11 @@ export async function offerStart(env: AppEnv, command: Command, kind: "task" | "
   const { problem, moved, root } = await checkRoot(env, command.channel, command.threadTs!);
   if (moved) return privately(env, command, { text: moved });
   if (problem) return problem;
-  await privately(env, command, startQuestion(kind, { channel: command.channel, ts: command.threadTs!, title: firstLine(root!.text ?? "") }));
+  await privately(
+    env,
+    command,
+    startQuestion(kind, { channel: command.channel, ts: command.threadTs!, title: firstLine(root!.text ?? "") }),
+  );
 }
 
 // Whether the root of the thread at `ts` in a dev channel can be moved, or
@@ -473,23 +526,41 @@ async function privately(env: AppEnv, command: Command, body: Record<string, unk
 // The message's first line, without formatting marks, as a name to start
 // the form with.
 function firstLine(text: string) {
-  return text.split("\n").find((line) => line.trim())?.replace(/[*_~`>]/g, "").trim().slice(0, 150) ?? "";
+  return (
+    text
+      .split("\n")
+      .find((line) => line.trim())
+      ?.replace(/[*_~`>]/g, "")
+      .trim()
+      .slice(0, 150) ?? ""
+  );
 }
 
 // The form's origin, from a button on the question: the project, if the
 // message's channel says which, the message to move into the new thread, and
 // its first line.
 function prompted(env: AppEnv, payload: SlackPayload): FormOrigin {
-  const { channel, ts, title } = readPayload<MessageButton>(MESSAGE_BUTTON, payload.actions[0].value, "New task button");
+  const { channel, ts, title } = readPayload<MessageButton>(
+    MESSAGE_BUTTON,
+    payload.actions[0].value,
+    "New task button",
+  );
   return { channel: knownProject(env, channel), move: { channel, ts }, title };
 }
 
 // Opens Move to existing's form, as the message shortcut does, and removes
 // the question; or, if everything was closed since, says so in its place.
 async function offerExisting(env: AppEnv, payload: SlackPayload) {
-  const { channel, ts, title } = readPayload<MessageButton>(MESSAGE_BUTTON, payload.actions[0].value, "Move to existing button");
+  const { channel, ts, title } = readPayload<MessageButton>(
+    MESSAGE_BUTTON,
+    payload.actions[0].value,
+    "Move to existing button",
+  );
   if (!(await openTasks(env, channel)).length) {
-    await respondLater(payload.response_url, { replace_original: true, text: `Everything here has been closed since. ${NO_OPEN}` });
+    await respondLater(payload.response_url, {
+      replace_original: true,
+      text: `Everything here has been closed since. ${NO_OPEN}`,
+    });
     return;
   }
   const meta = { from: { channel, ts }, channel, title, responseUrl: payload.response_url };
@@ -501,7 +572,11 @@ async function offerExisting(env: AppEnv, payload: SlackPayload) {
 // why it didn't.
 async function movePicked(env: AppEnv, payload: SlackPayload, targetTs: string) {
   const { channel, ts } = readPayload<TaskRef>(TASK_BUTTON, payload.actions[0].value, "move picker");
-  const problem = await moveMessage(env, { from: { channel, ts }, target: { channel, ts: targetTs }, user: payload.user.id });
+  const problem = await moveMessage(env, {
+    from: { channel, ts },
+    target: { channel, ts: targetTs },
+    user: payload.user.id,
+  });
   await respondLater(
     payload.response_url,
     problem ? { replace_original: true, text: problem } : { delete_original: true },
@@ -516,7 +591,10 @@ async function movePicked(env: AppEnv, payload: SlackPayload, targetTs: string) 
 // so the move stands without them, where Cade can't post. Returns why it
 // didn't move, or null if it did: the task may have been done or deleted,
 // or the message deleted or moved, since the move was asked for.
-export async function moveMessage(env: AppEnv, { from, target, user }: { from: From; target: Origin; user: string }): Promise<string | null> {
+export async function moveMessage(
+  env: AppEnv,
+  { from, target, user }: { from: From; target: Origin; user: string },
+): Promise<string | null> {
   const task = await loadTask(env, target.channel, target.ts);
   if (!task || task.status === "DONE") return "That task has been closed or deleted since, so I didn't move anything.";
   let message: From = from;
@@ -541,7 +619,10 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
     const { permalink } = await callSlack(env, "chat.getPermalink", { channel: from.channel, message_ts: from.ts });
     original = `${permalink}?thread_ts=${message.threadTs}&cid=${from.channel}`;
   }
-  const quoted = message.text!.split("\n").map((line) => `> ${line}`).join("\n");
+  const quoted = message
+    .text!.split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
   const files = message.files ? "\n_There's more in the original._" : "";
   const copy = await callSlack(env, "chat.postMessage", {
     channel: target.channel,
@@ -550,13 +631,19 @@ export async function moveMessage(env: AppEnv, { from, target, user }: { from: F
     text: `${await unmentioned(env, `Moved from <@${message.author}>'s <${original}|message>:`)}\n${quoted}${files}`,
   });
 
-  const { permalink: moved } = await callSlack(env, "chat.getPermalink", { channel: target.channel, message_ts: copy.ts });
+  const { permalink: moved } = await callSlack(env, "chat.getPermalink", {
+    channel: target.channel,
+    message_ts: copy.ts,
+  });
   const noun = task.incident ? "incident" : "task";
   try {
     await callSlack(env, "chat.postMessage", {
       channel: from.channel,
       thread_ts: message.threadTs,
-      text: await unmentioned(env, `<@${user}> moved this message to the ${noun} thread <${moved}|${escapeSlack(task.title)}>. Please carry on the conversation there.`),
+      text: await unmentioned(
+        env,
+        `<@${user}> moved this message to the ${noun} thread <${moved}|${escapeSlack(task.title)}>. Please carry on the conversation there.`,
+      ),
     });
     await callSlack(env, "reactions.add", { channel: from.channel, timestamp: from.ts, name: MOVED_REACTION });
   } catch (error) {

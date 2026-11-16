@@ -64,7 +64,11 @@ export function projectFor(env: Pick<AppEnv, "PROJECTS">, channel: string) {
 // The project's own setting `key`, such as `taskChangeDetection`, for `channel`, or undefined
 // when it has none, or `channel` is in no project, so the setting for every
 // project applies (see suggesting in intents.ts and aiModel in ai.ts).
-export function groupSetting<K extends string>(env: Pick<AppEnv, "PROJECTS">, channel: string | undefined | null, key: K): Project[K] | undefined {
+export function groupSetting<K extends string>(
+  env: Pick<AppEnv, "PROJECTS">,
+  channel: string | undefined | null,
+  key: K,
+): Project[K] | undefined {
   if (!channel) return undefined;
   try {
     return findProject(env, channel)?.[key];
@@ -88,17 +92,26 @@ export function roleOf(env: Pick<AppEnv, "PROJECTS">, channel: string) {
   return project && ROLES.find((role) => project[role] === channel);
 }
 
-
 // Whether a feature that is off unless turned on is on for `channel`: the
 // project's own `key` (true or false), or else the Worker secret `secret`
 // ("on" turns it on) for every project. See `summaryCanvas` in
 // scripts/config.ts.
-export function groupEnabled(env: Pick<AppEnv, "PROJECTS" | FeatureSecret>, channel: string | undefined | null, key: string, secret: FeatureSecret) {
+export function groupEnabled(
+  env: Pick<AppEnv, "PROJECTS" | FeatureSecret>,
+  channel: string | undefined | null,
+  key: string,
+  secret: FeatureSecret,
+) {
   return (groupSetting(env, channel, key) ?? env[secret] === "on") as boolean;
 }
 
 // Like groupEnabled, for a feature that is on unless turned off: only "off"
 // (or false) turns it off. See `newTaskDetection`.
-export function groupDisabled(env: Pick<AppEnv, "PROJECTS" | FeatureSecret>, channel: string | undefined | null, key: string, secret: FeatureSecret) {
+export function groupDisabled(
+  env: Pick<AppEnv, "PROJECTS" | FeatureSecret>,
+  channel: string | undefined | null,
+  key: string,
+  secret: FeatureSecret,
+) {
   return (groupSetting(env, channel, key) ?? env[secret] !== "off") === false;
 }

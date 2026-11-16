@@ -46,8 +46,7 @@ const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assi
 // menus.
 export default {
   name: "standup",
-  description:
-    "Go through the open tasks one owner at a time, only to you (`-unassigned` to give tasks an owner)",
+  description: "Go through the open tasks one owner at a time, only to you (`-unassigned` to give tasks an owner)",
   slashUsage: "/cade standup",
   section: "work",
   slashChannel: "channel",
@@ -66,7 +65,9 @@ export default {
       [BACK_ACTION, NEXT_ACTION].map((id) => [
         id,
         async (payload, context) => {
-          context.waitUntil(show(payload, context.env, readPayload<Walk>(STANDUP_WALK, payload.actions[0].value, "standup button")));
+          context.waitUntil(
+            show(payload, context.env, readPayload<Walk>(STANDUP_WALK, payload.actions[0].value, "standup button")),
+          );
         },
       ]),
     ),
@@ -100,10 +101,18 @@ async function show(payload: SlackPayload, env: AppEnv, walk: Walk) {
 // A task's status menu: sets it, tells its thread, and shows the step again.
 async function changeStatus(payload: SlackPayload, env: AppEnv) {
   const action = payload.actions[0];
-  const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup status menu");
+  const {
+    c: channel,
+    t: ts,
+    ...walk
+  } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup status menu");
   const change = await setStatus(env, channel, ts, action.selected_option.value as Status, payload.user.id);
   if (change) {
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, changeLog(change).join("\n")) });
+    await callSlack(env, "chat.postMessage", {
+      channel,
+      thread_ts: ts,
+      text: await unmentioned(env, changeLog(change).join("\n")),
+    });
     await offerAsk(env, { channel, ts }, payload.user.id, changeRequests(change), here(payload, change.task.link));
   }
   await show(payload, env, walk);
@@ -113,7 +122,11 @@ async function changeStatus(payload: SlackPayload, env: AppEnv) {
 // them to start, and shows the step again, where the task no longer is.
 async function assignOwner(payload: SlackPayload, env: AppEnv) {
   const action = payload.actions[0];
-  const { c: channel, t: ts, ...walk } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup owner menu");
+  const {
+    c: channel,
+    t: ts,
+    ...walk
+  } = readPayload<Walk & { c: string; t: string }>(STANDUP_TASK, action.block_id, "standup owner menu");
   const owner = action.selected_user;
   const task = await loadTask(env, channel, ts);
   if (task && owner && !task.people.owner.includes(owner)) {
@@ -122,7 +135,11 @@ async function assignOwner(payload: SlackPayload, env: AppEnv) {
     const user = payload.user.id;
     // Picking yourself needs no request, nor does a task past To do and In progress.
     const asked = owner !== user && onTheirPlate(task, "owner") ? [request([owner], "owner")] : [];
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, assigned(user, [owner], "owner")) });
+    await callSlack(env, "chat.postMessage", {
+      channel,
+      thread_ts: ts,
+      text: await unmentioned(env, assigned(user, [owner], "owner")),
+    });
     await offerAsk(env, { channel, ts }, user, asked, here(payload, task.link));
   }
   await show(payload, env, walk);
@@ -165,9 +182,12 @@ async function render(env: AppEnv, walk: Walk) {
   const { url } = await callSlack(env, "auth.test", {});
   const all = await steps(env, walk, url);
   if (walk.i >= all.length) {
-    const text = walk.m === "unassigned"
-      ? `Every open ${walk.g} task has an owner. Nice!`
-      : all.length ? "That's everyone. Thanks, all!" : `No one has open ${walk.g} tasks right now.`;
+    const text =
+      walk.m === "unassigned"
+        ? `Every open ${walk.g} task has an owner. Nice!`
+        : all.length
+          ? "That's everyone. Thanks, all!"
+          : `No one has open ${walk.g} tasks right now.`;
     return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
   }
 

@@ -78,13 +78,20 @@ export async function readPrStates(env: AppEnv, urls: string[], { timeoutMs }: {
   });
   if (!prs.length) return [];
   const query = `query { ${prs
-    .map(({ owner, repo, number }, i) => `p${i}: repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${number}) { state } }`)
+    .map(
+      ({ owner, repo, number }, i) =>
+        `p${i}: repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${number}) { state } }`,
+    )
     .join(" ")} }`;
   let answer: GitHubAnswer;
   try {
     const response = await fetch("https://api.github.com/graphql", {
       method: "POST",
-      headers: { authorization: `bearer ${env.GITHUB_TOKEN}`, "content-type": "application/json", "user-agent": "Cade" },
+      headers: {
+        authorization: `bearer ${env.GITHUB_TOKEN}`,
+        "content-type": "application/json",
+        "user-agent": "Cade",
+      },
       body: JSON.stringify({ query }),
       ...(timeoutMs && { signal: AbortSignal.timeout(timeoutMs) }),
     });
@@ -97,7 +104,11 @@ export async function readPrStates(env: AppEnv, urls: string[], { timeoutMs }: {
     console.warn("Could not reach GitHub for pull requests", { error: error.message });
     return [];
   }
-  if (answer.errors?.length) console.warn("GitHub couldn't read some pull requests", { errors: answer.errors.length, first: answer.errors[0]!.message });
+  if (answer.errors?.length)
+    console.warn("GitHub couldn't read some pull requests", {
+      errors: answer.errors.length,
+      first: answer.errors[0]!.message,
+    });
   const states = prs.flatMap(({ url }, i) => {
     const state = STATES.find((known) => known === answer.data?.[`p${i}`]?.pullRequest?.state);
     return state ? [{ url, state }] : [];
@@ -111,7 +122,9 @@ export async function readPrStates(env: AppEnv, urls: string[], { timeoutMs }: {
 // Tells each task linking pull requests that were open and are now merged or closed, in its thread, in
 // one message. A thread that can't be told is left: the card still counts them.
 async function announceEnded(env: AppEnv, changed: PrChange[]) {
-  const ended = new Map(changed.filter(({ from, to }) => from === "OPEN" && to !== "OPEN").map(({ url, to }) => [url, to]));
+  const ended = new Map(
+    changed.filter(({ from, to }) => from === "OPEN" && to !== "OPEN").map(({ url, to }) => [url, to]),
+  );
   if (!ended.size) return;
   for (const { channel, ts, task } of await tasksWithPrs(env, [...ended.keys()])) {
     const theirs = task.prs.filter((url) => ended.has(url));

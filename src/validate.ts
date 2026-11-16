@@ -40,7 +40,9 @@ export function validate(schema: Schema, value: unknown): string | null {
 // The error to tell, of those the validator gives (an outer one, such as "properties", comes with the
 // inner one that caused it): a missing argument first, then an unknown one, then the first other.
 function explain(root: Schema, errors: OutputUnit[], value: unknown) {
-  const own = errors.filter((error) => !error.keywordLocation.includes("/anyOf/") && !["properties", "items", "false"].includes(error.keyword));
+  const own = errors.filter(
+    (error) => !error.keywordLocation.includes("/anyOf/") && !["properties", "items", "false"].includes(error.keyword),
+  );
   const error =
     own.find((one) => one.keyword === "required") ??
     own.find((one) => one.keyword === "additionalProperties") ??
@@ -100,7 +102,10 @@ const valueAt = (value: unknown, error: OutputUnit) => dig(value, parts(error.in
 
 // "#/prs/add" as prs.add, "#/fields/0" as fields[0].
 function pathOf(location: string) {
-  return parts(location).reduce((path, part) => (/^\d+$/.test(part) ? `${path}[${part}]` : path ? `${path}.${part}` : part), "");
+  return parts(location).reduce(
+    (path, part) => (/^\d+$/.test(part) ? `${path}[${part}]` : path ? `${path}.${part}` : part),
+    "",
+  );
 }
 
 // What a value of `schema` is, in the tools' words.
@@ -112,7 +117,14 @@ function what(schema: Schema, name: string) {
     case "integer":
     case "number": {
       const { minimum: min, maximum: max } = schema;
-      const range = min !== undefined && max !== undefined ? ` from ${min} to ${max}` : min !== undefined ? ` of at least ${min}` : max !== undefined ? ` of at most ${max}` : "";
+      const range =
+        min !== undefined && max !== undefined
+          ? ` from ${min} to ${max}`
+          : min !== undefined
+            ? ` of at least ${min}`
+            : max !== undefined
+              ? ` of at most ${max}`
+              : "";
       return `${name} is ${types.includes("integer") ? "a whole number" : "a number"}${range}${nullable}.`;
     }
     case "string":
@@ -120,7 +132,9 @@ function what(schema: Schema, name: string) {
     case "boolean":
       return `${name} is true or false${nullable}.`;
     case "array":
-      return schema.items?.enum ? `${name} is a list of: ${shown(schema.items.enum)}.` : `${name} is a list${nullable}.`;
+      return schema.items?.enum
+        ? `${name} is a list of: ${shown(schema.items.enum)}.`
+        : `${name} is a list${nullable}.`;
     case "object":
       return `${name} is an object${nullable}.`;
     default:

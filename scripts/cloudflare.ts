@@ -36,5 +36,7 @@ if (!process.env.CLOUDFLARE_ACCOUNT_ID && accountId) {
   process.env.CLOUDFLARE_ACCOUNT_ID = accountId;
 } else if (process.env.CLOUDFLARE_ACCOUNT_ID && !accountId && !process.env.NODE_TEST_CONTEXT) {
   save({ accountId: process.env.CLOUDFLARE_ACCOUNT_ID });
-  console.log(`Saved Cloudflare account ${process.env.CLOUDFLARE_ACCOUNT_ID} to .cade/cloudflare.json; it needn't be given again.`);
+  console.log(
+    `Saved Cloudflare account ${process.env.CLOUDFLARE_ACCOUNT_ID} to .cade/cloudflare.json; it needn't be given again.`,
+  );
 }

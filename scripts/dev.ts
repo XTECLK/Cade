@@ -13,12 +13,17 @@ import { readConfig } from "./config.ts";
 import { HOME, ROOT } from "./paths.ts";
 import { askHidden } from "./prompt.ts";
 
-
 // The secrets asked for, in order. An optional one can be skipped with Enter;
 // `when` says whether to ask at all, given the answers so far.
 // The secrets npm run dev asks for: a hint and a check of the value, and `when`, if only some
 // settings need it; `optional` ones can be skipped.
-export const SECRETS: { name: string; hint?: string; check?: (value: string) => boolean; when?: (settings: Record<string, string>) => boolean; optional?: boolean }[] = [
+export const SECRETS: {
+  name: string;
+  hint?: string;
+  check?: (value: string) => boolean;
+  when?: (settings: Record<string, string>) => boolean;
+  optional?: boolean;
+}[] = [
   { name: "SLACK_BOT_TOKEN", hint: "xoxb-…", check: (value) => value.startsWith("xoxb-") },
   { name: "SLACK_SIGNING_SECRET" },
 ];
@@ -75,14 +80,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     }
     const config = readConfig(json);
     const secrets = await askSecrets(config);
-    const groups = JSON.parse(config.PROJECTS).map((project) => project.name).join(", ");
+    const groups = JSON.parse(config.PROJECTS)
+      .map((project) => project.name)
+      .join(", ");
     console.log(`Using cade.config.json: ${groups}${config.TIMEZONE ? `; timezone ${config.TIMEZONE}` : ""}`);
 
     // The local database keeps its tasks between runs; this only adds tables
     // from migrations it hasn't had yet.
     const migrated = await new Promise((resolve) => {
-      spawn("npx", ["wrangler", "d1", "migrations", "apply", "DB", "--local"], { cwd: ROOT, stdio: "inherit" })
-        .on("exit", resolve);
+      spawn("npx", ["wrangler", "d1", "migrations", "apply", "DB", "--local"], { cwd: ROOT, stdio: "inherit" }).on(
+        "exit",
+        resolve,
+      );
     });
     if (migrated !== 0) throw new Error("Could not set up the local database.");
 

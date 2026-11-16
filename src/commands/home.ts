@@ -1,5 +1,16 @@
 import { setHomeProject, setSuggestions } from "../db.ts";
-import { CLAIM_ACTION, CONFIGURE, CONFIGURE_ACTION, HOME_ACTION, PERSON_ACTION, PROJECT_ACTION, REFRESH_ACTION, SUGGESTIONS_ACTION, TABS, publishHome } from "../home.ts";
+import {
+  CLAIM_ACTION,
+  CONFIGURE,
+  CONFIGURE_ACTION,
+  HOME_ACTION,
+  PERSON_ACTION,
+  PROJECT_ACTION,
+  REFRESH_ACTION,
+  SUGGESTIONS_ACTION,
+  TABS,
+  publishHome,
+} from "../home.ts";
 import { SUGGESTIONS_BUTTON, readPayload, type SuggestionsButton } from "../payloads.ts";
 import { loadTask } from "../tasks.ts";
 import { changeTask } from "./changes.ts";

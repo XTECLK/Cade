@@ -34,16 +34,18 @@ function build(dir, out) {
 // The code with what can't change what it does taken out, a statement or block per line, so
 // a difference shows where it is.
 export function normalize(code) {
-  return code
-    .split("\n")
-    .filter((line) => !/sourceMappingURL|^\s*"use strict";\s*$|^\s*\/\//.test(line))
-    .join("\n")
-    // A dependency named by its path on disk, as the build at the ref, through a link, names it.
-    .replace(/(?:\.\.\/)+[^"\s]*?\/node_modules\//g, "node_modules/")
-    .replace(/\.(ts|js)\b/g, ".X")
-    .replace(/\b([A-Za-z_$]+?)\d+\b/g, "$1N")
-    .replace(/\s+/g, "")
-    .replace(/([;{}])/g, "$1\n");
+  return (
+    code
+      .split("\n")
+      .filter((line) => !/sourceMappingURL|^\s*"use strict";\s*$|^\s*\/\//.test(line))
+      .join("\n")
+      // A dependency named by its path on disk, as the build at the ref, through a link, names it.
+      .replace(/(?:\.\.\/)+[^"\s]*?\/node_modules\//g, "node_modules/")
+      .replace(/\.(ts|js)\b/g, ".X")
+      .replace(/\b([A-Za-z_$]+?)\d+\b/g, "$1N")
+      .replace(/\s+/g, "")
+      .replace(/([;{}])/g, "$1\n")
+  );
 }
 
 export function main(ref = "HEAD") {
@@ -62,8 +64,18 @@ export function main(ref = "HEAD") {
     const nowLines = now.split("\n");
     const first = wasLines.findIndex((line, i) => line !== nowLines[i]);
     console.log(`The Worker's code differs from ${ref}; the first difference, statement by statement:`);
-    console.log(wasLines.slice(first, first + 5).map((line) => `- ${line}`).join("\n"));
-    console.log(nowLines.slice(first, first + 5).map((line) => `+ ${line}`).join("\n"));
+    console.log(
+      wasLines
+        .slice(first, first + 5)
+        .map((line) => `- ${line}`)
+        .join("\n"),
+    );
+    console.log(
+      nowLines
+        .slice(first, first + 5)
+        .map((line) => `+ ${line}`)
+        .join("\n"),
+    );
     return 1;
   } finally {
     spawnSync("git", ["worktree", "remove", "--force", before], { cwd: ROOT });

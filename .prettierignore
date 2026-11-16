@@ -1,0 +1,3 @@
+# Written by `npm run docs` and `npm run types`: a test compares src/mcp-args.ts with what docs.ts makes.
+src/mcp-args.ts
+worker-configuration.d.ts

@@ -9,9 +9,22 @@ export type SettingChoice = "config" | "on" | "off";
 // A project's name and channel stay as they were set, and the AI model is `aiModel` in cade.config.json. A setting changed on the page
 // is kept in the database and wins over the config until it's put back (project_settings).
 export const SETTINGS: { key: SettingKey; label: string; about: string }[] = [
-  { key: "taskChangeDetection", label: "Task change detection", about: "Cade reads messages in task threads with AI, links pasted PRs, and offers, privately, to assign someone, move the status or mark it blocked." },
-  { key: "newTaskDetection", label: "New task detection", about: "Cade asks where a message posted on its own in the channel belongs." },
-  { key: "summaryCanvas", label: "Summary canvas", about: "The channel's canvas holds a table of its tasks, kept up to date." },
+  {
+    key: "taskChangeDetection",
+    label: "Task change detection",
+    about:
+      "Cade reads messages in task threads with AI, links pasted PRs, and offers, privately, to assign someone, move the status or mark it blocked.",
+  },
+  {
+    key: "newTaskDetection",
+    label: "New task detection",
+    about: "Cade asks where a message posted on its own in the channel belongs.",
+  },
+  {
+    key: "summaryCanvas",
+    label: "Summary canvas",
+    about: "The channel's canvas holds a table of its tasks, kept up to date.",
+  },
 ];
 
 // What a project keeps in the database. Who works on a project isn't kept: it is whoever is in its
@@ -28,9 +41,16 @@ export async function withSettings(env: AppEnv): Promise<AppEnv> {
     const keys = STORED;
     const configured = projects(env);
     const known = new Set(configured.map((project) => project.channel));
-    const merged = [...configured, ...added.filter((project) => !known.has(project.channel)).map((project) => ({ ...project, added: true }))].map((project) => ({
+    const merged = [
+      ...configured,
+      ...added.filter((project) => !known.has(project.channel)).map((project) => ({ ...project, added: true })),
+    ].map((project) => ({
       ...project,
-      ...Object.fromEntries(rows.filter((row) => row.channel === project.channel && keys.includes(row.key)).map((row) => [row.key, JSON.parse(row.value)])),
+      ...Object.fromEntries(
+        rows
+          .filter((row) => row.channel === project.channel && keys.includes(row.key))
+          .map((row) => [row.key, JSON.parse(row.value)]),
+      ),
     }));
     return { ...env, PROJECTS_BASE: env.PROJECTS, PROJECTS: merged };
   } catch (error) {
@@ -79,17 +99,27 @@ export function settingOn(env: AppEnv, channel: string | undefined, key: Setting
 }
 
 // The env as the config alone has it, without the added projects and the settings changed here.
-export const configEnv = (env: AppEnv): AppEnv => ("PROJECTS_BASE" in env ? { ...env, PROJECTS: env.PROJECTS_BASE } : env);
+export const configEnv = (env: AppEnv): AppEnv =>
+  "PROJECTS_BASE" in env ? { ...env, PROJECTS: env.PROJECTS_BASE } : env;
 
 // The choice made for each setting of the project with `channel` now: "config", "on" or "off".
 export async function choicesOf(env: AppEnv, channel: string): Promise<Record<SettingKey, SettingChoice>> {
-  const kept = new Map((await projectSettings(env)).filter((row) => row.channel === channel).map((row) => [row.key, row.value]));
-  return Object.fromEntries(SETTINGS.map(({ key }) => [key, kept.has(key) ? (JSON.parse(kept.get(key)!) ? "on" : "off") : "config"])) as Record<SettingKey, SettingChoice>;
+  const kept = new Map(
+    (await projectSettings(env)).filter((row) => row.channel === channel).map((row) => [row.key, row.value]),
+  );
+  return Object.fromEntries(
+    SETTINGS.map(({ key }) => [key, kept.has(key) ? (JSON.parse(kept.get(key)!) ? "on" : "off") : "config"]),
+  ) as Record<SettingKey, SettingChoice>;
 }
 
 // Applies `choices` ({ key: "config" | "on" | "off" }) to the project with `channel`, for `user`:
 // "config" goes back to the config. Returns how many settings changed.
-export async function applySettings(env: AppEnv, channel: string, choices: Record<string, string | undefined>, user: string) {
+export async function applySettings(
+  env: AppEnv,
+  channel: string,
+  choices: Record<string, string | undefined>,
+  user: string,
+) {
   const project = projects(env).find((candidate) => candidate.channel === channel);
   if (!project) return 0;
   const before = await choicesOf(env, channel);

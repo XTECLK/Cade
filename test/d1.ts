@@ -11,7 +11,9 @@ export function fakeD1(): D1Database & { reset(): void } {
   const binding = {
     reset() {
       db = new DatabaseSync(":memory:");
-      for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
+      for (const file of readdirSync(MIGRATIONS)
+        .filter((name) => name.endsWith(".sql"))
+        .sort()) {
         db.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
       }
     },

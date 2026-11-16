@@ -19,7 +19,10 @@ const object = (properties: Record<string, Schema>, required: string[] = Object.
 });
 
 // The Events API: url_verification, or event_callback with its event.
-const EVENT_ENVELOPE = object({ type: text, challenge: text, event: object({ type: text }), authorizations: { type: "array" } }, ["type"]);
+const EVENT_ENVELOPE = object(
+  { type: text, challenge: text, event: object({ type: text }), authorizations: { type: "array" } },
+  ["type"],
+);
 const EVENT_CALLBACK = object({ event: object({ type: text }) });
 
 export interface EventEnvelope {
@@ -70,5 +73,3 @@ function check(schema: Schema, value: unknown, what: string) {
   const problem = validate(schema, value);
   if (problem) throw new BadEnvelope(`${what}: ${problem}`);
 }
-
-

@@ -10,7 +10,16 @@ import { NOT_A_TASK, loadTask, openPrs, parsePullRequest, prLink, prState, saveT
 import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Changes, PlainMessage, SlackPayload, StoredTask } from "../types.ts";
-import { OutdatedPayload, PR_LINKED, PR_LIST, PR_SUGGESTION, readPayload, type PrLinked, type PrSuggestion, type TaskRef } from "../payloads.ts";
+import {
+  OutdatedPayload,
+  PR_LINKED,
+  PR_LIST,
+  PR_SUGGESTION,
+  readPayload,
+  type PrLinked,
+  type PrSuggestion,
+  type TaskRef,
+} from "../payloads.ts";
 
 const REVIEWERS_ACTION = "pr:reviewers";
 const SUGGEST_LINK_ACTION = "pr:suggest-link";
@@ -75,7 +84,8 @@ export default {
       // The task card counts it, so a ✅ says it was linked; the reviewers
       // are still asked, or whoever sent it to assign one.
       const parts = await changeTask(env, where, { prs: { add: added } }, command.user);
-      if (task.status === "IN_REVIEW" && !task.people.reviewer.length) await askForPerson(env, where.channel, where.ts, "reviewer", command.user);
+      if (task.status === "IN_REVIEW" && !task.people.reviewer.length)
+        await askForPerson(env, where.channel, where.ts, "reviewer", command.user);
       return acknowledged(parts);
     }
 
@@ -138,14 +148,23 @@ async function addPullRequests(env: AppEnv, channel: string, ts: string, task: S
 // privately first (see noteLinked), and what else the message means, who reviews them included, is
 // suggested after that and notifies as any change does. Off with pr-links. Returns the `posted` message
 // too, so Unlink on the note can take it back (see unlinkPasted).
-export async function linkPasted(env: AppEnv, message: PlainMessage, target: TaskRef, task: StoredTask): Promise<{ urls: string[]; posted?: string }> {
+export async function linkPasted(
+  env: AppEnv,
+  message: PlainMessage,
+  target: TaskRef,
+  task: StoredTask,
+): Promise<{ urls: string[]; posted?: string }> {
   if (!suggesting(env, "pr-links", message.channel)) return { urls: [] };
   const urls = pullRequestsIn(message.text).filter((url) => !task.prs.includes(url));
   if (!urls.length) return { urls: [] };
   const change = await changeTask(env, target, { prs: { add: urls } }, message.user, { told: message.mentions });
   if (!change?.prs) return { urls: [] };
   const added = change.prs.added;
-  const { ts } = await callSlack(env, "chat.postMessage", { channel: target.channel, thread_ts: target.ts, text: autoLinked(added) });
+  const { ts } = await callSlack(env, "chat.postMessage", {
+    channel: target.channel,
+    thread_ts: target.ts,
+    text: autoLinked(added),
+  });
   return { urls: added, posted: ts };
 }
 
@@ -153,9 +172,21 @@ export async function linkPasted(env: AppEnv, message: PlainMessage, target: Tas
 // one pasted only to point at. Either, clicked, turns the note into the question about `changes`, what
 // else the message means (see afterNote), or removes it when there are none; once it's gone, the card's
 // Pull requests button takes one off (see prs.ts).
-export async function noteLinked(env: AppEnv, message: PlainMessage, { target, task }: { target: TaskRef; task: StoredTask }, { urls, posted }: { urls: string[]; posted?: string }, changes: Changes | null) {
+export async function noteLinked(
+  env: AppEnv,
+  message: PlainMessage,
+  { target, task }: { target: TaskRef; task: StoredTask },
+  { urls, posted }: { urls: string[]; posted?: string },
+  changes: Changes | null,
+) {
   const note = `I linked ${urls.map(prLink).join(", ")} to this task from your message.`;
-  const value = JSON.stringify({ ...target, urls, posted, told: message.mentions, ...(changes && { changes, from: task.status }) });
+  const value = JSON.stringify({
+    ...target,
+    urls,
+    posted,
+    told: message.mentions,
+    ...(changes && { changes, from: task.status }),
+  });
   await callSlack(env, "chat.postEphemeral", {
     channel: message.channel,
     thread_ts: message.threadTs,
@@ -179,7 +210,10 @@ export async function noteLinked(env: AppEnv, message: PlainMessage, { target, t
 async function afterNote(env: AppEnv, { channel, ts, changes, from, told }: PrLinked, responseUrl: string) {
   const task = changes && (await loadTask(env, channel, ts));
   if (!changes || !task) return dismiss(responseUrl);
-  await respondLater(responseUrl, { replace_original: true, ...suggestionMessage({ channel, ts }, task, changes, { from, told }) });
+  await respondLater(responseUrl, {
+    replace_original: true,
+    ...suggestionMessage({ channel, ts }, task, changes, { from, told }),
+  });
 }
 
 // OK on a note with nothing to suggest: the pull requests stay, so they're reviewed as any linked
@@ -232,7 +266,13 @@ export function pullRequestsIn(text: string | undefined): string[] {
 // review request for reviewers the message didn't mention (see offerAsk); with no reviewer at all,
 // while it is In review, whoever clicked is asked privately to assign one (see askForPerson).
 async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
-  const { channel, ts, urls = [], mentioned = [], ...fields } = readPayload<PrSuggestion>(PR_SUGGESTION, payload.actions[0].value, "pull request suggestion");
+  const {
+    channel,
+    ts,
+    urls = [],
+    mentioned = [],
+    ...fields
+  } = readPayload<PrSuggestion>(PR_SUGGESTION, payload.actions[0].value, "pull request suggestion");
   // Reviewers chosen on the question's picker, when it had one.
   const picked = payload.state?.values?.[SUGGEST_REVIEWERS_BLOCK]?.[SUGGEST_REVIEWERS_ACTION]?.selected_users;
   const reviewers = picked ?? fields.reviewers ?? [];
@@ -249,8 +289,10 @@ async function acceptSuggestion(payload: SlackPayload, env: AppEnv) {
     // Not those the message mentioned, nor whoever wrote it.
     const unasked = toAsk(task.people.reviewer, user, Object.fromEntries(mentioned.map((id: string) => [id, null])));
     // They are asked while it is In review; otherwise when it gets there.
-    if (linked && unasked.length && onTheirPlate(task, "reviewer")) lines.push(request(unasked, "reviewer", linked.added));
-    if (linked && !task.people.reviewer.length && task.status === "IN_REVIEW") await askForPerson(env, channel, ts, "reviewer", user);
+    if (linked && unasked.length && onTheirPlate(task, "reviewer"))
+      lines.push(request(unasked, "reviewer", linked.added));
+    if (linked && !task.people.reviewer.length && task.status === "IN_REVIEW")
+      await askForPerson(env, channel, ts, "reviewer", user);
   }
   await offerAsk(env, { channel, ts }, user, lines);
   // An ephemeral message can only be changed through its response_url.
@@ -290,7 +332,11 @@ async function chooseReviewers(payload: SlackPayload, env: AppEnv) {
   const others = chosen.filter((id) => id !== payload.user.id);
   // Asked while it is In review; otherwise when it gets there.
   const asked = others.length && onTheirPlate(task, "reviewer") ? [request(others, "reviewer", urls)] : [];
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: await unmentioned(env, assigned(payload.user.id, chosen, "reviewer")) });
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: ts,
+    text: await unmentioned(env, assigned(payload.user.id, chosen, "reviewer")),
+  });
   await offerAsk(env, { channel, ts }, payload.user.id, asked);
 }
 

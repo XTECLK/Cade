@@ -24,9 +24,7 @@ export function parseMessage(event: SlackEvent, botUserId: string): Command | nu
   const input = (match[2] ?? "").trim();
   const [name = ""] = input.split(/\s+/, 1);
   const text = input.slice(name.length).trim();
-  const mentions = [
-    ...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id!)),
-  ].filter((id) => id !== botUserId);
+  const mentions = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id!))].filter((id) => id !== botUserId);
 
   return {
     name: name.toLowerCase(),

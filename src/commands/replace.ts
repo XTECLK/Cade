@@ -49,10 +49,18 @@ async function replace(env: AppEnv, { channel, ts }: { channel: string; ts: stri
   try {
     // The blocks are replaced too, or Slack would keep showing the old ones,
     // and so are any attachments, such as a card's coloured strip.
-    await callSlack(env, "chat.update", { channel, ts, text, blocks: [{ type: "section", text: mrkdwn(text) }], attachments: [] });
+    await callSlack(env, "chat.update", {
+      channel,
+      ts,
+      text,
+      blocks: [{ type: "section", text: mrkdwn(text) }],
+      attachments: [],
+    });
   } catch (error) {
-    if (/cant_update_message|edit_window_closed/.test(error.message)) return "I can only change my own messages, so that one stays as it is.";
-    if (/message_not_found|channel_not_found/.test(error.message)) return "I couldn't find that message. Use Copy link on it, in a channel I'm in.";
+    if (/cant_update_message|edit_window_closed/.test(error.message))
+      return "I can only change my own messages, so that one stays as it is.";
+    if (/message_not_found|channel_not_found/.test(error.message))
+      return "I couldn't find that message. Use Copy link on it, in a channel I'm in.";
     throw error;
   }
   console.log("Message replaced", { ts, user });

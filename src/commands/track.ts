@@ -29,7 +29,13 @@ type Origin = TrackOrigin;
 // What a form starts with: as TrackOrigin, but the project may be left for the person to choose.
 export type FormOrigin = Omit<TrackOrigin, "channel"> & { channel?: string };
 // A task stored but not yet posted (see unpostedTasks).
-type Unposted = { id: number; channel: string; task: Task; origin: { move?: { channel: string; ts: string } }; attempts: number };
+type Unposted = {
+  id: number;
+  channel: string;
+  task: Task;
+  origin: { move?: { channel: string; ts: string } };
+  attempts: number;
+};
 
 const TRACK_VIEW = "track";
 const INCIDENT_VIEW = "incident";
@@ -56,7 +62,10 @@ export default {
   section: "message",
   run: (command, { env }) => fromThread(env, command, "task"),
   async slash(command, { env }) {
-    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: trackView(env, { channel: knownProject(env, command.channel) }) });
+    await callSlack(env, "views.open", {
+      trigger_id: command.triggerId,
+      view: trackView(env, { channel: knownProject(env, command.channel) }),
+    });
   },
   views: { [TRACK_VIEW]: submit },
 } satisfies Handler;
@@ -69,7 +78,10 @@ export const incident = {
   section: "message",
   run: (command, { env }) => fromThread(env, command, "incident"),
   async slash(command, { env }) {
-    await callSlack(env, "views.open", { trigger_id: command.triggerId, view: incidentView(env, { channel: knownProject(env, command.channel) }) });
+    await callSlack(env, "views.open", {
+      trigger_id: command.triggerId,
+      view: incidentView(env, { channel: knownProject(env, command.channel) }),
+    });
   },
   views: { [INCIDENT_VIEW]: submitIncident },
 } satisfies Handler;
@@ -118,7 +130,12 @@ export function incidentView(env: AppEnv, origin: FormOrigin) {
       ...taskFormBlocks("What's the incident?", origin, { details: false }),
       {
         type: "context",
-        elements: [{ type: "mrkdwn", text: "Incidents are :red_circle: Urgent and due Immediate. I'll pass this straight to the team." }],
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "Incidents are :red_circle: Urgent and due Immediate. I'll pass this straight to the team.",
+          },
+        ],
       },
     ],
   };
@@ -146,7 +163,15 @@ function submit(payload: SlackPayload, context: Context) {
   const { origin, errors: noProject } = readOrigin(payload);
   if (errors || noProject) return { response_action: "errors", errors: { ...noProject, ...errors } };
 
-  const task: Task = { title, priority: priority!, status: "TODO", dueDate, ...(bug && { bug }), people: noPeople(), createdBy: payload.user.id };
+  const task: Task = {
+    title,
+    priority: priority!,
+    status: "TODO",
+    dueDate,
+    ...(bug && { bug }),
+    people: noPeople(),
+    createdBy: payload.user.id,
+  };
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
@@ -156,7 +181,14 @@ function submitIncident(payload: SlackPayload, context: Context) {
   const { origin, errors: noProject } = readOrigin(payload);
   if (errors || noProject) return { response_action: "errors", errors: { ...noProject, ...errors } };
 
-  const task: Task = { title, status: "TODO", ...INCIDENT, incident: true, people: noPeople(), createdBy: payload.user.id };
+  const task: Task = {
+    title,
+    status: "TODO",
+    ...INCIDENT,
+    incident: true,
+    people: noPeople(),
+    createdBy: payload.user.id,
+  };
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
@@ -175,7 +207,10 @@ export async function createTask(env: AppEnv, task: Task, origin: Origin) {
 // message it was made from into its thread, and
 // returns its ts. If Slack refuses the post, the task waits for the next
 // retry, and whoever made it is told, the first time and when Cade gives up.
-export async function publishTask(env: AppEnv, { id, channel, task, origin, attempts }: Unposted): Promise<string | undefined> {
+export async function publishTask(
+  env: AppEnv,
+  { id, channel, task, origin, attempts }: Unposted,
+): Promise<string | undefined> {
   let message: SlackAnswers["chat.postMessage"];
   try {
     message = await callSlack(env, "chat.postMessage", { channel, ...taskMessage(task) });
@@ -183,9 +218,10 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
     const tried = await countPostAttempt(env, id);
     console.warn("Could not post the task", { id, attempts: tried, error: error.message });
     if (attempts === 0 || tried >= POST_ATTEMPTS) {
-      const text = tried >= POST_ATTEMPTS
-        ? `Sorry, I couldn't create the task "${escapeSlack(task.title)}", even after a few tries.`
-        : `Sorry, I couldn't post the task "${escapeSlack(task.title)}" just now. I'll try again in a few minutes.`;
+      const text =
+        tried >= POST_ATTEMPTS
+          ? `Sorry, I couldn't create the task "${escapeSlack(task.title)}", even after a few tries.`
+          : `Sorry, I couldn't post the task "${escapeSlack(task.title)}" just now. I'll try again in a few minutes.`;
       await callSlack(env, "chat.postEphemeral", { channel, user: task.createdBy, text }).catch(() => {});
     }
     return;
@@ -228,7 +264,11 @@ export async function publishTask(env: AppEnv, { id, channel, task, origin, atte
 // link to the subtask's own thread. Both are conveniences, so a failure is only logged.
 async function announceSubtask(env: AppEnv, channel: string, task: Task) {
   await redrawParent(env, channel, task);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: task.parent!.ts, text: await unmentioned(env, subtaskAdded(task.createdBy, task)) }).catch((error) => {
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: task.parent!.ts,
+    text: await unmentioned(env, subtaskAdded(task.createdBy, task)),
+  }).catch((error) => {
     console.warn("Could not tell the parent's thread about its subtask", { ts: task.parent!.ts, error: error.message });
   });
 }

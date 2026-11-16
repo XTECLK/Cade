@@ -18,11 +18,15 @@ type Entry = { type: string; name: string; tbl_name: string; sql: string };
 // and triggers, tables in name order.
 export function currentSchema() {
   const db = new DatabaseSync(":memory:");
-  const files = readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort();
+  const files = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
   for (const file of files) db.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
   // Indexes SQLite makes itself (for a PRIMARY KEY or UNIQUE) have no SQL, and come with their table.
   const entries = db
-    .prepare("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, type = 'table' DESC, name")
+    .prepare(
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, type = 'table' DESC, name",
+    )
     .all() as Entry[];
   db.close();
   const blocks = entries.map((entry) => `${entry.type === "table" ? "\n" : ""}${entry.sql.trim()};`);

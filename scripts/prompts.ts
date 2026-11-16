@@ -67,7 +67,13 @@ export function parsePrompt(name: string, source: string): Prompt {
       if (!arg) throw wrong(`"${line.trim()}" isn't an argument (name: what it is)`);
       return { name: arg[1]!, description: arg[3]!.trim(), required: !arg[2] };
     });
-  return { name, title: title.trim(), description, arguments: argumentList, text: `# ${title.trim()}\n\n${body.trim()}\n` };
+  return {
+    name,
+    title: title.trim(),
+    description,
+    arguments: argumentList,
+    text: `# ${title.trim()}\n\n${body.trim()}\n`,
+  };
 }
 
 // Every name a tool has: the tools', and every property of their arguments and results, at any depth.
@@ -88,9 +94,15 @@ for (const tool of TOOL_DEFS) {
 // name (**task-summary** prompt) that isn't one of them.
 export function promptProblems(prompts: Prompt[]) {
   return prompts.flatMap(({ name, text }) => {
-    const named = [...text.matchAll(/`([a-z_.]+)/g)].flatMap(([, code]) => code!.split(".")).filter((part) => part.includes("_"));
-    const tools = [...new Set(named)].filter((part) => !KNOWN.has(part)).map((part) => `${name}: names ${part}, which no tool of this Cade has`);
-    const others = [...text.matchAll(/\*\*([a-z0-9-]+)\*\* prompt/g)].map(([, other]) => other!).filter((other) => !prompts.some((prompt) => prompt.name === other));
+    const named = [...text.matchAll(/`([a-z_.]+)/g)]
+      .flatMap(([, code]) => code!.split("."))
+      .filter((part) => part.includes("_"));
+    const tools = [...new Set(named)]
+      .filter((part) => !KNOWN.has(part))
+      .map((part) => `${name}: names ${part}, which no tool of this Cade has`);
+    const others = [...text.matchAll(/\*\*([a-z0-9-]+)\*\* prompt/g)]
+      .map(([, other]) => other!)
+      .filter((other) => !prompts.some((prompt) => prompt.name === other));
     return [...tools, ...others.map((other) => `${name}: names the prompt ${other}, which isn't in prompts/`)];
   });
 }
@@ -105,7 +117,16 @@ const quote = (text: string) => `'${text.replace(/'/g, "''")}'`;
 export function promptsSql(prompts: Prompt[]) {
   const keep = prompts.map((prompt) => quote(prompt.name)).join(", ");
   const rows = prompts.map((prompt) => {
-    const values = [prompt.name, prompt.title, prompt.description, JSON.stringify(prompt.arguments), prompt.text, hashOf(prompt)].map(quote).join(", ");
+    const values = [
+      prompt.name,
+      prompt.title,
+      prompt.description,
+      JSON.stringify(prompt.arguments),
+      prompt.text,
+      hashOf(prompt),
+    ]
+      .map(quote)
+      .join(", ");
     return `INSERT INTO prompts (name, title, description, arguments, text, hash) VALUES (${values})
   ON CONFLICT (name) DO UPDATE SET title = excluded.title, description = excluded.description, arguments = excluded.arguments,
   text = excluded.text, hash = excluded.hash, updated_at = CURRENT_TIMESTAMP WHERE prompts.hash <> excluded.hash;`;
@@ -120,13 +141,18 @@ export async function savePrompts({ local = false, check = false } = {}) {
   }
   const prompts = readPrompts();
   const problems = promptProblems(prompts);
-  if (problems.length) throw new Error(`The prompts don't match this version of Cade's tools; nothing was saved.\n${problems.map((line) => `  ${line}`).join("\n")}`);
+  if (problems.length)
+    throw new Error(
+      `The prompts don't match this version of Cade's tools; nothing was saved.\n${problems.map((line) => `  ${line}`).join("\n")}`,
+    );
   for (const prompt of prompts) {
     const args = prompt.arguments.map((arg) => (arg.required ? arg.name : `${arg.name}?`)).join(", ");
     console.log(`${prompt.name}${args ? ` (${args})` : ""}: ${prompt.title}`);
   }
   if (check) {
-    console.log(`The ${prompts.length} prompt${prompts.length === 1 ? "" : "s"} in prompts/ match this version of Cade's tools.`);
+    console.log(
+      `The ${prompts.length} prompt${prompts.length === 1 ? "" : "s"} in prompts/ match this version of Cade's tools.`,
+    );
     return;
   }
   if (!prompts.length) console.log("prompts/ has no prompts: the database's are removed.");
@@ -137,13 +163,18 @@ export async function savePrompts({ local = false, check = false } = {}) {
     const file = join(dir, "prompts.sql");
     await writeFile(file, promptsSql(prompts));
     const code = await new Promise((resolve) => {
-      spawn("node", ["scripts/wrangler.ts", "d1", "execute", "DB", local ? "--local" : "--remote", "--file", file], { cwd: ROOT, stdio: "inherit" }).on("exit", resolve);
+      spawn("node", ["scripts/wrangler.ts", "d1", "execute", "DB", local ? "--local" : "--remote", "--file", file], {
+        cwd: ROOT,
+        stdio: "inherit",
+      }).on("exit", resolve);
     });
     if (code !== 0) throw new Error("Saving the prompts failed (wrangler d1 execute).");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  console.log(`Saved ${prompts.length} prompt${prompts.length === 1 ? "" : "s"}. Agents connected now are told to reconnect to load them.`);
+  console.log(
+    `Saved ${prompts.length} prompt${prompts.length === 1 ? "" : "s"}. Agents connected now are told to reconnect to load them.`,
+  );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

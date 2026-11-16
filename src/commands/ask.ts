@@ -24,7 +24,13 @@ const MAX_MESSAGE = 3000;
 // Shows `user` the draft of `lines` about the task at `task`, privately. In the task's thread, unless
 // `at` says where they are instead, such as the channel of `/cade standup`: then it links the task, by
 // `at.link`, its root message's.
-export async function offerAsk(env: AppEnv, task: TaskRef, user: string, lines: string[], at?: { channel: string; threadTs?: string; link?: string }) {
+export async function offerAsk(
+  env: AppEnv,
+  task: TaskRef,
+  user: string,
+  lines: string[],
+  at?: { channel: string; threadTs?: string; link?: string },
+) {
   if (!lines.length) return;
   const text = lines.join("\n");
   const link = at && at.threadTs !== task.ts ? at.link : "";
@@ -51,7 +57,10 @@ export async function offerAsk(env: AppEnv, task: TaskRef, user: string, lines: 
 }
 
 function quoted(text: string) {
-  return text.split("\n").map((line) => `> ${line}`).join("\n");
+  return text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
 }
 
 // Posts `text` in the task's thread for `user`: Cade posts it, so it says whose it is.
@@ -85,7 +94,9 @@ function editForm({ channel, ts, text }: AskButton, responseUrl: string) {
 export function toRichText(text: string): RichText {
   const elements: RichText[] = [];
   let last = 0;
-  for (const match of text.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>|<(https?:\/\/[^|>]+)(?:\|([^>]*))?>|\*([^*\n]+)\*/g)) {
+  for (const match of text.matchAll(
+    /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>|<(https?:\/\/[^|>]+)(?:\|([^>]*))?>|\*([^*\n]+)\*/g,
+  )) {
     if (match.index > last) elements.push({ type: "text", text: unescape(text.slice(last, match.index)) });
     const [, user, url, label, bold] = match;
     if (user) elements.push({ type: "user", user_id: user });
@@ -111,14 +122,18 @@ export function fromRichText(value: RichText | undefined): string {
     if (block.type === "rich_text_preformatted") return `\`\`\`${inline(block)}\`\`\``;
     return inline(block);
   });
-  return blocks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return blocks
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function element(part: RichText): string {
   switch (part.type) {
     case "text": {
       const style = part.style ?? {};
-      const mark = (style.code ? "`" : "") + (style.bold ? "*" : "") + (style.italic ? "_" : "") + (style.strike ? "~" : "");
+      const mark =
+        (style.code ? "`" : "") + (style.bold ? "*" : "") + (style.italic ? "_" : "") + (style.strike ? "~" : "");
       const text = escapeSlack(part.text ?? "");
       // Marks go around the words, not the spaces at either end, or Slack won't show them.
       const [, before = "", words = "", after = ""] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text) ?? [];
@@ -146,7 +161,8 @@ function sendEdited(payload: SlackPayload, context: Context) {
   const { channel, ts, responseUrl } = readPayload<AskForm>(ASK_FORM, payload.view.private_metadata, "ask's Edit form");
   const text = fromRichText(payload.view.state.values[MESSAGE_BLOCK]?.value.rich_text_value);
   if (!text) return { response_action: "errors", errors: { [MESSAGE_BLOCK]: "Write the message, or cancel." } };
-  if (text.length > MAX_MESSAGE) return { response_action: "errors", errors: { [MESSAGE_BLOCK]: `Keep it to ${MAX_MESSAGE} characters or fewer.` } };
+  if (text.length > MAX_MESSAGE)
+    return { response_action: "errors", errors: { [MESSAGE_BLOCK]: `Keep it to ${MAX_MESSAGE} characters or fewer.` } };
   context.waitUntil(
     (async () => {
       await sendAsk(context.env, { channel, ts }, payload.user.id, text);
@@ -156,7 +172,8 @@ function sendEdited(payload: SlackPayload, context: Context) {
   return CLOSE_ALL;
 }
 
-const draftOf = (payload: SlackPayload, what: string) => readPayload<AskButton>(ASK_BUTTON, payload.actions[0].value, what);
+const draftOf = (payload: SlackPayload, what: string) =>
+  readPayload<AskButton>(ASK_BUTTON, payload.actions[0].value, what);
 
 export default {
   actions: {
@@ -172,7 +189,10 @@ export default {
     // Opening a form must happen within Slack's three seconds of the click.
     [EDIT_ACTION]: async (payload, { env }) => {
       const draft = draftOf(payload, "ask's Edit button");
-      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: editForm(draft, payload.response_url) });
+      await callSlack(env, "views.open", {
+        trigger_id: payload.trigger_id,
+        view: editForm(draft, payload.response_url),
+      });
     },
     [SKIP_ACTION]: async (payload) => {
       await respondLater(payload.response_url, { delete_original: true });

@@ -38,8 +38,11 @@ const ACTS = {
     file: "act-1-message-to-task",
     async run(c, { channels, leadDm }) {
       // 1. The client asks, in their channel.
-      await c.say("sarah", channels.client,
-        "Can guests pay a deposit when they book, instead of the full amount upfront? We'd like 20% at booking and the rest 7 days before check-in.");
+      await c.say(
+        "sarah",
+        channels.client,
+        "Can guests pay a deposit when they book, instead of the full amount upfront? We'd like 20% at booking and the rest 7 days before check-in.",
+      );
       // You: ⋯ → Connect to apps → New task, then the form (one group, so no Project picker).
       await c.messageAction("randil", channels.client, "Can guests pay a deposit", /^New task/);
       await c.newTask("randil", { title: DEPOSIT, priority: "High" });
@@ -187,7 +190,11 @@ const ACTS = {
     file: "act-5-teams-own-work",
     async run(c, { channels: { dev } }) {
       // 17. A dev message becomes a task.
-      await c.say("rex", dev, "Staging DB is running out of disk again — we should add log rotation before the release.");
+      await c.say(
+        "rex",
+        dev,
+        "Staging DB is running out of disk again — we should add log rotation before the release.",
+      );
       await c.prompt("rex", "New task", { wait: 40000 });
       await c.newTask("rex", { title: LOG_ROTATION, priority: "Medium" });
       // 18. Move to an existing task.
@@ -216,8 +223,14 @@ const ACTS = {
       await c.cardMenu("randil", dev, LOG_ROTATION, "Archive");
       await pause(4000);
       await attempt("/cade remove", async () => {
-        const ts = await c.card(page, LOG_ROTATION).evaluate((el) =>
-          (el.closest('[id^="message-list_"]') ?? el.querySelector('[id^="message-list_"]')).id.replace("message-list_", ""));
+        const ts = await c
+          .card(page, LOG_ROTATION)
+          .evaluate((el) =>
+            (el.closest('[id^="message-list_"]') ?? el.querySelector('[id^="message-list_"]')).id.replace(
+              "message-list_",
+              "",
+            ),
+          );
         await c.slash("randil", dev, `/cade remove https://app.slack.com/archives/${dev}/p${ts.replace(".", "")}`);
         await c.click("randil", /delete task/i);
         await pause(1500);
@@ -281,10 +294,31 @@ for (const n of acts) {
   for (const [key, raw] of Object.entries(videos)) {
     const base = key === "randil" ? act.file : `${act.file}-${key}`;
     const mp4 = `${OUT}${base}.mp4`;
-    execFileSync("ffmpeg", ["-y", "-i", String(raw), "-vf", "scale=1600:-2", "-c:v", "libx264", "-crf", "26",
-      "-preset", "slow", "-an", "-movflags", "+faststart", mp4], { stdio: "inherit" });
+    execFileSync(
+      "ffmpeg",
+      [
+        "-y",
+        "-i",
+        String(raw),
+        "-vf",
+        "scale=1600:-2",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "26",
+        "-preset",
+        "slow",
+        "-an",
+        "-movflags",
+        "+faststart",
+        mp4,
+      ],
+      { stdio: "inherit" },
+    );
     if (key === "randil") {
-      execFileSync("ffmpeg", ["-y", "-sseof", "-3", "-i", mp4, "-frames:v", "1", `${OUT}${base}.jpg`], { stdio: "inherit" });
+      execFileSync("ffmpeg", ["-y", "-sseof", "-3", "-i", mp4, "-frames:v", "1", `${OUT}${base}.jpg`], {
+        stdio: "inherit",
+      });
     }
     console.log(`Wrote ${mp4}`);
   }

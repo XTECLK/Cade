@@ -36,7 +36,8 @@ export async function handleWeb(request: Request, env: AppEnv) {
 
   if (kind === "login" && parts.length === 2) return signIn(request, env, parts[1]!);
   if (kind === "logout" && parts.length === 1) return signOut(request, env);
-  if (kind !== "t" || parts.length !== 3 || !CHANNEL.test(channel) || !TS.test(ts)) return page(404, "Not found", "<p>There's no page here.</p>");
+  if (kind !== "t" || parts.length !== 3 || !CHANNEL.test(channel) || !TS.test(ts))
+    return page(404, "Not found", "<p>There's no page here.</p>");
 
   const user = await currentUser(request, env);
   if (!user) return page(401, "Sign in", SIGN_IN);
@@ -55,7 +56,8 @@ async function currentUser(request: Request, env: AppEnv) {
   return cookie ? await webTokenUser(env, await hashToken(cookie), "session") : null;
 }
 
-const SIGN_IN = "<p>In Slack, open Cade's Home tab, press <b>Web pages</b>, then <b>Get a sign-in link</b>. The link signs you in here for thirty days; then open this page again.</p>";
+const SIGN_IN =
+  "<p>In Slack, open Cade's Home tab, press <b>Web pages</b>, then <b>Get a sign-in link</b>. The link signs you in here for thirty days; then open this page again.</p>";
 
 function sessionToken(request: Request) {
   for (const part of (request.headers.get("cookie") ?? "").split(";")) {
@@ -68,7 +70,12 @@ function sessionToken(request: Request) {
 async function signIn(request: Request, env: AppEnv, code: string) {
   if (request.method !== "GET") return methodNotAllowed("GET");
   const user = /^[A-Za-z0-9_-]{43}$/.test(code) ? await webTokenUser(env, await hashToken(code), "login") : null;
-  if (!user) return page(401, "Link expired", "<p>This sign-in link was used already or has expired. In Slack, open Cade's Home tab and press <b>Web pages</b> for a new one.</p>");
+  if (!user)
+    return page(
+      401,
+      "Link expired",
+      "<p>This sign-in link was used already or has expired. In Slack, open Cade's Home tab and press <b>Web pages</b> for a new one.</p>",
+    );
   const session = newToken();
   await putWebToken(env, await hashToken(session), user, "session", SESSION_MINUTES);
   return page(200, "Signed in", "<p>You're signed in for thirty days. Open the task's link in Slack again.</p>", {
@@ -79,7 +86,9 @@ async function signIn(request: Request, env: AppEnv, code: string) {
 async function signOut(request: Request, env: AppEnv) {
   const cookie = sessionToken(request);
   if (cookie) await deleteWebToken(env, await hashToken(cookie));
-  return page(200, "Signed out", "<p>You're signed out.</p>", { "set-cookie": `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax` });
+  return page(200, "Signed out", "<p>You're signed out.</p>", {
+    "set-cookie": `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`,
+  });
 }
 
 async function threadPage(env: AppEnv, channel: string, ts: string, title: string, where: string) {
@@ -89,17 +98,28 @@ async function threadPage(env: AppEnv, channel: string, ts: string, title: strin
     const who = message.user ? names.get(message.user) : (message.username ?? "Someone");
     const when = formatTime(env, new Date(Number(message.ts) * 1000));
     let text = plain(message.text ?? "", names);
-    if (message.files?.length) text += `${text ? "\n" : ""}(attachment: ${message.files.map((file) => file.name).join(", ")})`;
+    if (message.files?.length)
+      text += `${text ? "\n" : ""}(attachment: ${message.files.map((file) => file.name).join(", ")})`;
     return `<article><header><strong>${escapeHtml(who!)}</strong> <time>${escapeHtml(when)}</time></header><p>${escapeHtml(text || "(no text)")}</p></article>`;
   });
-  const body = items.length ? items.join("") : "<p>No messages are stored for this task yet. A workspace admin can send <code>/cade resync</code> with the task's link to read them from Slack.</p>";
-  return page(200, `Thread: ${title}`, `<p class="meta">#${escapeHtml(where)} · ${messages.length} message${messages.length === 1 ? "" : "s"}</p>${body}`);
+  const body = items.length
+    ? items.join("")
+    : "<p>No messages are stored for this task yet. A workspace admin can send <code>/cade resync</code> with the task's link to read them from Slack.</p>";
+  return page(
+    200,
+    `Thread: ${title}`,
+    `<p class="meta">#${escapeHtml(where)} · ${messages.length} message${messages.length === 1 ? "" : "s"}</p>${body}`,
+  );
 }
 
 const methodNotAllowed = (allow: string) => new Response("Method not allowed", { status: 405, headers: { allow } });
 
 export function escapeHtml(value: unknown) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[char]!);
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) =>
+      (({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }) as Record<string, string>)[char]!,
+  );
 }
 
 const STYLE = `
@@ -117,5 +137,13 @@ article p{white-space:pre-wrap;margin:4px 0 0;overflow-wrap:anywhere}
 
 function page(status: number, title: string, content: string, headers: Record<string, string> = {}) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers } });
+  return new Response(html, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      ...headers,
+    },
+  });
 }

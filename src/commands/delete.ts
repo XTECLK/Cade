@@ -5,7 +5,6 @@ import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import { DELETE_BUTTON, readPayload, type DeleteButton } from "../payloads.ts";
 
-
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
 
@@ -82,7 +81,13 @@ const REMOVERS: Record<Kind, (env: AppEnv, channel: string, ts: string, user: st
 async function askLinked(env: AppEnv, link: { channel: string; ts: string; threadTs: string | null }, user: string) {
   const asked = { channel: link.channel, ts: link.ts, user };
   if (link.threadTs) {
-    return confirmation(asked, "message", "should I remove that message?", "", "I'll delete that message, if I posted it.");
+    return confirmation(
+      asked,
+      "message",
+      "should I remove that message?",
+      "",
+      "I'll delete that message, if I posted it.",
+    );
   }
   // The task is read once, so the question is about the task found.
   const task = await getTaskIncludingDeleted(env, link.channel, link.ts);
@@ -95,8 +100,6 @@ async function askLinked(env: AppEnv, link: { channel: string; ts: string; threa
     "I'll delete my replies in that thread, and the message itself if I posted it.",
   );
 }
-
-
 
 // The Delete and Cancel buttons, under `question`, which is put to whoever
 // asked, `asked.user`, about the message at `asked.channel`/`asked.ts`.
@@ -176,7 +179,9 @@ async function deleteThread(env: AppEnv, channel: string, ts: string, user: stri
     else if (!GONE.test(error.message)) throw error;
   });
   console.log("Thread cleared", { ts, user });
-  return mine ? "Done, that message and my replies are gone." : "Done, my replies are gone. The message itself isn't mine, so it stays.";
+  return mine
+    ? "Done, that message and my replies are gone."
+    : "Done, my replies are gone. The message itself isn't mine, so it stays.";
 }
 
 // Deletes a root message, unless it is gone already.

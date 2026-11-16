@@ -74,9 +74,12 @@ const SCHEMA = {
     tester: PEOPLE,
     status: { type: "string", enum: ["", ...Object.keys(STATUSES)] },
     priority: { type: "string", enum: ["", ...Object.keys(PRIORITIES)] },
-    dueDate: { type: "string", description: "YYYY-MM-DD, \"clear\" to remove it, or \"\"" },
+    dueDate: { type: "string", description: 'YYYY-MM-DD, "clear" to remove it, or ""' },
     blocked: { type: "string", enum: ["", "block", "unblock"] },
-    blockedReason: { type: "string", description: "Why it is blocked, in a short phrase, when blocked is \"block\"; otherwise \"\"" },
+    blockedReason: {
+      type: "string",
+      description: 'Why it is blocked, in a short phrase, when blocked is "block"; otherwise ""',
+    },
   },
   required: ["owner", "reviewer", "tester", "status", "priority", "dueDate", "blocked", "blockedReason"],
 };
@@ -159,7 +162,9 @@ export async function readChanges(env: AppEnv, { message, task, today, allowed }
       title: task.title,
       status: task.status,
       // The only statuses it can move to: forward from the current one.
-      nextStatuses: inParts(task) ? laterStatuses(task.status).filter((status) => partsMayMoveTo(task, status)) : laterStatuses(task.status),
+      nextStatuses: inParts(task)
+        ? laterStatuses(task.status).filter((status) => partsMayMoveTo(task, status))
+        : laterStatuses(task.status),
       hasSubtasks: inParts(task),
       priority: task.priority,
       dueDate: task.dueDate || "none",
@@ -193,7 +198,10 @@ export function comingDays(date: string) {
   return Object.fromEntries(
     Array.from({ length: 7 }, (_, i) => {
       const next = new Date(day.getTime() + (i + 1) * 86400000);
-      return [new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(next), next.toISOString().slice(0, 10)];
+      return [
+        new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(next),
+        next.toISOString().slice(0, 10),
+      ];
     }),
   );
 }
@@ -201,7 +209,8 @@ export function comingDays(date: string) {
 // "next Friday", etc: the coming days a week later, as { "next Wednesday": "2026-11-04", …}, plus
 // "in a week" and "in two weeks".
 export function nextWeekDays(date: string) {
-  const shift = (iso: string, days: number) => new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+  const shift = (iso: string, days: number) =>
+    new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
   return {
     ...Object.fromEntries(Object.entries(comingDays(date)).map(([day, iso]) => [`next ${day}`, shift(iso, 7)])),
     "in a week": shift(date, 7),
@@ -250,7 +259,10 @@ function answerOf(result: unknown): ModelAnswer | null {
 //   - a due date must be a real date (YYYY-MM-DD, or "clear"), and differ.
 // `allowed` says which kinds may change: { roles, status, details }, and
 // `roles` which roles; and `author`, false when the author may not be added.
-export function checkChanges(raw: ModelAnswer | null | undefined, { task, message, allowed }: Omit<Read, "today">): Changes | null {
+export function checkChanges(
+  raw: ModelAnswer | null | undefined,
+  { task, message, allowed }: Omit<Read, "today">,
+): Changes | null {
   const changes: Changes = {};
   const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...message.mentions]);
   for (const role of allowed.roles ?? []) {
@@ -260,14 +272,17 @@ export function checkChanges(raw: ModelAnswer | null | undefined, { task, messag
     if (add.length || remove.length) (changes.people ??= {})[role] = { add, remove };
   }
   const status = raw?.status;
-  if (allowed.status && isForward(task.status, status) && statusFits(status, task, message.text ?? "")) changes.status = status;
+  if (allowed.status && isForward(task.status, status) && statusFits(status, task, message.text ?? ""))
+    changes.status = status;
   if (allowed.blocked && !/\?\s*$/.test(message.text ?? "")) {
-    if (raw?.blocked === "block" && !task.blocked) changes.blocked = { on: true, reason: cleanReason(raw.blockedReason) };
+    if (raw?.blocked === "block" && !task.blocked)
+      changes.blocked = { on: true, reason: cleanReason(raw.blockedReason) };
     if (raw?.blocked === "unblock" && task.blocked) changes.blocked = { on: false };
   }
   const priority = raw?.priority;
   // A subtask's priority is its task's, so none is suggested for it.
-  if (allowed.details && !task.parent && isPriority(priority) && priority !== task.priority) changes.priority = priority;
+  if (allowed.details && !task.parent && isPriority(priority) && priority !== task.priority)
+    changes.priority = priority;
   if (allowed.details) {
     const dueDate = raw?.dueDate === "clear" ? "" : isoToDueDate(raw?.dueDate);
     if (dueDate !== null && dueDate !== (task.dueDate ?? "")) changes.dueDate = dueDate;
@@ -284,7 +299,8 @@ const PARTIAL =
 // Words that say the whole task is finished ("we can close this", "all subtasks are done").
 const WHOLE = /\b(clos(e|ed|ing)|all|every(thing|one)?|entire(ly)?|whole|complete(d|ly)?|finished|done)\b/i;
 // "all the subtasks" and the like name every part, so they aren't PARTIAL.
-const EVERY_PART = /\b(all|every|each|both)\s+(of\s+)?(the\s+)?(sub-?tasks?|sub-?items?|parts?|pieces?|phases?|steps?|stages?|milestones?)\b/gi;
+const EVERY_PART =
+  /\b(all|every|each|both)\s+(of\s+)?(the\s+)?(sub-?tasks?|sub-?items?|parts?|pieces?|phases?|steps?|stages?|milestones?)\b/gi;
 
 // Whether a message about parts may move a task done in parts to `status`: to DONE, and from TODO to
 // IN_PROGRESS, as work on any part means the task has begun.

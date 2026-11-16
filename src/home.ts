@@ -31,7 +31,13 @@ type Row = { entry: TaskEntry; subs: TaskEntry[]; context: boolean };
 // after the ones to act on, as Coming up; those past them they have handed
 // over, and are listed once for all roles at the bottom, as Worked on.
 const SECTIONS: Section[] = [
-  { role: "owner", emoji: ":hammer_and_wrench:", title: "To work on", ready: ["TODO", "IN_PROGRESS"], empty: "Nothing to work on." },
+  {
+    role: "owner",
+    emoji: ":hammer_and_wrench:",
+    title: "To work on",
+    ready: ["TODO", "IN_PROGRESS"],
+    empty: "Nothing to work on.",
+  },
   { role: "reviewer", emoji: ":eyes:", title: "To review", ready: ["IN_REVIEW"], empty: "Nothing to review." },
   { role: "tester", emoji: ":test_tube:", title: "To test", ready: ["IN_TESTING"], empty: "Nothing to test." },
 ];
@@ -105,7 +111,12 @@ const LIST_AFTER = 3;
 // The All Tasks view's sections, by where a task (or a subtask without its task open) is: its subtasks
 // are shown under it whatever their own status.
 const STAGES: { emoji: string; title: string; statuses: Status[]; empty: string }[] = [
-  { emoji: ":arrow_forward:", title: "Working on", statuses: ["TODO", "IN_PROGRESS"], empty: "Nothing being worked on." },
+  {
+    emoji: ":arrow_forward:",
+    title: "Working on",
+    statuses: ["TODO", "IN_PROGRESS"],
+    empty: "Nothing being worked on.",
+  },
   { emoji: ":eyes:", title: "In review", statuses: ["IN_REVIEW"], empty: "Nothing in review." },
   { emoji: ":test_tube:", title: "In testing", statuses: ["IN_TESTING"], empty: "Nothing in testing." },
   { emoji: ":raising_hand:", title: "Delivered", statuses: ["CLIENT_REVIEW"], empty: "Nothing delivered." },
@@ -147,8 +158,18 @@ async function draw(env: AppEnv, user: string, tab: string, shown: string, picke
   const navRow: SlackBlock = {
     type: "actions",
     elements: [
-      { type: "button", action_id: HOME_ACTION, text: plainText("Home"), ...(tab !== CONFIGURE && { style: "primary" }) },
-      { type: "button", action_id: CONFIGURE_ACTION, text: plainText("Settings"), ...(tab === CONFIGURE && { style: "primary" }) },
+      {
+        type: "button",
+        action_id: HOME_ACTION,
+        text: plainText("Home"),
+        ...(tab !== CONFIGURE && { style: "primary" }),
+      },
+      {
+        type: "button",
+        action_id: CONFIGURE_ACTION,
+        text: plainText("Settings"),
+        ...(tab === CONFIGURE && { style: "primary" }),
+      },
       { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: shown },
     ],
   };
@@ -156,14 +177,24 @@ async function draw(env: AppEnv, user: string, tab: string, shown: string, picke
   if (tab === CONFIGURE) return await settingsView(env, user, nav, all, yours, pick(all));
   const addProject = { type: "button", action_id: ADD_PROJECT_ACTION, text: plainText("Add project") };
   if (!project) {
-    const none = all.length ? "You aren't in any project's channel yet. Join one to see its tasks here." : "There are no projects yet.";
+    const none = all.length
+      ? "You aren't in any project's channel yet. Join one to see its tasks here."
+      : "There are no projects yet.";
     return {
       type: "home",
-      blocks: [...nav, admin ? { type: "section", text: mrkdwn(none), accessory: addProject } : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] }],
+      blocks: [
+        ...nav,
+        admin
+          ? { type: "section", text: mrkdwn(none), accessory: addProject }
+          : { type: "context", elements: [mrkdwn(`_${none} An admin adds one on this tab._`)] },
+      ],
     };
   }
   // On Home, under the two parts: which project's tasks are shown, and (for an admin) Add project, then the task tabs.
-  const top: SlackBlock[] = [...nav, { type: "actions", elements: [projectPicker(yours, project), ...(admin ? [addProject] : [])] }];
+  const top: SlackBlock[] = [
+    ...nav,
+    { type: "actions", elements: [projectPicker(yours, project), ...(admin ? [addProject] : [])] },
+  ];
   const open = await groupTasks(env, project, OPEN, url);
   const today = todayIn(env);
   const tabRow = {
@@ -183,16 +214,37 @@ async function draw(env: AppEnv, user: string, tab: string, shown: string, picke
 // The By person view: a picker of the project's people, then the `picked` one's tasks as My Tasks shows
 // the viewer's own. With no one picked, or someone not in the channel (as after switching project), it
 // asks for a pick. The people are those in the project's channel but Cade itself, by name.
-async function personView(env: AppEnv, top: SlackBlock[], project: Project, open: TaskEntry[], today: string, viewer: string, bot: string, picked?: string) {
+async function personView(
+  env: AppEnv,
+  top: SlackBlock[],
+  project: Project,
+  open: TaskEntry[],
+  today: string,
+  viewer: string,
+  bot: string,
+  picked?: string,
+) {
   let members: string[];
   try {
     members = (await channelMembers(env, project.channel)).filter((id) => id !== bot);
   } catch (error) {
     console.warn("Could not read the channel's members", { channel: project.channel, error: error.message });
-    return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_I couldn't read who is in the project's channel just now. Press Refresh to try again._")] }] };
+    return {
+      type: "home",
+      blocks: [
+        ...top,
+        {
+          type: "context",
+          elements: [mrkdwn("_I couldn't read who is in the project's channel just now. Press Refresh to try again._")],
+        },
+      ],
+    };
   }
   const names = await nameMap(env, members);
-  const people = members.map((id) => ({ id, name: names.get(id) ?? id })).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
+  const people = members
+    .map((id) => ({ id, name: names.get(id) ?? id }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 100);
   const person = people.find(({ id }) => id === picked);
   const options = people.map(({ id, name }) => ({ text: plainText(name.slice(0, 75)), value: id }));
   const picker: SlackBlock = {
@@ -207,14 +259,38 @@ async function personView(env: AppEnv, top: SlackBlock[], project: Project, open
       },
     ],
   };
-  if (!people.length) return { type: "home", blocks: [...top, { type: "context", elements: [mrkdwn("_No one is in the project's channel yet._")] }] };
-  if (!person) return { type: "home", blocks: [...top, picker, { type: "context", elements: [mrkdwn("_Pick a team member to see their tasks._")] }] };
-  return tasksOf(env, [...top, picker], open, today, person.id, viewer, person.id === viewer ? "Your tasks" : `${person.name}'s tasks`.slice(0, 150));
+  if (!people.length)
+    return {
+      type: "home",
+      blocks: [...top, { type: "context", elements: [mrkdwn("_No one is in the project's channel yet._")] }],
+    };
+  if (!person)
+    return {
+      type: "home",
+      blocks: [...top, picker, { type: "context", elements: [mrkdwn("_Pick a team member to see their tasks._")] }],
+    };
+  return tasksOf(
+    env,
+    [...top, picker],
+    open,
+    today,
+    person.id,
+    viewer,
+    person.id === viewer ? "Your tasks" : `${person.name}'s tasks`.slice(0, 150),
+  );
 }
 
 // `person`'s tasks, as `viewer` sees them, under `top` and headed `title`: a section for each thing they
 // do on a task, most urgent first, with what is coming up under each, then what they have worked on.
-function tasksOf(env: AppEnv, top: SlackBlock[], open: TaskEntry[], today: string, person: string, viewer: string, title: string) {
+function tasksOf(
+  env: AppEnv,
+  top: SlackBlock[],
+  open: TaskEntry[],
+  today: string,
+  person: string,
+  viewer: string,
+  title: string,
+) {
   // A subtask with no owner of its own is its task's owners' (see shownPeople).
   const has = (entry: TaskEntry, role: Role) => shownPeople(entry.task)[role].includes(person);
   const entries = open.filter((entry) => (Object.keys(ROLES) as Role[]).some((role) => has(entry, role)));
@@ -231,10 +307,17 @@ function tasksOf(env: AppEnv, top: SlackBlock[], open: TaskEntry[], today: strin
     const turn = Math.min(...section.ready.map((status) => ORDER.indexOf(status)));
     const before = (row: Row) => onCard(row).some((entry) => ORDER.indexOf(entry.task.status) < turn);
     const notReady = theirs.filter((row) => !ready(row));
-    return { ...section, ready: theirs.filter(ready), later: notReady.filter(before), handed: notReady.filter((row) => !before(row)) };
+    return {
+      ...section,
+      ready: theirs.filter(ready),
+      later: notReady.filter(before),
+      handed: notReady.filter((row) => !before(row)),
+    };
   });
   const workedOn = handedOver(sections);
-  const overdue = new Set(entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel));
+  const overdue = new Set(
+    entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel),
+  );
 
   const waiting = sections.reduce((sum, section) => sum + section.ready.length, 0);
   const self = person === viewer;
@@ -242,16 +325,29 @@ function tasksOf(env: AppEnv, top: SlackBlock[], open: TaskEntry[], today: strin
     ? `*${waiting}* waiting on ${self ? "you" : `<@${person}>`}${overdue.size ? `  ·  :warning: *${overdue.size}* overdue` : ""}`
     : `${self ? "You're" : `<@${person}> is`} all caught up :tada:`;
 
-  const blocks: SlackBlock[] = [...top, { type: "header", text: plainText(title) }, { type: "context", elements: [mrkdwn(summary)] }];
+  const blocks: SlackBlock[] = [
+    ...top,
+    { type: "header", text: plainText(title) },
+    { type: "context", elements: [mrkdwn(summary)] },
+  ];
   const budget = { left: MAX_BLOCKS - blocks.length - MINE_AFTER };
   for (const section of sections) {
     blocks.push(...divider(blocks));
-    blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true },
+    });
     blocks.push(...list(section, today, viewer, budget, self ? "Your subtasks" : "Their subtasks"));
   }
   blocks.push(...divider(blocks));
-  blocks.push({ type: "header", text: { type: "plain_text", text: `:outbox_tray: Worked on (${workedOn.length})`, emoji: true } });
-  blocks.push({ type: "context", elements: [mrkdwn(workedOn.length ? smallLines(workedOn).join("\n") : "_Nothing handed over yet._")] });
+  blocks.push({
+    type: "header",
+    text: { type: "plain_text", text: `:outbox_tray: Worked on (${workedOn.length})`, emoji: true },
+  });
+  blocks.push({
+    type: "context",
+    elements: [mrkdwn(workedOn.length ? smallLines(workedOn).join("\n") : "_Nothing handed over yet._")],
+  });
   blocks.push(...divider(blocks));
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
@@ -272,7 +368,9 @@ async function projectsOf(env: AppEnv, user: string, all: Project[]) {
 
 // A dropdown of the projects, on `project`.
 function projectPicker(groups: Project[], project: Project) {
-  const options = groups.slice(0, 100).map((group) => ({ text: plainText(group.name.slice(0, 75)), value: group.name }));
+  const options = groups
+    .slice(0, 100)
+    .map((group) => ({ text: plainText(group.name.slice(0, 75)), value: group.name }));
   return {
     type: "static_select",
     action_id: PROJECT_ACTION,
@@ -287,26 +385,54 @@ function projectPicker(groups: Project[], project: Project) {
 // project: AI agent says so when MCP is turned off, and has no button then. Projects is for admins
 // only: a picker of every project, whether or not the admin is in its channel (the same choice as on
 // Home), then that project's channel and switches, with Edit to change them in a form.
-async function settingsView(env: AppEnv, user: string, nav: SlackBlock[], all: Project[], yours: Project[], project: Project | undefined) {
+async function settingsView(
+  env: AppEnv,
+  user: string,
+  nav: SlackBlock[],
+  all: Project[],
+  yours: Project[],
+  project: Project | undefined,
+) {
   const row = (title: string, now: string, action: string | false, label: string, value?: string) => ({
     type: "section",
     text: mrkdwn(`*${title}*\n${now}`),
-    ...(action && { accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) } }),
+    ...(action && {
+      accessory: { type: "button", action_id: action, text: plainText(label), ...(value && { value }) },
+    }),
   });
   const blocks: SlackBlock[] = [
     ...nav,
     { type: "header", text: plainText("Just for you") },
     row("Web pages", `${await webLine(env, user)}\nThe thread pages that task cards link to.`, WEB_ACTION, "Manage"),
-    row("AI agent", `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`, mcpEnabled(env) && MCP_ACTION, "Manage"),
+    row(
+      "AI agent",
+      `${await mcpLine(env, user)}\nYour own AI agent, connected to Cade.`,
+      mcpEnabled(env) && MCP_ACTION,
+      "Manage",
+    ),
     await suggestionsRow(env, user, yours),
   ];
   if (isAdmin(env, user)) {
     blocks.push({ type: "divider" }, { type: "header", text: plainText("Projects") });
     if (project) {
-      const switches = SETTINGS.map(({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`).join("  ·  ");
-      blocks.push({ type: "actions", elements: [projectPicker(all, project)] }, row("Project settings", `*${project.name}* in <#${project.channel}>\n${switches}`, SETTINGS_ACTION, "Edit", project.channel));
+      const switches = SETTINGS.map(
+        ({ key, label }) => `${label}: ${stateOf(settingOn(env, project.channel, key))}`,
+      ).join("  ·  ");
+      blocks.push(
+        { type: "actions", elements: [projectPicker(all, project)] },
+        row(
+          "Project settings",
+          `*${project.name}* in <#${project.channel}>\n${switches}`,
+          SETTINGS_ACTION,
+          "Edit",
+          project.channel,
+        ),
+      );
     } else {
-      blocks.push({ type: "context", elements: [mrkdwn("_There are no projects yet. Add one with Add project on Home._")] });
+      blocks.push({
+        type: "context",
+        elements: [mrkdwn("_There are no projects yet. Add one with Add project on Home._")],
+      });
     }
   }
   blocks.push({ type: "divider" }, { type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -321,12 +447,19 @@ async function suggestionsRow(env: AppEnv, user: string, all: Project[]) {
   const now = on
     ? ":white_check_mark: On. Cade privately offers to update a task from what you write in its thread."
     : ":x: Off for you. Cade won't offer to update a task from your messages, so update it yourself.";
-  const off = all.filter((candidate) => settingOn(env, candidate.channel, "taskChangeDetection") === false).map((candidate) => `*${escapeSlack(candidate.name)}*`);
+  const off = all
+    .filter((candidate) => settingOn(env, candidate.channel, "taskChangeDetection") === false)
+    .map((candidate) => `*${escapeSlack(candidate.name)}*`);
   const projectOff = off.length ? `\n_Turned off for everyone by an admin in ${off.join(", ")}._` : "";
   return {
     type: "section",
     text: mrkdwn(`*Suggestions*\n${now}${projectOff}`),
-    accessory: { type: "button", action_id: SUGGESTIONS_ACTION, text: plainText(on ? "Turn off" : "Turn on"), value: JSON.stringify({ on: !on }) },
+    accessory: {
+      type: "button",
+      action_id: SUGGESTIONS_ACTION,
+      text: plainText(on ? "Turn off" : "Turn on"),
+      value: JSON.stringify({ on: !on }),
+    },
   };
 }
 
@@ -364,12 +497,21 @@ function sorted(rows: Row[]) {
 
 // A task with no one on it. Only tasks are listed as unassigned, not subtasks: they are parts of a
 // task, and whoever takes the task takes them, unless someone else is given one.
-const unassignedTask = ({ task }: TaskEntry) => !task.parent && !(Object.keys(ROLES) as Role[]).some((role) => task.people[role].length);
+const unassignedTask = ({ task }: TaskEntry) =>
+  !task.parent && !(Object.keys(ROLES) as Role[]).some((role) => task.people[role].length);
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first, with their subtasks under them. Unassigned ones have an Assign to me button there, and only there.
 // All Tasks splits them into sections by status (see STAGES).
-function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBlock, open: TaskEntry[], today: string, user: string) {
+function listView(
+  env: AppEnv,
+  tab: string,
+  top: SlackBlock[],
+  tabRow: SlackBlock,
+  open: TaskEntry[],
+  today: string,
+  user: string,
+) {
   const unassigned = tab === "unassigned";
   const entries = sorted(cards(open, unassigned ? unassignedTask : () => true));
   const blocks: SlackBlock[] = [
@@ -380,8 +522,14 @@ function listView(env: AppEnv, tab: string, top: SlackBlock[], tabRow: SlackBloc
   ];
   if (!unassigned) return allView(env, blocks, entries, today, user);
   blocks.push(...divider(blocks));
-  if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
-  const shown = drawn(entries.slice(0, MAX_LISTED), { left: MAX_BLOCKS - blocks.length - LIST_AFTER }, (row, budget) => card(row, today, user, budget, { claim: unassigned }));
+  if (!entries.length)
+    blocks.push({
+      type: "context",
+      elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)],
+    });
+  const shown = drawn(entries.slice(0, MAX_LISTED), { left: MAX_BLOCKS - blocks.length - LIST_AFTER }, (row, budget) =>
+    card(row, today, user, budget, { claim: unassigned }),
+  );
   blocks.push(...shown.blocks);
   if (entries.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - shown.count} more._`)] });
@@ -397,11 +545,15 @@ function allView(env: AppEnv, blocks: SlackBlock[], rows: Row[], today: string, 
   for (const stage of STAGES) {
     const inStage = rows.filter((row) => stage.statuses.includes(row.entry.task.status));
     blocks.push(...divider(blocks));
-    blocks.push({ type: "header", text: { type: "plain_text", text: `${stage.emoji} ${stage.title} (${inStage.length})`, emoji: true } });
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: `${stage.emoji} ${stage.title} (${inStage.length})`, emoji: true },
+    });
     if (!inStage.length) blocks.push({ type: "context", elements: [mrkdwn(`_${stage.empty}_`)] });
     const shown = drawn(inStage.slice(0, MAX_LISTED), budget, (row, room) => card(row, today, user, room));
     blocks.push(...shown.blocks);
-    if (inStage.length > shown.count) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${inStage.length - shown.count} more._`)] });
+    if (inStage.length > shown.count)
+      blocks.push({ type: "context", elements: [mrkdwn(`_…and ${inStage.length - shown.count} more._`)] });
   }
   blocks.push(...divider(blocks));
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -410,7 +562,13 @@ function allView(env: AppEnv, blocks: SlackBlock[], rows: Row[], today: string, 
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: string }, today: string, user: string, budget: Budget, label: string) {
+function list(
+  { ready, later, empty }: { ready: Row[]; later: Row[]; empty: string },
+  today: string,
+  user: string,
+  budget: Budget,
+  label: string,
+) {
   const blocks: SlackBlock[] = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
   const shown = drawn(ready.slice(0, MAX_READY), budget, (row, room) => card(row, today, user, room, { label }));
@@ -418,7 +576,11 @@ function list({ ready, later, empty }: { ready: Row[]; later: Row[]; empty: stri
   if (ready.length > shown.count) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - shown.count} more._`)] });
   }
-  if (later.length) blocks.push({ type: "context", elements: [mrkdwn(`*Coming up*\n${smallLines(later.map((row) => ({ row, roles: [] }))).join("\n")}`)] });
+  if (later.length)
+    blocks.push({
+      type: "context",
+      elements: [mrkdwn(`*Coming up*\n${smallLines(later.map((row) => ({ row, roles: [] }))).join("\n")}`)],
+    });
   return blocks;
 }
 
@@ -440,7 +602,9 @@ function handedOver(sections: { role: Role; handed: Row[] }[]) {
 // Cards as small lines, for Coming up and Worked on: each task, with the subtasks its card shows under
 // it, its status, and, given any, the roles it was the person's in.
 function smallLines(rows: { row: Row; roles: Role[] }[]) {
-  const all = rows.flatMap(({ row, roles }) => [row.entry, ...row.subs].map((entry, i) => ({ entry, under: i > 0, roles: i ? [] : roles })));
+  const all = rows.flatMap(({ row, roles }) =>
+    [row.entry, ...row.subs].map((entry, i) => ({ entry, under: i > 0, roles: i ? [] : roles })),
+  );
   const lines = all.slice(0, MAX_LATER).map(({ entry: { task, link }, under, roles }) => {
     const as = roles.length ? `  ·  _${roles.map((role) => ROLES[role]).join(", ")}_` : "";
     return `${under ? ":arrow_right_hook: " : ""}<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}${as}`;
@@ -481,15 +645,39 @@ function drawn(rows: Row[], budget: Budget, draw: (row: Row, budget: Budget) => 
 //
 // It takes its blocks from `budget`, as many subtasks as fit, the rest counted, or none at all, and
 // gives null, when even the task doesn't fit.
-function card({ entry, subs, context }: Row, today: string, viewer: string, budget: Budget, { claim = false, label = "" }: { claim?: boolean; label?: string } = {}) {
+function card(
+  { entry, subs, context }: Row,
+  today: string,
+  viewer: string,
+  budget: Budget,
+  { claim = false, label = "" }: { claim?: boolean; label?: string } = {},
+) {
   const { task, channel } = entry;
-  const closed = context ? 0 : task.subtaskCounts?.closed ?? 0;
+  const closed = context ? 0 : (task.subtaskCounts?.closed ?? 0);
   const own = [
-    ...taskBlocks(entry, today, viewer, { lines: [task.parent && !subs.length && !context ? parentLine(task.parent) : "", context && subs.length ? `_${label}:_` : ""] }),
-    ...(claim && !context ? [{ type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${entry.ts}`, text: plainText("Assign to me") }] }] : []),
+    ...taskBlocks(entry, today, viewer, {
+      lines: [
+        task.parent && !subs.length && !context ? parentLine(task.parent) : "",
+        context && subs.length ? `_${label}:_` : "",
+      ],
+    }),
+    ...(claim && !context
+      ? [
+          {
+            type: "actions",
+            elements: [
+              { type: "button", action_id: `${CLAIM_ACTION}:${channel}:${entry.ts}`, text: plainText("Assign to me") },
+            ],
+          },
+        ]
+      : []),
   ];
   // A line after the subtasks, saying how many more there are and how many are done, when any.
-  const after = (shown: number) => [subs.length > shown ? `_…and ${subs.length - shown} more subtasks._` : "", closed ? `_+${closed} done_` : ""].filter(Boolean);
+  const after = (shown: number) =>
+    [
+      subs.length > shown ? `_…and ${subs.length - shown} more subtasks._` : "",
+      closed ? `_+${closed} done_` : "",
+    ].filter(Boolean);
   if (own.length + (after(0).length ? 1 : 0) > budget.left) return null;
   budget.left -= own.length;
   const blocks: SlackBlock[] = [...own];
@@ -517,11 +705,23 @@ function card({ entry, subs, context }: Row, today: string, viewer: string, budg
 // A task's own two blocks on a card: its title, led by ↪ for a subtask, then its details and people,
 // with `lines` added under them, if any. The same three lines list the subtasks in their modal (see
 // subtask.ts), where a task posted before it had a link has none.
-export function taskBlocks({ task, link, incident }: Pick<TaskEntry, "task" | "incident"> & { link?: string }, today: string, viewer?: string, { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {}): SlackBlock[] {
+export function taskBlocks(
+  { task, link, incident }: Pick<TaskEntry, "task" | "incident"> & { link?: string },
+  today: string,
+  viewer?: string,
+  { sub = false, lines = [] }: { sub?: boolean; lines?: string[] } = {},
+): SlackBlock[] {
   const name = escapeSlack(task.title);
   const kind = kindName({ incident, bug: task.bug });
   const title = `${sub ? ":arrow_right_hook: " : ""}${kind ? `[${kind}] ` : ""}*${link ? `<${link}|${name}>` : name}*`;
-  const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], blockedLine(task), due(task, today)].filter(Boolean).join("  ·  ");
+  const details = [
+    `${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(),
+    STATUSES[task.status],
+    blockedLine(task),
+    due(task, today),
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
   const people = peopleLine({ people: shownPeople(task) }, viewer) || "_Unassigned_";
   const text = [lines[0], details, people, ...lines.slice(1)].filter(Boolean).join("\n");
   return [

@@ -21,7 +21,10 @@ type Option<T> = { label: string; value: T; hint?: string };
 // A question as a clack message: no leading line break, no trailing colon or
 // ellipsis, and no "[default]" (the default is shown as the placeholder).
 function message(question: string) {
-  return question.trim().replace(/\s*\[[^\]]*\]\s*:?$/, "").replace(/\s*[:…]+$/, "");
+  return question
+    .trim()
+    .replace(/\s*\[[^\]]*\]\s*:?$/, "")
+    .replace(/\s*[:…]+$/, "");
 }
 
 // Asks a question without showing what's typed, for tokens and secrets.
@@ -31,7 +34,9 @@ export async function askHidden(question: string): Promise<string> {
 
 // Asks for a line of text; Enter alone gives `fallback`.
 export async function ask(question: string, fallback = ""): Promise<string> {
-  const answer = answered(await clack.text({ message: message(question), placeholder: fallback || undefined, defaultValue: fallback }));
+  const answer = answered(
+    await clack.text({ message: message(question), placeholder: fallback || undefined, defaultValue: fallback }),
+  );
   return String(answer ?? "").trim() || fallback;
 }
 
@@ -42,23 +47,36 @@ export async function pause(question: string): Promise<void> {
 
 // Picks one of `options` ({ label, value, hint? }) with the arrow keys; returns its value.
 export async function choose<T>(question: string, options: Option<T>[], { initial = 0 } = {}): Promise<T> {
-  return answered<T>(await clack.select<T>({ message: message(question), options: options as never, initialValue: options[initial].value }));
+  return answered<T>(
+    await clack.select<T>({
+      message: message(question),
+      options: options as never,
+      initialValue: options[initial].value,
+    }),
+  );
 }
 
 // A Yes / No choice, as a boolean. `fallback` is the highlighted answer.
 export function confirm(question: string, fallback = true): Promise<boolean> {
-  return clack.confirm({ message: message(question), initialValue: fallback }).then((value) => answered<boolean>(value));
+  return clack
+    .confirm({ message: message(question), initialValue: fallback })
+    .then((value) => answered<boolean>(value));
 }
 
 // Picks any number of `options` ({ label, value, hint? }), typing to search, Tab to tick; returns their values.
 export async function chooseMany<T>(question: string, options: Option<T>[]): Promise<T[]> {
-  return answered<T[]>(await clack.autocompleteMultiselect<T>({ message: message(question), options: options as never, required: false }));
+  return answered<T[]>(
+    await clack.autocompleteMultiselect<T>({ message: message(question), options: options as never, required: false }),
+  );
 }
 
 // Opens a page in the person's browser (best effort; the address is always printed too).
 export function openUrl(url: string) {
-  const [command, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
+  const [command, ...args] =
+    process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
   try {
-    spawn(command, [...args, url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+    spawn(command, [...args, url], { stdio: "ignore", detached: true })
+      .on("error", () => {})
+      .unref();
   } catch {}
 }

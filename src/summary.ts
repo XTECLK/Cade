@@ -65,7 +65,10 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
     incident: task.incident,
     link: threadLink(url, group.channel, ts),
   }));
-  const names = await nameMap(env, new Set([...tasks, ...archived].flatMap(({ task }) => Object.values(shownPeople(task)).flat())));
+  const names = await nameMap(
+    env,
+    new Set([...tasks, ...archived].flatMap(({ task }) => Object.values(shownPeople(task)).flat())),
+  );
   // People are named, not mentioned: Slack notifies a canvas's mentions
   // again on every write. Names come from the ones kept in D1 (see nameMap).
   const people = (ids: string[]) => (ids.length ? ids.map((id) => `@${cell(names.get(id) ?? id)}`).join(", ") : "—");
@@ -79,7 +82,12 @@ export async function summaryMarkdown(env: AppEnv, channel: string) {
     people(task.people.reviewer),
     people(task.people.tester),
   ];
-  return document(updated, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map((entry) => [row(entry)]) }, "tasks");
+  return document(
+    updated,
+    TASK_COLUMNS,
+    { ...sections(tasks, row), archived: archived.map((entry) => [row(entry)]) },
+    "tasks",
+  );
 }
 
 // The open entries, most urgent first, and the last MAX_CLOSED closed ones,
@@ -90,7 +98,9 @@ function sections(entries: Listed[], row: (entry: Listed, sub?: boolean) => Row)
   const tops = entries.filter((entry) => !entry.task.parent || !listed.has(entry.task.parent.ts));
   const family = (top: Listed): Family => [
     row(top),
-    ...ordered(entries.filter((entry) => entry !== top && entry.task.parent?.ts === top.ts)).map((entry) => row(entry, true)),
+    ...ordered(entries.filter((entry) => entry !== top && entry.task.parent?.ts === top.ts)).map((entry) =>
+      row(entry, true),
+    ),
   ];
   const { open, closed } = split(tops);
   return { open: open.map(family), closed: closed.slice(0, MAX_CLOSED).map(family) };
@@ -100,7 +110,9 @@ function sections(entries: Listed[], row: (entry: Listed, sub?: boolean) => Row)
 function split(entries: Listed[]) {
   return {
     open: entries.filter((entry) => entry.task.status !== "DONE").sort(byUrgency),
-    closed: entries.filter((entry) => entry.task.status === "DONE").sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
+    closed: entries
+      .filter((entry) => entry.task.status === "DONE")
+      .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
   };
 }
 
@@ -172,7 +184,8 @@ export async function writeSummary(env: AppEnv, channel: string, { full = false,
   if (canvasId) {
     try {
       // Unchanged since the last write: skip it. A full resync always writes.
-      if (!full && (await getCanvasHash(env, channel)) === hash) return "The summary in this channel's canvas is already up to date.";
+      if (!full && (await getCanvasHash(env, channel)) === hash)
+        return "The summary in this channel's canvas is already up to date.";
       await writeCanvas(env, canvasId, markdown);
       await setCanvasHash(env, channel, hash);
       if (!full) return "Updated the summary in this channel's canvas.";
@@ -249,7 +262,12 @@ async function renameCanvas(env: AppEnv, canvasId: string, title: string) {
 // When it was updated, then an Open, a Closed and an Archived section, each
 // with its rows in as many tables as they need. `noun` names what they
 // list.
-function document(updated: string, columns: string[], { open, closed, archived }: Record<"open" | "closed" | "archived", Family[]>, noun: string) {
+function document(
+  updated: string,
+  columns: string[],
+  { open, closed, archived }: Record<"open" | "closed" | "archived", Family[]>,
+  noun: string,
+) {
   return [
     updated,
     "## Open",

@@ -12,7 +12,8 @@ const PRS_EDIT_ACTION = "prs:edit";
 
 // What the buttons of a partial release say now that there are none: requests for approval posted
 // before they went still have them in their threads.
-const NO_RELEASES = "Partial releases are gone. To ask for approval, move the task to Client review, or ask in its thread.";
+const NO_RELEASES =
+  "Partial releases are gone. To ask for approval, move the task to Client review, or ask in its thread.";
 const OLD_RELEASE_ACTIONS = ["release:open", "release:approve", "release:reject"];
 
 // The Pull requests list, from the task card's Pull requests button (see menu.ts): the task's pull
@@ -24,7 +25,12 @@ export function prsView({ channel, ts }: TaskRef, task: StoredTask) {
     const prs = task.prs.filter((url) => prState(task, url) === state);
     const list = prs.length ? prs.map((url) => `<${url}>`).join("\n") : "_None_";
     const edit = state === "OPEN" && {
-      accessory: { type: "button", action_id: PRS_EDIT_ACTION, text: plainText("Edit"), value: JSON.stringify({ channel, ts }) },
+      accessory: {
+        type: "button",
+        action_id: PRS_EDIT_ACTION,
+        text: plainText("Edit"),
+        value: JSON.stringify({ channel, ts }),
+      },
     };
     return { type: "section", text: mrkdwn(`*${label}*\n${list}`), ...edit };
   };
@@ -32,7 +38,13 @@ export function prsView({ channel, ts }: TaskRef, task: StoredTask) {
     type: "modal",
     title: plainText("Pull requests"),
     close: plainText("Close"),
-    blocks: [section("OPEN", "Open"), { type: "divider" }, section("MERGED", "Merged"), { type: "divider" }, section("CLOSED", "Closed")],
+    blocks: [
+      section("OPEN", "Open"),
+      { type: "divider" },
+      section("MERGED", "Merged"),
+      { type: "divider" },
+      section("CLOSED", "Closed"),
+    ],
   };
 }
 
@@ -71,18 +83,27 @@ export function prsForm({ channel, ts }: TaskRef, task: StoredTask) {
 // stays, written in the box or not. Both the form and the list under it close.
 function savePrs(payload: SlackPayload, context: Context) {
   const { channel, ts } = readPayload<TaskRef>(TASK_BUTTON, payload.view.private_metadata, "Pull requests form");
-  const lines = (payload.view.state.values.prs?.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = (payload.view.state.values.prs?.value.value ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
   const wrong = lines.find((line, i) => !urls[i]);
   if (wrong) {
-    return { response_action: "errors", errors: { prs: `That doesn't look like a pull request link: ${wrong}`.slice(0, 150) } };
+    return {
+      response_action: "errors",
+      errors: { prs: `That doesn't look like a pull request link: ${wrong}`.slice(0, 150) },
+    };
   }
   context.waitUntil(
     (async () => {
       const task = await loadTask(context.env, channel, ts);
       if (!task) return;
       const wanted = [...new Set(urls)] as string[];
-      const prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: openPrs(task).filter((url) => !wanted.includes(url)) };
+      const prs = {
+        add: wanted.filter((url) => !task.prs.includes(url)),
+        remove: openPrs(task).filter((url) => !wanted.includes(url)),
+      };
       await applyChanges(context.env, { channel, ts }, { prs }, payload.user.id);
     })(),
   );

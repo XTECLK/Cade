@@ -33,9 +33,11 @@ export function intent({
   needs = {},
   kinds = [],
   ...rest
-}: Pick<Intent, "name" | "order" | "handle"> & Partial<Pick<Intent, "needs" | "kinds">> & { phrases?: string[]; match?: Intent["test"] }): Intent {
+}: Pick<Intent, "name" | "order" | "handle"> &
+  Partial<Pick<Intent, "needs" | "kinds">> & { phrases?: string[]; match?: Intent["test"] }): Intent {
   if (!phrases === !match) throw new Error(`Intent ${rest.name} needs either phrases or match.`);
-  if (!kinds.every((kind) => SUGGESTION_KINDS.includes(kind))) throw new Error(`Intent ${rest.name} has an unknown kind.`);
+  if (!kinds.every((kind) => SUGGESTION_KINDS.includes(kind)))
+    throw new Error(`Intent ${rest.name} has an unknown kind.`);
   const test = match ?? phraseTest(phrases!);
   return { ...rest, needs, kinds, test };
 }
@@ -63,7 +65,8 @@ export function isQuestion(message: { text: string }) {
 //   mentions   the people it mentions, Cade aside
 //   botUserId  Cade's own user ID
 export function plainMessage(event: SlackEvent, botUserId: string): PlainMessage | null {
-  if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || postedByApp(event) || !event.text) return null;
+  if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || postedByApp(event) || !event.text)
+    return null;
   const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id!))].filter(
     (id) => id !== botUserId,
   );
@@ -114,7 +117,9 @@ export function suggesting(env: AppEnv, kind: string, channel: string) {
 // The intents with a kind turned on in `channel`'s group, and those with no
 // kind, which always are.
 export function intentsOn(env: AppEnv, intents: Intent[], channel: string) {
-  return intents.filter((candidate) => !candidate.kinds.length || candidate.kinds.some((kind) => suggesting(env, kind, channel)));
+  return intents.filter(
+    (candidate) => !candidate.kinds.length || candidate.kinds.some((kind) => suggesting(env, kind, channel)),
+  );
 }
 
 // The first intent, by order, that matches the message, or undefined.

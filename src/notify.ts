@@ -73,7 +73,10 @@ export function autoLinked(urls: string[]) {
 // Slack, so no one is named, and a task's that ended in one run are told in one message.
 export function prsEnded(merged: string[], closed: string[]) {
   const was = (urls: string[]) => `${urls.map(prLink).join(", ")} ${urls.length > 1 ? "were" : "was"}`;
-  return [merged.length && `${was(merged)} merged on GitHub.`, closed.length && `${was(closed)} closed on GitHub without merging.`].filter(Boolean) as string[];
+  return [
+    merged.length && `${was(merged)} merged on GitHub.`,
+    closed.length && `${was(closed)} closed on GitHub without merging.`,
+  ].filter(Boolean) as string[];
 }
 
 export function unlinked(user: string, urls: string[]) {
@@ -97,7 +100,9 @@ export function dueDateChanged(user: string, dueDate: string | undefined) {
 }
 
 export function blockedChanged(user: string, on: boolean, reason?: string) {
-  return on ? `<@${user}> marked this as blocked${reason ? `: ${escapeSlack(reason)}` : "."}` : `<@${user}> unblocked this.`;
+  return on
+    ? `<@${user}> marked this as blocked${reason ? `: ${escapeSlack(reason)}` : "."}`
+    : `<@${user}> unblocked this.`;
 }
 
 export function kindChanged(user: string, bug: boolean) {
@@ -163,7 +168,14 @@ export function changeLog({ user, told, people, prs, priority, dueDate, status, 
 //   - told they needn't, when removed from a role they'd been asked to do,
 //     by the task as it was before the change.
 // Never `user`, who made the change, nor anyone `told` already.
-export function changeRequests({ user, told, task, people, prs, status }: Pick<Change, "user" | "told" | "task" | "people" | "prs" | "status">) {
+export function changeRequests({
+  user,
+  told,
+  task,
+  people,
+  prs,
+  status,
+}: Pick<Change, "user" | "told" | "task" | "people" | "prs" | "status">) {
   const asks = new Map<string, Ask[]>();
   const ask = (ids: string[], role: Role, forPrs: string[] = []) => {
     for (const id of toAsk(ids, user, told)) {
@@ -177,7 +189,12 @@ export function changeRequests({ user, told, task, people, prs, status }: Pick<C
   if (status?.to === "IN_REVIEW" && reviewing) ask(task.people.reviewer, "reviewer", reviewing);
   // Reviewers kept are asked about the PRs just linked, while it is In review (else when it gets there).
   const reviewersAdded = people.find(({ role }) => role === "reviewer")?.added ?? [];
-  if (prs?.added.length && onTheirPlate(task, "reviewer")) ask(task.people.reviewer.filter((id) => !reviewersAdded.includes(id)), "reviewer", prs.added);
+  if (prs?.added.length && onTheirPlate(task, "reviewer"))
+    ask(
+      task.people.reviewer.filter((id) => !reviewersAdded.includes(id)),
+      "reviewer",
+      prs.added,
+    );
   for (const { role, added } of people) {
     const due = onTheirPlate(task, role);
     if (due) ask(added, role, due);
@@ -196,14 +213,22 @@ export function changeRequests({ user, told, task, people, prs, status }: Pick<C
   }
 
   return [
-    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)!]), (who, what) => `${who}, could you ${what}?`),
-    ...grouped([...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]), (who, what) => `${who}, there's no need to ${what} anymore.`),
+    ...grouped(
+      [...asks].map(([id, mine]) => [id, askedTo(mine)!]),
+      (who, what) => `${who}, could you ${what}?`,
+    ),
+    ...grouped(
+      [...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]),
+      (who, what) => `${who}, there's no need to ${what} anymore.`,
+    ),
   ];
 }
 
 // "pick this up and review this": what `asks`, as { role, prs }, ask of one person.
 function askedTo(asks: Ask[]) {
-  const parts = (["owner", "reviewer", "tester"] as Role[]).flatMap((role) => asks.filter((one) => one.role === role).map((one) => ASKS[role](one.prs)));
+  const parts = (["owner", "reviewer", "tester"] as Role[]).flatMap((role) =>
+    asks.filter((one) => one.role === role).map((one) => ASKS[role](one.prs)),
+  );
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
 }
 
@@ -219,7 +244,11 @@ function grouped(pairs: [string, string][], note: (who: string, what: string) =>
 // The status a role's part is done in: owners work on a task while it is To do or In
 // progress, reviewers review it while it is In review, testers test it while it is
 // In testing. Before and after, there's nothing for them to do.
-const STAGE: Record<Role, Status[]> = { owner: ["TODO", "IN_PROGRESS"], reviewer: ["IN_REVIEW"], tester: ["IN_TESTING"] };
+const STAGE: Record<Role, Status[]> = {
+  owner: ["TODO", "IN_PROGRESS"],
+  reviewer: ["IN_REVIEW"],
+  tester: ["IN_TESTING"],
+};
 
 // What `role` has to do on `task` now: null when there's nothing, else the PRs a reviewer
 // reviews (those still open; none listed when the task has no PRs at all), or an empty list for the

@@ -72,7 +72,12 @@ export function threadLink(url: string, channel: string, ts: string) {
 // The group's tasks with one of `statuses`, as { channel, ts, task, link,
 // incident }, from its tasks channel. Links are built from the workspace's address, `url`, rather
 // than looked up one by one, which would take a Slack call per task.
-export async function groupTasks(env: AppEnv, group: Pick<Project, "channel">, statuses: readonly Status[], url: string): Promise<TaskEntry[]> {
+export async function groupTasks(
+  env: AppEnv,
+  group: Pick<Project, "channel">,
+  statuses: readonly Status[],
+  url: string,
+): Promise<TaskEntry[]> {
   const channel = group.channel;
   return (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
     channel,

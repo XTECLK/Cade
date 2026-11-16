@@ -59,7 +59,12 @@ async function slack(method, token, body) {
     body: JSON.stringify(body),
   });
   // Slack's answer: what each caller reads of it, or why it failed.
-  const result = (await response.json()) as { ok: boolean; error?: string; errors?: { pointer?: string; message: string }[]; [key: string]: any };
+  const result = (await response.json()) as {
+    ok: boolean;
+    error?: string;
+    errors?: { pointer?: string; message: string }[];
+    [key: string]: any;
+  };
   if (!result.ok) {
     const details = (result.errors ?? []).map((error) => `\n  ${error.pointer ?? ""} ${error.message}`).join("");
     throw new Error(`Slack ${method} failed: ${result.error}${details}`);
@@ -85,7 +90,8 @@ export function putSecret(name, value) {
 async function configToken() {
   if (process.env.SLACK_CONFIG_TOKEN) return process.env.SLACK_CONFIG_TOKEN;
   const where = "an app configuration token from https://api.slack.com/apps (Your App Configuration Tokens)";
-  if (!process.stdin.isTTY) throw new Error(`Run this in a terminal to be asked for ${where}, or set SLACK_CONFIG_TOKEN.`);
+  if (!process.stdin.isTTY)
+    throw new Error(`Run this in a terminal to be asked for ${where}, or set SLACK_CONFIG_TOKEN.`);
   console.log(`This needs ${where}.`);
   const token = await askHidden("App configuration token (xoxe.xoxp-…, hidden): ");
   if (!token) throw new Error("No token given.");

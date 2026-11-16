@@ -17,7 +17,8 @@ export default {
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    if (!command.mentions.length) return "Who? Try `@Cade unassign owner @person`, or `@Cade unassign @person` for every role.";
+    if (!command.mentions.length)
+      return "Who? Try `@Cade unassign owner @person`, or `@Cade unassign @person` for every role.";
 
     const task = await loadTask(env, command.channel, command.threadTs!);
     if (!task) return NOT_A_TASK;
@@ -27,6 +28,8 @@ export default {
       const as = role ? ` as ${ROLES[role].toLowerCase()}` : "";
       return `Looks like ${command.mentions.length === 1 ? "they aren't" : "none of them are"} assigned to this task${as}.`;
     }
-    return acknowledged(await changeTask(env, { channel: command.channel, ts: command.threadTs! }, { people }, command.user));
+    return acknowledged(
+      await changeTask(env, { channel: command.channel, ts: command.threadTs! }, { people }, command.user),
+    );
   },
 } satisfies Handler;

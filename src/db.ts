@@ -142,10 +142,16 @@ export async function setTaskParent(env: DbEnv, channel: string, ts: string, par
 // A subtask is stored with its parent's id, which it keeps.
 export async function insertTask(env: DbEnv, channel: string, task: Task, origin: unknown) {
   const parent = task.parent
-    ? await env.DB.prepare("SELECT id FROM tasks WHERE channel = ? AND ts = ?").bind(channel, task.parent.ts).first<{ id: number }>()
+    ? await env.DB.prepare("SELECT id FROM tasks WHERE channel = ? AND ts = ?")
+        .bind(channel, task.parent.ts)
+        .first<{ id: number }>()
     : null;
   if (task.parent && !parent) throw new Error("A subtask's parent is not stored");
-  return insert(env, "tasks", channel, { ...taskToRow(task), parent_id: parent?.id ?? null, origin: JSON.stringify(origin) });
+  return insert(env, "tasks", channel, {
+    ...taskToRow(task),
+    parent_id: parent?.id ?? null,
+    origin: JSON.stringify(origin),
+  });
 }
 
 // Records that the task's root message was posted as `ts`.
@@ -164,9 +170,7 @@ export async function putTask(env: DbEnv, channel: string, ts: string, task: Tas
 }
 
 export async function markTaskDeleted(env: DbEnv, channel: string, ts: string) {
-  await env.DB.prepare(
-    "UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP WHERE channel = ? AND ts = ?",
-  )
+  await env.DB.prepare("UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP WHERE channel = ? AND ts = ?")
     .bind(channel, ts)
     .run();
 }
@@ -174,9 +178,7 @@ export async function markTaskDeleted(env: DbEnv, channel: string, ts: string) {
 // Stops tracking the task, keeping it for the summary's Archived section
 // (see archive.ts).
 export async function markTaskArchived(env: DbEnv, channel: string, ts: string, user: string) {
-  await env.DB.prepare(
-    "UPDATE tasks SET archived_at = CURRENT_TIMESTAMP, archived_by = ? WHERE channel = ? AND ts = ?",
-  )
+  await env.DB.prepare("UPDATE tasks SET archived_at = CURRENT_TIMESTAMP, archived_by = ? WHERE channel = ? AND ts = ?")
     .bind(user, channel, ts)
     .run();
 }
@@ -192,7 +194,12 @@ export async function archivedTasks(env: DbEnv, channel: string, limit: number) 
   )
     .bind(channel, limit)
     .all<ListedTaskRow>();
-  return results.map((row) => ({ ts: row.ts!, task: taskFromRow(row), archivedAt: row.archived_at!, archivedBy: row.archived_by }));
+  return results.map((row) => ({
+    ts: row.ts!,
+    task: taskFromRow(row),
+    archivedAt: row.archived_at!,
+    archivedBy: row.archived_by,
+  }));
 }
 
 // Returns the task whose root message is `ts`, deleted, archived or not,
@@ -254,7 +261,9 @@ export async function unpostedTasks(env: DbEnv) {
 // The id of the canvas Cade keeps the channel's summary in, or null.
 // The group name the person's Home tab shows, or null for every group.
 export async function getHomeProject(env: DbEnv, user: string) {
-  const row = await env.DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind(user).first<{ home_project: string | null }>();
+  const row = await env.DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?")
+    .bind(user)
+    .first<{ home_project: string | null }>();
   return row?.home_project ?? null;
 }
 
@@ -269,7 +278,9 @@ export async function setHomeProject(env: DbEnv, user: string, project: string |
 
 // The Home tab view the person last used, or null.
 export async function getHomeTab(env: DbEnv, user: string) {
-  const row = await env.DB.prepare("SELECT home_tab FROM user_preferences WHERE user_id = ?").bind(user).first<{ home_tab: string | null }>();
+  const row = await env.DB.prepare("SELECT home_tab FROM user_preferences WHERE user_id = ?")
+    .bind(user)
+    .first<{ home_tab: string | null }>();
   return row?.home_tab ?? null;
 }
 
@@ -285,7 +296,9 @@ export async function setHomeTab(env: DbEnv, user: string, tab: string | null) {
 // Whether the suggestions Cade offers the person from their own messages are on: they are unless
 // the person turned them off.
 export async function suggestionsOn(env: DbEnv, user: string) {
-  const row = await env.DB.prepare("SELECT suggestions FROM user_preferences WHERE user_id = ?").bind(user).first<{ suggestions: number }>();
+  const row = await env.DB.prepare("SELECT suggestions FROM user_preferences WHERE user_id = ?")
+    .bind(user)
+    .first<{ suggestions: number }>();
   return row ? Boolean(row.suggestions) : true;
 }
 
@@ -315,7 +328,11 @@ export async function countReject(env: DbEnv, user: string) {
 
 // Starts the count of rejects in a row again, as accepting or editing a suggestion does.
 export async function resetRejects(env: DbEnv, user: string) {
-  await env.DB.prepare("UPDATE user_preferences SET suggestion_rejects = 0 WHERE user_id = ? AND suggestion_rejects != 0").bind(user).run();
+  await env.DB.prepare(
+    "UPDATE user_preferences SET suggestion_rejects = 0 WHERE user_id = ? AND suggestion_rejects != 0",
+  )
+    .bind(user)
+    .run();
 }
 
 // Stops counting rejects for `days`, after the person chose to keep suggestions when offered to turn them off.
@@ -329,7 +346,9 @@ export async function pauseRejects(env: DbEnv, user: string, days: number) {
 }
 
 export async function getCanvas(env: DbEnv, channel: string) {
-  const row = await env.DB.prepare("SELECT canvas_id FROM canvases WHERE channel = ?").bind(channel).first<{ canvas_id: string | null }>();
+  const row = await env.DB.prepare("SELECT canvas_id FROM canvases WHERE channel = ?")
+    .bind(channel)
+    .first<{ canvas_id: string | null }>();
   return row?.canvas_id ?? null;
 }
 
@@ -344,7 +363,9 @@ export async function putCanvas(env: DbEnv, channel: string, canvasId: string, u
 
 // The hash of the markdown last written to the channel's canvas, or null.
 export async function getCanvasHash(env: DbEnv, channel: string) {
-  const row = await env.DB.prepare("SELECT content_hash FROM canvases WHERE channel = ?").bind(channel).first<{ content_hash: string | null }>();
+  const row = await env.DB.prepare("SELECT content_hash FROM canvases WHERE channel = ?")
+    .bind(channel)
+    .first<{ content_hash: string | null }>();
   return row?.content_hash ?? null;
 }
 
@@ -368,7 +389,9 @@ export async function markCanvasDirty(env: DbEnv, channel: string, token: string
 // The token the channel's summary was last marked with, or null if it is up
 // to date.
 export async function getCanvasDirty(env: DbEnv, channel: string) {
-  const row = await env.DB.prepare("SELECT dirty_token FROM canvases WHERE channel = ?").bind(channel).first<{ dirty_token: string | null }>();
+  const row = await env.DB.prepare("SELECT dirty_token FROM canvases WHERE channel = ?")
+    .bind(channel)
+    .first<{ dirty_token: string | null }>();
   return row?.dirty_token ?? null;
 }
 
@@ -381,7 +404,9 @@ export async function clearCanvasDirty(env: DbEnv, channel: string, token: strin
 
 // The channels whose summary is out of date, with the token each was marked with.
 export async function dirtyCanvases(env: DbEnv) {
-  const { results } = await env.DB.prepare("SELECT channel, dirty_token FROM canvases WHERE dirty_token IS NOT NULL").all<{ channel: string; dirty_token: string }>();
+  const { results } = await env.DB.prepare(
+    "SELECT channel, dirty_token FROM canvases WHERE dirty_token IS NOT NULL",
+  ).all<{ channel: string; dirty_token: string }>();
   return results.map((row) => ({ channel: row.channel, token: row.dirty_token }));
 }
 
@@ -446,7 +471,7 @@ function taskToRow(task: Task) {
     completed_at: task.completedAt ?? "",
     kind: task.incident ? "incident" : task.bug ? "bug" : "task",
     blocked: task.blocked ? 1 : 0,
-    blocked_reason: task.blocked ? task.blockedReason ?? "" : "",
+    blocked_reason: task.blocked ? (task.blockedReason ?? "") : "",
     link: task.link ?? null,
     export_url: task.export?.url ?? null,
   };
@@ -478,7 +503,12 @@ function taskFromRow(row: ListedTaskRow): StoredTask {
     export: row.export_url ? { url: row.export_url } : undefined,
     // The task it is a subtask of, if it is one, and how its own subtasks stand.
     parent: row.parent_ts
-      ? { ts: row.parent_ts, title: row.parent_title ?? "", link: row.parent_link ?? undefined, owner: JSON.parse(row.parent_owners ?? "[]") }
+      ? {
+          ts: row.parent_ts,
+          title: row.parent_title ?? "",
+          link: row.parent_link ?? undefined,
+          owner: JSON.parse(row.parent_owners ?? "[]"),
+        }
       : undefined,
     subtaskCounts: { open: row.open_subtasks, closed: row.closed_subtasks },
     prStates: JSON.parse(row.pr_states ?? "{}"),
@@ -532,7 +562,9 @@ export async function threadMessages(env: DbEnv, channel: string, taskTs: string
 // through, by, at }, `through` being the ts of the last message of the task's thread it covers, or null
 // for a task with none yet.
 export async function getSummary(env: DbEnv, channel: string, taskTs: string) {
-  const row = await env.DB.prepare("SELECT summary, through_ts, written_by, written_at FROM task_summaries WHERE channel = ? AND task_ts = ?")
+  const row = await env.DB.prepare(
+    "SELECT summary, through_ts, written_by, written_at FROM task_summaries WHERE channel = ? AND task_ts = ?",
+  )
     .bind(channel, taskTs)
     .first<SummaryRow>();
   return row ? { summary: row.summary, through: row.through_ts, by: row.written_by, at: row.written_at } : null;
@@ -541,7 +573,14 @@ export async function getSummary(env: DbEnv, channel: string, taskTs: string) {
 // Saves the task's working summary, written by `user` and covering its thread up to `through`, unless
 // the one saved covers more of it: two agents can work on it at once, and the later one wins. Returns
 // whether it was saved.
-export async function putSummary(env: DbEnv, channel: string, taskTs: string, summary: string, through: string, user: string) {
+export async function putSummary(
+  env: DbEnv,
+  channel: string,
+  taskTs: string,
+  summary: string,
+  through: string,
+  user: string,
+) {
   const result = await env.DB.prepare(
     `INSERT INTO task_summaries (channel, task_ts, summary, through_ts, written_by) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (channel, task_ts) DO UPDATE SET summary = excluded.summary, through_ts = excluded.through_ts,
@@ -557,7 +596,9 @@ export async function putSummary(env: DbEnv, channel: string, taskTs: string, su
 // How far `consumer` has read the task's thread (see get_task_history in mcp/history.ts): { through, by, at },
 // `through` being the ts of the last message it acknowledged, or null for one that never did.
 export async function getConsumer(env: DbEnv, channel: string, taskTs: string, consumer: string) {
-  const row = await env.DB.prepare("SELECT through_ts, acked_by, acked_at FROM task_consumers WHERE channel = ? AND task_ts = ? AND consumer = ?")
+  const row = await env.DB.prepare(
+    "SELECT through_ts, acked_by, acked_at FROM task_consumers WHERE channel = ? AND task_ts = ? AND consumer = ?",
+  )
     .bind(channel, taskTs, consumer)
     .first<{ through_ts: string; acked_by: string; acked_at: string }>();
   return row ? { through: row.through_ts, by: row.acked_by, at: row.acked_at } : null;
@@ -569,10 +610,19 @@ export const MAX_CONSUMERS = 10;
 // Moves `consumer`'s position in the task's thread on to `through`, for `user`. Returns "saved", or "behind"
 // when it is past that already (positions only move forward), or "full" for a new consumer of a task that has
 // MAX_CONSUMERS already.
-export async function putConsumer(env: DbEnv, channel: string, taskTs: string, consumer: string, through: string, user: string) {
+export async function putConsumer(
+  env: DbEnv,
+  channel: string,
+  taskTs: string,
+  consumer: string,
+  through: string,
+  user: string,
+) {
   const known = await getConsumer(env, channel, taskTs, consumer);
   if (!known) {
-    const { n } = (await env.DB.prepare("SELECT COUNT(*) AS n FROM task_consumers WHERE channel = ? AND task_ts = ?").bind(channel, taskTs).first<{ n: number }>())!;
+    const { n } = (await env.DB.prepare("SELECT COUNT(*) AS n FROM task_consumers WHERE channel = ? AND task_ts = ?")
+      .bind(channel, taskTs)
+      .first<{ n: number }>())!;
     if (n >= MAX_CONSUMERS) return "full";
   }
   const result = await env.DB.prepare(
@@ -589,7 +639,9 @@ export async function putConsumer(env: DbEnv, channel: string, taskTs: string, c
 // The tasks a thread was moved into: those whose kept messages include Cade's "Moved from" copy of a
 // message of the thread `channel`/`ts` (see moveMessage in commands/move.ts), as [{ channel, ts }].
 export async function tasksMovedFrom(env: DbEnv, channel: string, ts: string) {
-  const { results } = await env.DB.prepare("SELECT DISTINCT channel, task_ts, text FROM messages WHERE text LIKE 'Moved from %' AND text LIKE ?")
+  const { results } = await env.DB.prepare(
+    "SELECT DISTINCT channel, task_ts, text FROM messages WHERE text LIKE 'Moved from %' AND text LIKE ?",
+  )
     .bind(`%/archives/${channel}/%`)
     .all<{ channel: string; task_ts: string; text: string }>();
   return results.map((row) => ({ channel: row.channel, ts: row.task_ts, text: row.text }));
@@ -600,7 +652,9 @@ export async function tasksMovedFrom(env: DbEnv, channel: string, ts: string) {
 export async function keptNames(env: DbEnv, ids: Iterable<string>, staleAfterDays = Infinity) {
   const names = new Map<string, { name: string; stale: boolean }>();
   for (const id of ids) {
-    const row = await env.DB.prepare("SELECT name, updated_at < datetime('now', ?) AS stale FROM user_names WHERE user_id = ?")
+    const row = await env.DB.prepare(
+      "SELECT name, updated_at < datetime('now', ?) AS stale FROM user_names WHERE user_id = ?",
+    )
       .bind(`-${Number.isFinite(staleAfterDays) ? staleAfterDays : 100000} days`, id)
       .first<{ name: string; stale: number }>();
     if (row) names.set(id, { name: row.name, stale: Boolean(row.stale) });
@@ -623,8 +677,11 @@ export type WebTokenKind = "login" | "session";
 // a 'session' for `minutes` too. Old and used ones are cleared as new are made.
 export async function putWebToken(env: DbEnv, hash: string, user: string, kind: WebTokenKind, minutes: number) {
   await env.DB.prepare("DELETE FROM web_tokens WHERE expires_at < datetime('now')").run();
-  if (kind === "login") await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? AND kind = 'login'").bind(user).run();
-  await env.DB.prepare("INSERT INTO web_tokens (token_hash, user_id, kind, expires_at) VALUES (?, ?, ?, datetime('now', ?))")
+  if (kind === "login")
+    await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? AND kind = 'login'").bind(user).run();
+  await env.DB.prepare(
+    "INSERT INTO web_tokens (token_hash, user_id, kind, expires_at) VALUES (?, ?, ?, datetime('now', ?))",
+  )
     .bind(hash, user, kind, `+${minutes} minutes`)
     .run();
 }
@@ -646,14 +703,20 @@ export async function deleteWebToken(env: DbEnv, hash: string) {
 
 // How many browsers `user` is signed in on: their live sessions.
 export async function webSessionsOf(env: DbEnv, user: string) {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM web_tokens WHERE user_id = ? AND kind = 'session' AND expires_at > datetime('now')").bind(user).first<{ count: number }>();
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM web_tokens WHERE user_id = ? AND kind = 'session' AND expires_at > datetime('now')",
+  )
+    .bind(user)
+    .first<{ count: number }>();
   return row?.count ?? 0;
 }
 
 // Ends every sign-in of `user`, the browsers' sessions and any sign-in link not used yet;
 // returns how many sessions there were.
 export async function deleteWebTokensOf(env: DbEnv, user: string) {
-  const { results } = await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? RETURNING kind").bind(user).all<{ kind: WebTokenKind }>();
+  const { results } = await env.DB.prepare("DELETE FROM web_tokens WHERE user_id = ? RETURNING kind")
+    .bind(user)
+    .all<{ kind: WebTokenKind }>();
   return results.filter((row) => row.kind === "session").length;
 }
 
@@ -670,7 +733,13 @@ export async function putMcpToken(env: DbEnv, user: string, hash: string) {
 // Whether the user has an MCP token.
 // When the user's API key was made, in SQLite's datetime form, or null.
 export async function mcpTokenCreated(env: DbEnv, user: string) {
-  return (await env.DB.prepare("SELECT created_at FROM mcp_tokens WHERE user_id = ?").bind(user).first<{ created_at: string }>())?.created_at ?? null;
+  return (
+    (
+      await env.DB.prepare("SELECT created_at FROM mcp_tokens WHERE user_id = ?")
+        .bind(user)
+        .first<{ created_at: string }>()
+    )?.created_at ?? null
+  );
 }
 
 export async function hasMcpToken(env: DbEnv, user: string) {
@@ -679,7 +748,9 @@ export async function hasMcpToken(env: DbEnv, user: string) {
 
 // The user whose MCP token has this hash, or null.
 export async function mcpTokenUser(env: DbEnv, hash: string) {
-  const row = await env.DB.prepare("SELECT user_id FROM mcp_tokens WHERE token_hash = ?").bind(hash).first<{ user_id: string }>();
+  const row = await env.DB.prepare("SELECT user_id FROM mcp_tokens WHERE token_hash = ?")
+    .bind(hash)
+    .first<{ user_id: string }>();
   return row ? row.user_id : null;
 }
 
@@ -691,7 +762,11 @@ export async function deleteMcpToken(env: DbEnv, user: string) {
 
 // The settings changed in the project settings form, as { channel, key, value (JSON) }.
 export async function projectSettings(env: DbEnv) {
-  const { results } = await env.DB.prepare("SELECT channel, key, value FROM project_settings").all<{ channel: string; key: string; value: string }>();
+  const { results } = await env.DB.prepare("SELECT channel, key, value FROM project_settings").all<{
+    channel: string;
+    key: string;
+    value: string;
+  }>();
   return results;
 }
 
@@ -710,12 +785,17 @@ export async function clearProjectSetting(env: DbEnv, channel: string, key: stri
 
 // The projects added with the Add project button, as { channel, name }.
 export async function addedProjects(env: DbEnv) {
-  const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY rowid").all<{ channel: string; name: string }>();
+  const { results } = await env.DB.prepare("SELECT channel, name FROM projects ORDER BY rowid").all<{
+    channel: string;
+    name: string;
+  }>();
   return results;
 }
 
 export async function addProject(env: DbEnv, channel: string, name: string, user: string) {
-  await env.DB.prepare("INSERT INTO projects (channel, name, created_by) VALUES (?, ?, ?)").bind(channel, name, user).run();
+  await env.DB.prepare("INSERT INTO projects (channel, name, created_by) VALUES (?, ?, ?)")
+    .bind(channel, name, user)
+    .run();
 }
 
 // ---- Pull requests' states (see github.ts) ----
@@ -738,7 +818,9 @@ export async function prsToSync(env: DbEnv, limit: number) {
 export async function setPrStates(env: DbEnv, states: { url: string; state: PrState }[]) {
   if (!states.length) return [];
   const urls = JSON.stringify(states.map(({ url }) => url));
-  const { results } = await env.DB.prepare("SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))")
+  const { results } = await env.DB.prepare(
+    "SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))",
+  )
     .bind(urls)
     .all<{ url: string; state: PrState }>();
   const before = new Map(results.map((row) => [row.url, row.state]));
@@ -752,7 +834,9 @@ export async function setPrStates(env: DbEnv, states: { url: string; state: PrSt
       .bind(...chunk.flatMap(({ url, state }) => [url, state]))
       .run();
   }
-  return states.filter(({ url, state }) => before.get(url) !== state).map(({ url, state }): PrChange => ({ url, from: before.get(url), to: state }));
+  return states
+    .filter(({ url, state }) => before.get(url) !== state)
+    .map(({ url, state }): PrChange => ({ url, from: before.get(url), to: state }));
 }
 
 // Saves pull requests as open, those not saved before: linked with no word from GitHub on them. They
@@ -769,7 +853,9 @@ export async function addOpenPrs(env: DbEnv, urls: string[]) {
 
 // Where those of `urls` saved stand, as { url: state }.
 export async function prStatesOf(env: DbEnv, urls: string[]) {
-  const { results } = await env.DB.prepare("SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))")
+  const { results } = await env.DB.prepare(
+    "SELECT url, state FROM pull_requests WHERE url IN (SELECT value FROM json_each(?))",
+  )
     .bind(JSON.stringify(urls))
     .all<{ url: string; state: PrState }>();
   return Object.fromEntries(results.map((row) => [row.url, row.state]));
@@ -791,16 +877,22 @@ export async function tasksWithPrs(env: DbEnv, urls: string[]) {
 export type PromptRow = { name: string; title: string; description: string; arguments: string; text: string };
 
 export async function prompts(env: DbEnv) {
-  return (await env.DB.prepare("SELECT name, title, description, arguments, text FROM prompts ORDER BY name").all<PromptRow>()).results;
+  return (
+    await env.DB.prepare("SELECT name, title, description, arguments, text FROM prompts ORDER BY name").all<PromptRow>()
+  ).results;
 }
 
 export async function promptByName(env: DbEnv, name: string) {
-  return env.DB.prepare("SELECT name, title, description, arguments, text FROM prompts WHERE name = ?").bind(name).first<PromptRow>();
+  return env.DB.prepare("SELECT name, title, description, arguments, text FROM prompts WHERE name = ?")
+    .bind(name)
+    .first<PromptRow>();
 }
 
 // Each prompt's name and hash, which change with the prompt: what the MCP server's version is made from.
 export async function promptHashes(env: DbEnv) {
-  const rows = (await env.DB.prepare("SELECT name, hash FROM prompts ORDER BY name").all<{ name: string; hash: string }>()).results;
+  const rows = (
+    await env.DB.prepare("SELECT name, hash FROM prompts ORDER BY name").all<{ name: string; hash: string }>()
+  ).results;
   return rows.map((row) => `${row.name}:${row.hash}`).join(",");
 }
 

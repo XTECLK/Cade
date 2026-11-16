@@ -28,19 +28,33 @@ const MCP_CREATE_ACTION = "home:mcp:create";
 const MCP_REVOKE_ACTION = "home:mcp:revoke";
 
 const section = (text: string): SlackBlock => ({ type: "section", text: mrkdwn(text) });
-const button = (action_id: string, text: string, extra: SlackBlock = {}) => ({ type: "button", action_id, text: plainText(text), ...extra });
-const modal = (title: string, blocks: SlackBlock[]) => ({ type: "modal", title: plainText(title), close: plainText("Close"), blocks });
+const button = (action_id: string, text: string, extra: SlackBlock = {}) => ({
+  type: "button",
+  action_id,
+  text: plainText(text),
+  ...extra,
+});
+const modal = (title: string, blocks: SlackBlock[]) => ({
+  type: "modal",
+  title: plainText(title),
+  close: plainText("Close"),
+  blocks,
+});
 
 // Whether the person is signed in to the web pages, for the Settings part of the Home tab and the modal.
 export async function webLine(env: AppEnv, user: string) {
   const browsers = await webSessionsOf(env, user);
-  return browsers ? `:white_check_mark: Signed in on ${browsers} browser${browsers === 1 ? "" : "s"}` : ":x: Not signed in on any browser";
+  return browsers
+    ? `:white_check_mark: Signed in on ${browsers} browser${browsers === 1 ? "" : "s"}`
+    : ":x: Not signed in on any browser";
 }
 
 // The web pages modal, with how things stand and what the last button said above its buttons.
 export async function webView(env: AppEnv, user: string, result?: string) {
   return modal("Cade web pages", [
-    section(`Task cards link to a *Full history* page that Cade hosts. Sign in once in each browser to read the ones for channels you're in.\n*Now:* ${await webLine(env, user)}`),
+    section(
+      `Task cards link to a *Full history* page that Cade hosts. Sign in once in each browser to read the ones for channels you're in.\n*Now:* ${await webLine(env, user)}`,
+    ),
     ...(result ? [section(result)] : []),
     {
       type: "actions",
@@ -63,7 +77,9 @@ export async function webView(env: AppEnv, user: string, result?: string) {
 export async function mcpLine(env: AppEnv, user: string) {
   if (!mcpEnabled(env)) return ":x: Turned off by an admin";
   const made = await mcpTokenCreated(env, user);
-  return made ? `:white_check_mark: Configured · key made ${made.slice(0, 10)} · ${mcpCatalog().tools.length} tools` : ":x: No key yet";
+  return made
+    ? `:white_check_mark: Configured · key made ${made.slice(0, 10)} · ${mcpCatalog().tools.length} tools`
+    : ":x: No key yet";
 }
 
 // The AI agent modal: whether MCP is configured (on) for this Cade, whether the person has a key (never the key
@@ -72,7 +88,9 @@ export async function mcpLine(env: AppEnv, user: string) {
 export async function mcpView(env: AppEnv, user: string, result?: string) {
   const on = mcpEnabled(env);
   const made = on ? await mcpTokenCreated(env, user) : null;
-  const key = made ? `:white_check_mark: made ${made.slice(0, 10)}. I can't show it again; to change it, revoke it and make a new one` : ":x: none yet";
+  const key = made
+    ? `:white_check_mark: made ${made.slice(0, 10)}. I can't show it again; to change it, revoke it and make a new one`
+    : ":x: none yet";
   const lines = [
     `*Configured:* ${on ? ":white_check_mark: yes, MCP is on for this Cade" : ":x: no, an admin turned it off (`mcp` in cade.config.json), so keys don't work"}`,
     on ? `*Your API key:* ${key}` : "",
@@ -118,7 +136,8 @@ function granted(url: string, key: string) {
 }
 
 // Opening a modal must happen within Slack's three seconds of the click. Its buttons change it in place.
-const update = (env: AppEnv, payload: SlackPayload, view: SlackBlock) => callSlack(env, "views.update", { view_id: payload.view!.id, view });
+const update = (env: AppEnv, payload: SlackPayload, view: SlackBlock) =>
+  callSlack(env, "views.update", { view_id: payload.view!.id, view });
 
 export default {
   actions: {
@@ -127,7 +146,15 @@ export default {
     },
     [WEB_LOGIN_ACTION]: async (payload, { env }) => {
       const link = await loginLink(env, payload.user.id);
-      await update(env, payload, await webView(env, payload.user.id, `:key: <${link}|Sign in to Cade's pages>. The link works once, for ten minutes, and keeps you signed in on that browser for thirty days.`));
+      await update(
+        env,
+        payload,
+        await webView(
+          env,
+          payload.user.id,
+          `:key: <${link}|Sign in to Cade's pages>. The link works once, for ten minutes, and keeps you signed in on that browser for thirty days.`,
+        ),
+      );
     },
     [WEB_LOGOUT_ACTION]: async (payload, { env }) => {
       const sessions = await deleteWebTokensOf(env, payload.user.id);
@@ -149,7 +176,12 @@ export default {
     [MCP_CREATE_ACTION]: async (payload, { env }) => {
       const user = payload.user.id;
       if (!mcpEnabled(env)) return update(env, payload, await mcpView(env, user));
-      if (await hasMcpToken(env, user)) return update(env, payload, await mcpView(env, user, "You have an API key already, and I can't show it again."));
+      if (await hasMcpToken(env, user))
+        return update(
+          env,
+          payload,
+          await mcpView(env, user, "You have an API key already, and I can't show it again."),
+        );
       await update(env, payload, await mcpView(env, user, granted(endpointUrl(env), await grantToken(env, user))));
     },
     [MCP_REVOKE_ACTION]: async (payload, { env }) => {
@@ -158,7 +190,13 @@ export default {
       await update(
         env,
         payload,
-        await mcpView(env, user, done ? "Done. Your API key no longer works, so your AI agent can't use Cade until you make a new one." : "You have no API key to revoke."),
+        await mcpView(
+          env,
+          user,
+          done
+            ? "Done. Your API key no longer works, so your AI agent can't use Cade until you make a new one."
+            : "You have no API key to revoke.",
+        ),
       );
     },
   },

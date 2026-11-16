@@ -51,7 +51,11 @@ export async function applyChanges(env: AppEnv, where: Where, changes: Changes, 
   if (!change) return null;
   const text = await unmentioned(env, changeLog(change).join("\n"));
   const agent = options?.source === "mcp";
-  await callSlack(env, "chat.postMessage", { channel: where.channel, thread_ts: where.ts, ...(agent ? viaAgent(text) : { text }) });
+  await callSlack(env, "chat.postMessage", {
+    channel: where.channel,
+    thread_ts: where.ts,
+    ...(agent ? viaAgent(text) : { text }),
+  });
   if (!agent) await offerAsk(env, where, user, changeRequests(change));
   return change;
 }
@@ -66,16 +70,36 @@ export async function applyChanges(env: AppEnv, where: Where, changes: Changes, 
 // subtasks are open: the rest is saved, and whoever made the change is warned
 // (see warnOpenSubtasks), unless it came from an AI agent, which is refused
 // before. Telling the thread is left to the caller.
-export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: Changes, user: string, { from, told: mentioned = [], source, quiet, saw }: ChangeOptions = {}): Promise<Change | null> {
+export async function changeTask(
+  env: AppEnv,
+  { channel, ts }: Where,
+  changes: Changes,
+  user: string,
+  { from, told: mentioned = [], source, quiet, saw }: ChangeOptions = {},
+): Promise<Change | null> {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
   // Left out of requests, not of the change log, which still mentions them.
   const told = Object.fromEntries(mentioned.map((id) => [id, null]));
-  const change: Change = { user, told, task, people: [], prs: null, priority: null, dueDate: null, status: null, blocked: null, bug: null };
+  const change: Change = {
+    user,
+    told,
+    task,
+    people: [],
+    prs: null,
+    priority: null,
+    dueDate: null,
+    status: null,
+    blocked: null,
+    bug: null,
+  };
 
   // Only the roles there are now: a suggestion posted before owners were
   // called that names developers.
-  for (const [role, { add = [], remove = [] }] of Object.entries(changes.people ?? {}) as [Role, { add?: string[]; remove?: string[] }][]) {
+  for (const [role, { add = [], remove = [] }] of Object.entries(changes.people ?? {}) as [
+    Role,
+    { add?: string[]; remove?: string[] },
+  ][]) {
     if (!ROLES[role]) continue;
     const added = add.filter((id) => !task.people[role].includes(id));
     const removed = remove.filter((id) => task.people[role].includes(id));
@@ -129,7 +153,15 @@ export async function changeTask(env: AppEnv, { channel, ts }: Where, changes: C
     setStatusFields(task, moving);
   }
 
-  const changed = Boolean(change.people.length || change.prs || change.priority || change.dueDate || change.status || change.blocked || change.bug);
+  const changed = Boolean(
+    change.people.length ||
+    change.prs ||
+    change.priority ||
+    change.dueDate ||
+    change.status ||
+    change.blocked ||
+    change.bug,
+  );
   if (changed) await saveTask(env, channel, ts, task);
   if (change.status) await afterStatusChange(env, channel, ts, change.status, user, source, saw);
   if (change.status && !quiet) await tellMainTask(env, channel, ts, change.status, user);

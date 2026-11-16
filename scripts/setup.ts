@@ -129,7 +129,8 @@ async function main() {
 You'll be asked for it, then to install the app and give its bot token; both hidden.`,
     );
     await pause("Press Enter once it's generated…");
-    if ((await runLive("node", ["scripts/slack-app.ts", "create", workerUrl])) !== 0) fail("Creating the Slack app failed.");
+    if ((await runLive("node", ["scripts/slack-app.ts", "create", workerUrl])) !== 0)
+      fail("Creating the Slack app failed.");
   });
 
   await step("Admin", async () => {
@@ -144,11 +145,17 @@ You'll be asked for it, then to install the app and give its bot token; both hid
       console.log(`Admins are set already (${real.join(", ")}).`);
       return "skipped, already set";
     }
-    console.log("An admin can add projects from Cade's Home tab. In Slack, click your name or picture, then ⋯ → Copy member ID (it starts with U).");
-    const ids = (await ask("Slack member ID of the first admin (more later in cade.config.json): ")).split(/[\s,]+/).filter(Boolean);
-    if (!ids.length || !ids.every((id) => /^[UW][A-Z0-9]{6,}$/.test(id))) fail("That isn't a Slack member ID, such as U0123ABCD.");
+    console.log(
+      "An admin can add projects from Cade's Home tab. In Slack, click your name or picture, then ⋯ → Copy member ID (it starts with U).",
+    );
+    const ids = (await ask("Slack member ID of the first admin (more later in cade.config.json): "))
+      .split(/[\s,]+/)
+      .filter(Boolean);
+    if (!ids.length || !ids.every((id) => /^[UW][A-Z0-9]{6,}$/.test(id)))
+      fail("That isn't a Slack member ID, such as U0123ABCD.");
     await writeFile(file, `${JSON.stringify({ ...config, admins: ids }, null, 2)}\n`);
-    if ((await runLive("node", ["scripts/config.ts"])) !== 0) fail("Uploading cade.config.json failed. npm run config retries it.");
+    if ((await runLive("node", ["scripts/config.ts"])) !== 0)
+      fail("Uploading cade.config.json failed. npm run config retries it.");
     return `admin ${ids.join(", ")}`;
   });
 
@@ -159,7 +166,8 @@ You'll be asked for it, then to install the app and give its bot token; both hid
       console.log("A GitHub token is set already. npm run github replaces it.");
       return "skipped, already set";
     }
-    if ((await runLive("node", ["scripts/github.ts"])) !== 0) fail("Storing the GitHub token failed. npm run github retries it.");
+    if ((await runLive("node", ["scripts/github.ts"])) !== 0)
+      fail("Storing the GitHub token failed. npm run github retries it.");
     return (await hasToken()) ? "token stored" : "skipped, pull requests count as open";
   });
 

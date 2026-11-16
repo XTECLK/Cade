@@ -42,7 +42,9 @@ export default {
     if (/^summary$/i.test(command.text.trim())) return resyncSummary(command, context);
     const all = /^all(?:\s+(\d+))?$/i.exec(command.text.trim());
     if (all) return resyncAll(command, context, Number(all[1] ?? 0));
-    const links = [...command.text.matchAll(LINK)].map((match) => linkedThread((match[1] ?? match[2])!)).filter(Boolean) as { channel: string; ts: string }[];
+    const links = [...command.text.matchAll(LINK)]
+      .map((match) => linkedThread((match[1] ?? match[2])!))
+      .filter(Boolean) as { channel: string; ts: string }[];
     if (!links.length) return NO_LINK;
     // Redrawing can take longer than Slack waits for a slash command's
     // answer, so the reply follows.
@@ -50,7 +52,10 @@ export default {
       (async () => {
         const lines: string[] = [];
         const tasks = await Promise.all(links.map(({ channel, ts }) => loadTask(context.env, channel, ts)));
-        await readPrStates(context.env, tasks.flatMap((task) => task?.prs ?? []));
+        await readPrStates(
+          context.env,
+          tasks.flatMap((task) => task?.prs ?? []),
+        );
         for (const link of links) lines.push(await resync(context.env, link));
         await respondLater(command.responseUrl, { text: lines.join("\n") });
       })(),
@@ -75,7 +80,10 @@ function resyncAll(command: SlashCommand, context: Context, from: number) {
     (async () => {
       const statuses = Object.keys(STATUSES) as Status[];
       // Read first, so the cards are drawn with them.
-      await readPrStates(context.env, (await tasksWithStatus(context.env, group.channel, statuses)).flatMap(({ task }) => task.prs));
+      await readPrStates(
+        context.env,
+        (await tasksWithStatus(context.env, group.channel, statuses)).flatMap(({ task }) => task.prs),
+      );
       const tasks = await tasksWithStatus(context.env, group.channel, statuses);
       const batch = tasks.slice(from, from + ALL_BATCH);
       let next = from;

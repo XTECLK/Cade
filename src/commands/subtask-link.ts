@@ -18,7 +18,8 @@ import type { Context, SlashCommand, StoredTask } from "../types.ts";
 
 type Ref = { channel: string; ts: string };
 
-const USAGE = "Send `/cade subtask link <task link> <main task link>`, or `/cade subtask unlink <task link>`, with the links from Copy link on the cards.";
+const USAGE =
+  "Send `/cade subtask link <task link> <main task link>`, or `/cade subtask unlink <task link>`, with the links from Copy link on the cards.";
 
 // Slack sends links as <https://…> or <https://…|label>.
 const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
@@ -26,7 +27,9 @@ const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 // Only admins get here (see dispatchSlash).
 export function linkCommand(command: SlashCommand, context: Context) {
   const [verb = "", ...rest] = command.text.trim().split(/\s+/);
-  const links = [...rest.join(" ").matchAll(LINK)].map((match) => linkedThread((match[1] ?? match[2])!)).filter(Boolean) as Ref[];
+  const links = [...rest.join(" ").matchAll(LINK)]
+    .map((match) => linkedThread((match[1] ?? match[2])!))
+    .filter(Boolean) as Ref[];
   const run =
     verb.toLowerCase() === "link" && links.length === 2
       ? () => link(context.env, links[0]!, links[1]!, command.user)
@@ -49,19 +52,26 @@ export function linkCommand(command: SlashCommand, context: Context) {
   );
 }
 
-const named = (task: StoredTask) => (task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`);
+const named = (task: StoredTask) =>
+  task.link ? `<${task.link}|${escapeSlack(task.title)}>` : `*${escapeSlack(task.title)}*`;
 
 // Makes the task at `child` a subtask of the one at `parent`, and says how it went.
 async function link(env: AppEnv, child: Ref, parent: Ref, user: string) {
-  const [task, main] = await Promise.all([loadTask(env, child.channel, child.ts), loadTask(env, parent.channel, parent.ts)]);
+  const [task, main] = await Promise.all([
+    loadTask(env, child.channel, child.ts),
+    loadTask(env, parent.channel, parent.ts),
+  ]);
   if (!task || !main) return `The ${!task ? "first" : "second"} link isn't to a task I'm tracking.`;
-  if (child.channel !== parent.channel) return "A subtask goes in its main task's channel, and these are in different ones.";
+  if (child.channel !== parent.channel)
+    return "A subtask goes in its main task's channel, and these are in different ones.";
   if (child.ts === parent.ts) return "That's the same task twice.";
   if (main.parent) return `${named(main)} is a subtask itself, and subtasks don't have their own.`;
   const { open = 0, closed = 0 } = task.subtaskCounts ?? {};
-  if (open + closed) return `${named(task)} has subtasks of its own, and subtasks go one level deep. Unlink them first.`;
+  if (open + closed)
+    return `${named(task)} has subtasks of its own, and subtasks go one level deep. Unlink them first.`;
   if (task.parent?.ts === parent.ts) return `${named(task)} is a subtask of ${named(main)} already.`;
-  if (task.incident && !main.incident) return `${named(task)} is an incident, and an incident's main task must be one too.`;
+  if (task.incident && !main.incident)
+    return `${named(task)} is an incident, and an incident's main task must be one too.`;
   if (AFTER_SUBTASKS.includes(main.status) && task.status !== "DONE") {
     return `${named(main)} is in ${statusName(main.status)}, which waits for all its subtasks to be done, and ${named(task)} isn't. Move one of them first.`;
   }
@@ -75,7 +85,11 @@ async function link(env: AppEnv, child: Ref, parent: Ref, user: string) {
   // Saving redraws its card, the main task's, which counts it, and the summary.
   await saveTask(env, child.channel, child.ts, linked);
   if (before) await redrawParent(env, child.channel, { parent: before });
-  await callSlack(env, "chat.postMessage", { channel: parent.channel, thread_ts: parent.ts, text: await unmentioned(env, subtaskAdded(user, linked)) });
+  await callSlack(env, "chat.postMessage", {
+    channel: parent.channel,
+    thread_ts: parent.ts,
+    text: await unmentioned(env, subtaskAdded(user, linked)),
+  });
   console.log("Subtask linked", { channel: child.channel, ts: child.ts, parent: parent.ts, by: user });
   return `Made ${named(linked)} a subtask of ${named(main)}.${made ? " It's an incident now, like its main task: Urgent and due Immediate." : ""}`;
 }
@@ -90,7 +104,11 @@ async function unlink(env: AppEnv, child: Ref, user: string) {
   const alone = (await loadTask(env, child.channel, child.ts))!;
   await saveTask(env, child.channel, child.ts, alone);
   await redrawParent(env, child.channel, { parent: before });
-  await callSlack(env, "chat.postMessage", { channel: child.channel, thread_ts: before.ts, text: await unmentioned(env, `<@${user}> made ${named(alone)} a task of its own.`) });
+  await callSlack(env, "chat.postMessage", {
+    channel: child.channel,
+    thread_ts: before.ts,
+    text: await unmentioned(env, `<@${user}> made ${named(alone)} a task of its own.`),
+  });
   console.log("Subtask unlinked", { channel: child.channel, ts: child.ts, parent: before.ts, by: user });
   return `Made ${named(alone)} a task of its own again.`;
 }

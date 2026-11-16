@@ -3,7 +3,19 @@ import { getTask, putTask, subtasksOf } from "./db.ts";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.ts";
 import type { AppEnv } from "./env.ts";
 import type { Project } from "./channels.ts";
-import type { MessageBody, Parent, People, PrState, Priority, Role, SlackBlock, SlackPayload, Status, Task, ViewValues } from "./types.ts";
+import type {
+  MessageBody,
+  Parent,
+  People,
+  PrState,
+  Priority,
+  Role,
+  SlackBlock,
+  SlackPayload,
+  Status,
+  Task,
+  ViewValues,
+} from "./types.ts";
 
 // Tasks are stored in D1 (see db.ts). The root message in the tasks channel
 // is rendered from the stored task.
@@ -70,7 +82,12 @@ export function kindBlock(bug: boolean | undefined) {
     type: "input",
     block_id: "kind",
     label: plainText("Type"),
-    element: { type: "static_select", action_id: "value", options: [option("task"), option("bug")], initial_option: option(bug ? "bug" : "task") },
+    element: {
+      type: "static_select",
+      action_id: "value",
+      options: [option("task"), option("bug")],
+      initial_option: option(bug ? "bug" : "task"),
+    },
   };
 }
 
@@ -107,12 +124,22 @@ export function prsLine(task: Pick<Task, "prs" | "prStates">) {
 
 // Other words for each role, besides its name: `@Cade assign dev @rex`, as
 // owners were called developers before.
-const ROLE_WORDS: Record<string, Role> = { dev: "owner", developer: "owner", review: "reviewer", rev: "reviewer", test: "tester", qa: "tester" };
+const ROLE_WORDS: Record<string, Role> = {
+  dev: "owner",
+  developer: "owner",
+  review: "reviewer",
+  rev: "reviewer",
+  test: "tester",
+  qa: "tester",
+};
 
 // Returns the first role named in `text` ("owners", "dev" and "qa" work
 // too), or null.
 export function parseRole(text: string): Role | null {
-  const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => !word.startsWith("<@"));
   return (
     (words
       .map((word) => word.replace(/s$/, ""))
@@ -139,7 +166,9 @@ export function shownPeople(task: Pick<Task, "people" | "parent">): People {
 export function peopleLine(task: Pick<Task, "people">, viewer?: string) {
   return (Object.entries(SHORT_ROLES) as [Role, string][])
     .filter(([role]) => task.people[role].length)
-    .map(([role, label]) => `${label} ${task.people[role].map((id) => (id === viewer ? "you" : `<@${id}>`)).join(", ")}`)
+    .map(
+      ([role, label]) => `${label} ${task.people[role].map((id) => (id === viewer ? "you" : `<@${id}>`)).join(", ")}`,
+    )
     .join("  ·  ");
 }
 
@@ -158,11 +187,17 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   // and pull requests stand); the work (its status and people); and who tracked it. Lines in a block sit
   // closer than the blocks do, so the card reads in those three parts. A block with nothing in it is
   // left out.
-  const status = metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate, !archivedBy && blockedLine(task)).text;
+  const status = metaLine(
+    archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status],
+    task.dueDate,
+    !archivedBy && blockedLine(task),
+  ).text;
   const card: SlackBlock[] = [
     [task.parent && parentLine(task.parent), links.length && links.join("  ·  "), subtasksLine(task), prsLine(task)],
     [status, people || "_Unassigned_"],
-    [`${task.incident || task.bug ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`],
+    [
+      `${task.incident || task.bug ? "Reported" : "Tracked"} by <@${task.createdBy}>${task.viaAgent ? " · *Sent using* AI agent" : ""}`,
+    ],
   ]
     .map((lines) => lines.filter(Boolean))
     .filter((lines) => lines.length)
@@ -173,7 +208,10 @@ export function taskMessage(task: Task, { archivedBy }: { archivedBy?: string | 
   const label = `[${task.priority.toUpperCase()}] ${kind ? `[${kind}] ` : ""}`;
   return {
     text: `${task.priority} ${(kind || "task").toLowerCase()}: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`) }, ...(archivedBy ? [] : [taskActions(task)])],
+    blocks: [
+      { type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`) },
+      ...(archivedBy ? [] : [taskActions(task)]),
+    ],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }
@@ -267,10 +305,11 @@ export function blockedLine(task: Pick<Task, "blocked" | "blockedReason">) {
 
 // A blocked reason as kept: one line, trimmed, cut to MAX_BLOCKED_REASON.
 export function cleanReason(reason: unknown) {
-  const line = String(reason ?? "").replace(/\s+/g, " ").trim();
+  const line = String(reason ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
   return line.length > MAX_BLOCKED_REASON ? `${line.slice(0, MAX_BLOCKED_REASON - 1)}…` : line;
 }
-
 
 // Pull request addresses on GitHub, GitLab and Bitbucket: the repository's
 // name and the request's number.
@@ -319,7 +358,8 @@ async function followParent(env: AppEnv, channel: string, ts: string, task: Task
         sub.task.priority = task.priority;
         await putTask(env, channel, sub.ts, sub.task);
       }
-      if (behind || !sub.task.people.owner.length) await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
+      if (behind || !sub.task.people.owner.length)
+        await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
     }
   } catch (error) {
     console.warn("Could not bring the subtasks in line", { ts, error: error.message });
@@ -357,7 +397,11 @@ export function statusName(status: Status) {
 // The type, title, due date and priority fields of the task form. `initial` fills
 // them in: { title, dueDate (DD/MM/YYYY), priority, bug }. Without `details` the
 // form asks only for the title, for an incident, whose are fixed.
-export function taskFormBlocks(titleLabel: string, initial: { title?: string; dueDate?: string; priority?: string; bug?: boolean } = {}, { details = true } = {}): SlackBlock[] {
+export function taskFormBlocks(
+  titleLabel: string,
+  initial: { title?: string; dueDate?: string; priority?: string; bug?: boolean } = {},
+  { details = true } = {},
+): SlackBlock[] {
   const option = (priority: Priority) => ({
     text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
     value: priority,

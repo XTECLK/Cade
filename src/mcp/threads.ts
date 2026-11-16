@@ -4,7 +4,15 @@ import { isMember, readableName } from "../access.ts";
 import { projects } from "../channels.ts";
 import { MOVED_REACTION } from "../commands/move.ts";
 import { tasksMovedFrom } from "../db.ts";
-import { DEFAULT_CHANNELS, DEFAULT_DAYS, DEFAULT_THREADS, MAX_CHANNELS, MAX_DAYS, MAX_PREVIEW, MAX_THREADS } from "../mcp-tools.ts";
+import {
+  DEFAULT_CHANNELS,
+  DEFAULT_DAYS,
+  DEFAULT_THREADS,
+  MAX_CHANNELS,
+  MAX_DAYS,
+  MAX_PREVIEW,
+  MAX_THREADS,
+} from "../mcp-tools.ts";
 import { callSlack, linkedThread, type SlackChannel } from "../slack.ts";
 import type { GetChannelThreadsArgs, GetChannelsArgs, GetThreadHistoryArgs } from "../mcp-args.ts";
 import type { AppEnv } from "../env.ts";
@@ -12,7 +20,14 @@ import type { SlackMessage } from "../types.ts";
 import { ToolError, PAGE, MAX_PAGES, threadOf, threadIdOf, readableChannel } from "./common.ts";
 
 // A message of a thread: from Slack, or as Cade kept it.
-type ThreadMessage = { ts: string; user?: string; username?: string; bot_id?: string; text?: string; files?: { name?: string }[] };
+type ThreadMessage = {
+  ts: string;
+  user?: string;
+  username?: string;
+  bot_id?: string;
+  text?: string;
+  files?: { name?: string }[];
+};
 
 // Reads a thread: every message of it, oldest first, up to MAX_PAGES pages.
 async function readReplies(env: AppEnv, channel: string, ts: string) {
@@ -38,26 +53,43 @@ export async function getThreadHistory(env: AppEnv, user: string, { thread_id: t
 async function movedIntoReadableTask(env: AppEnv, user: string, channel: string, ts: string) {
   for (const task of await tasksMovedFrom(env, channel, ts)) {
     const from = movedFromOf(task.text);
-    if (from?.channel === channel && from.ts === ts && (await readableName(env, task.channel, user)) !== null) return true;
+    if (from?.channel === channel && from.ts === ts && (await readableName(env, task.channel, user)) !== null)
+      return true;
   }
   return false;
 }
 
 // A thread read from Slack for `user`, as text, or a ToolError for why not.
-async function readSlackThread(env: AppEnv, user: string, channel: string, ts: string, allowed?: () => Promise<boolean>) {
+async function readSlackThread(
+  env: AppEnv,
+  user: string,
+  channel: string,
+  ts: string,
+  allowed?: () => Promise<boolean>,
+) {
   const info = await readableChannel(env, user, channel, allowed);
 
   let messages: SlackMessage[];
   try {
     messages = await asMember(env, info, channel, () => readReplies(env, channel, ts));
   } catch (error) {
-    if (/thread_not_found|message_not_found/.test(error.message)) throw new ToolError("I couldn't find that thread. It may have been deleted.");
-    if (/not_in_channel/.test(error.message)) throw new ToolError("Cade isn't in that channel, so I can't read it: read it with your own Slack tools, as the person, if you can.");
+    if (/thread_not_found|message_not_found/.test(error.message))
+      throw new ToolError("I couldn't find that thread. It may have been deleted.");
+    if (/not_in_channel/.test(error.message))
+      throw new ToolError(
+        "Cade isn't in that channel, so I can't read it: read it with your own Slack tools, as the person, if you can.",
+      );
     throw new ToolError(`Slack wouldn't give me that thread (${error.message}).`);
   }
 
-  const text = [`Thread in #${info.name ?? channel} (${channel}), ${messages.length} message${messages.length === 1 ? "" : "s"}, oldest first:`, ...messageLines(messages)].join("\n");
-  return { text, data: { thread_id: `${channel}:${ts}`, channel_name: info.name ?? channel, messages: messageData(messages) } };
+  const text = [
+    `Thread in #${info.name ?? channel} (${channel}), ${messages.length} message${messages.length === 1 ? "" : "s"}, oldest first:`,
+    ...messageLines(messages),
+  ].join("\n");
+  return {
+    text,
+    data: { thread_id: `${channel}:${ts}`, channel_name: info.name ?? channel, messages: messageData(messages) },
+  };
 }
 
 // Runs a Slack call that needs Cade in `channel`. Anyone can join a public channel, so when the
@@ -78,7 +110,8 @@ export async function reachableThread(env: AppEnv, user: string, channel: string
   try {
     await asMember(env, info, channel, () => callSlack(env, "conversations.replies", { channel, ts, limit: 1 }));
   } catch (error) {
-    if (/thread_not_found|message_not_found/.test(error.message)) throw new ToolError("I couldn't find that thread. It may have been deleted.");
+    if (/thread_not_found|message_not_found/.test(error.message))
+      throw new ToolError("I couldn't find that thread. It may have been deleted.");
     throw new ToolError(`Slack wouldn't let me into that thread (${error.message}).`);
   }
 }
@@ -117,7 +150,8 @@ export function messageLines(messages: ThreadMessage[]) {
 }
 
 // The thread a task was made from, as data, or null.
-export const threadOut = (thread: { channel: string; ts: string; link: string } | null) => (thread ? { thread_id: `${thread.channel}:${thread.ts}`, link: thread.link } : null);
+export const threadOut = (thread: { channel: string; ts: string; link: string } | null) =>
+  thread ? { thread_id: `${thread.channel}:${thread.ts}`, link: thread.link } : null;
 
 // The first message of a task's thread, when it was made from another
 // thread, names that thread (see moveMessage in commands/move.ts).
@@ -139,12 +173,18 @@ export function sourceThreadOf(messages: { text?: string }[]) {
 
 // The channels Cade is in that `user` is in too, project channels first.
 export async function getChannels(env: AppEnv, user: string, { limit }: GetChannelsArgs) {
-  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_CHANNELS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_CHANNELS}.`);
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_CHANNELS))
+    throw new ToolError(`limit is a whole number from 1 to ${MAX_CHANNELS}.`);
   const names = new Map(projects(env).map((project) => [project.channel, project.name]));
   const found: SlackChannel[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const data = await callSlack(env, "users.conversations", { types: "public_channel,private_channel", exclude_archived: true, limit: PAGE, cursor });
+    const data = await callSlack(env, "users.conversations", {
+      types: "public_channel,private_channel",
+      exclude_archived: true,
+      limit: PAGE,
+      cursor,
+    });
     found.push(...(data.channels ?? []));
     cursor = data.response_metadata?.next_cursor;
     if (!cursor) break;
@@ -153,24 +193,43 @@ export async function getChannels(env: AppEnv, user: string, { limit }: GetChann
   for (const channel of found) {
     if (channel.is_im || channel.is_mpim) continue;
     if (!(await isMember(env, channel.id, user))) continue;
-    seen.push({ channel_id: channel.id, name: channel.name ?? channel.id, private: Boolean(channel.is_private), project: names.get(channel.id) ?? "" });
+    seen.push({
+      channel_id: channel.id,
+      name: channel.name ?? channel.id,
+      private: Boolean(channel.is_private),
+      project: names.get(channel.id) ?? "",
+    });
   }
   seen.sort((a, b) => Number(Boolean(b.project)) - Number(Boolean(a.project)) || a.name.localeCompare(b.name));
   const shown = seen.slice(0, limit ?? DEFAULT_CHANNELS);
   if (!seen.length) return { text: "Cade isn't in any channel you're in.", data: { total: 0, channels: [] } };
-  const lines = shown.map((c, i) => `${i + 1}. #${c.name} (${c.channel_id})${c.private ? " [private]" : ""}${c.project ? ` — project ${c.project}` : ""}`);
-  const more = seen.length > shown.length ? `\n…and ${seen.length - shown.length} more; raise limit (up to ${MAX_CHANNELS}).` : "";
-  return { text: [`${seen.length} channel${seen.length === 1 ? "" : "s"} Cade is in:`, ...lines].join("\n") + more, data: { total: seen.length, channels: shown } };
+  const lines = shown.map(
+    (c, i) =>
+      `${i + 1}. #${c.name} (${c.channel_id})${c.private ? " [private]" : ""}${c.project ? ` — project ${c.project}` : ""}`,
+  );
+  const more =
+    seen.length > shown.length ? `\n…and ${seen.length - shown.length} more; raise limit (up to ${MAX_CHANNELS}).` : "";
+  return {
+    text: [`${seen.length} channel${seen.length === 1 ? "" : "s"} Cade is in:`, ...lines].join("\n") + more,
+    data: { total: seen.length, channels: shown },
+  };
 }
 
 const utc = (ts: string) => new Date(Number(ts) * 1000).toISOString().slice(0, 16).replace("T", " ");
 
 // A channel's recent root messages from people that aren't tracked: Cade's own posts (the task
 // cards) are skipped, and so are those already moved into a task, marked with MOVED_REACTION.
-export async function getChannelThreads(env: AppEnv, user: string, { channel_id: channel, days, with_replies: withReplies, limit }: GetChannelThreadsArgs) {
-  if (!/^[CG][A-Z0-9]+$/.test(String(channel ?? ""))) throw new ToolError("channel_id is a channel's ID such as C0123ABCD. get_channels gives them.");
-  if (days !== undefined && !(Number.isInteger(days) && days >= 1 && days <= MAX_DAYS)) throw new ToolError(`days is a whole number from 1 to ${MAX_DAYS}.`);
-  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_THREADS)) throw new ToolError(`limit is a whole number from 1 to ${MAX_THREADS}.`);
+export async function getChannelThreads(
+  env: AppEnv,
+  user: string,
+  { channel_id: channel, days, with_replies: withReplies, limit }: GetChannelThreadsArgs,
+) {
+  if (!/^[CG][A-Z0-9]+$/.test(String(channel ?? "")))
+    throw new ToolError("channel_id is a channel's ID such as C0123ABCD. get_channels gives them.");
+  if (days !== undefined && !(Number.isInteger(days) && days >= 1 && days <= MAX_DAYS))
+    throw new ToolError(`days is a whole number from 1 to ${MAX_DAYS}.`);
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_THREADS))
+    throw new ToolError(`limit is a whole number from 1 to ${MAX_THREADS}.`);
   const info = await readableChannel(env, user, channel);
   const oldest = String(Math.floor(Date.now() / 1000) - (days ?? DEFAULT_DAYS) * 86400);
 
@@ -217,8 +276,25 @@ export async function getChannelThreads(env: AppEnv, user: string, { channel_id:
     last_reply: message.latest_reply && Number(message.reply_count) > 0 ? utc(message.latest_reply) : "",
   }));
   const name = info.name ?? channel;
-  if (!threads.length) return { text: `No threads from people in #${name} in the last ${days ?? DEFAULT_DAYS} days${withReplies ? " had replies" : ""} that Cade isn't tracking.`, data: { channel_id: channel, channel_name: name, total: 0, threads: [] } };
-  const lines = threads.map((thread, i) => `${i + 1}. [${thread.time} UTC] ${thread.user_id}, ${thread.reply_count} repl${thread.reply_count === 1 ? "y" : "ies"} (${thread.thread_id}): ${thread.text.replace(/\s+/g, " ")}${thread.files.length ? ` [attached: ${thread.files.join(", ")}]` : ""}`);
-  const more = people.length > shown.length ? `\n…and ${people.length - shown.length} more; raise limit (up to ${MAX_THREADS}).` : "";
-  return { text: [`${people.length} thread${people.length === 1 ? "" : "s"} in #${name} not tracked by Cade, newest first:`, ...lines].join("\n") + more, data: { channel_id: channel, channel_name: name, total: people.length, threads } };
+  if (!threads.length)
+    return {
+      text: `No threads from people in #${name} in the last ${days ?? DEFAULT_DAYS} days${withReplies ? " had replies" : ""} that Cade isn't tracking.`,
+      data: { channel_id: channel, channel_name: name, total: 0, threads: [] },
+    };
+  const lines = threads.map(
+    (thread, i) =>
+      `${i + 1}. [${thread.time} UTC] ${thread.user_id}, ${thread.reply_count} repl${thread.reply_count === 1 ? "y" : "ies"} (${thread.thread_id}): ${thread.text.replace(/\s+/g, " ")}${thread.files.length ? ` [attached: ${thread.files.join(", ")}]` : ""}`,
+  );
+  const more =
+    people.length > shown.length
+      ? `\n…and ${people.length - shown.length} more; raise limit (up to ${MAX_THREADS}).`
+      : "";
+  return {
+    text:
+      [
+        `${people.length} thread${people.length === 1 ? "" : "s"} in #${name} not tracked by Cade, newest first:`,
+        ...lines,
+      ].join("\n") + more,
+    data: { channel_id: channel, channel_name: name, total: people.length, threads },
+  };
 }

@@ -1,5 +1,12 @@
 import { callSlack } from "../slack.ts";
-import { NOT_A_TASK, TASK_EDIT_ACTION, TASK_MENU_ACTION, TASK_PRS_ACTION, TASK_SUBTASKS_ACTION, loadTask } from "../tasks.ts";
+import {
+  NOT_A_TASK,
+  TASK_EDIT_ACTION,
+  TASK_MENU_ACTION,
+  TASK_PRS_ACTION,
+  TASK_SUBTASKS_ACTION,
+  loadTask,
+} from "../tasks.ts";
 import { editForm } from "./edit.ts";
 import { archiveTask } from "./archive.ts";
 import { prsView } from "./prs.ts";
@@ -25,7 +32,10 @@ type Origin = { channel: string; ts: string };
 // Anything Cade can't do is said only to whoever chose it. Cards posted before had Edit, Add subtask
 // and View subtasks in the menu, which still open them, and other choices (Release, before partial
 // releases went), which open Edit.
-const FORMS: Record<"edit" | "subtask" | "subtasks" | "prs", (env: AppEnv, origin: Origin, task: StoredTask) => unknown> = {
+const FORMS: Record<
+  "edit" | "subtask" | "subtasks" | "prs",
+  (env: AppEnv, origin: Origin, task: StoredTask) => unknown
+> = {
   edit: (env, origin, task) => editForm(origin, task),
   subtask: (env, origin, task) => subtaskForm(origin, task),
   subtasks: (env, origin, task) => subtasksView(env, origin, task),

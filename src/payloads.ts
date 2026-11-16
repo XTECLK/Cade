@@ -60,7 +60,10 @@ export const TASK_FORM = object({ ...TASK_REF, responseUrl: text }, ["channel", 
 export type TaskForm = TaskRef & { responseUrl?: string };
 
 // Approve and Not approve on a task in Client review (status.ts).
-export const TASK_APPROVAL = object({ ...TASK_REF, text: text, approver: { type: ["string", "null"] } }, ["channel", "ts"]);
+export const TASK_APPROVAL = object({ ...TASK_REF, text: text, approver: { type: ["string", "null"] } }, [
+  "channel",
+  "ts",
+]);
 export type TaskApproval = TaskRef & { text?: string; approver?: string | null };
 
 // Send, Edit and Not now on the private draft of what a change asks of people (ask.ts): the task, and the
@@ -92,18 +95,29 @@ const CHANGES = object(
 
 // Change and Edit on a suggestion (ai-suggest.ts): the task, the changes, the status it was suggested
 // at, and who the message mentioned.
-export const SUGGESTION = object({ ...TASK_REF, changes: CHANGES, from: text, told: texts }, ["channel", "ts", "changes"]);
+export const SUGGESTION = object({ ...TASK_REF, changes: CHANGES, from: text, told: texts }, [
+  "channel",
+  "ts",
+  "changes",
+]);
 export type Suggestion = TaskRef & { changes: Changes; from?: Status; told?: string[] };
 
 // Link on an older pull request question (pr.ts): the task, the PRs, who the message mentioned, and
 // the reviewers it suggested.
-export const PR_SUGGESTION = object({ ...TASK_REF, urls: texts, mentioned: texts, reviewers: texts }, ["channel", "ts"]);
+export const PR_SUGGESTION = object({ ...TASK_REF, urls: texts, mentioned: texts, reviewers: texts }, [
+  "channel",
+  "ts",
+]);
 export type PrSuggestion = TaskRef & { urls?: string[]; mentioned?: string[]; reviewers?: string[] };
 
 // OK and Unlink on the private note that pull requests pasted into a task's thread were linked (pr.ts):
 // the task, the PRs that message linked, the Auto-linked message posted (not on older notes), and what
 // else it means, to ask about once clicked, as a suggestion carries it.
-export const PR_LINKED = object({ ...TASK_REF, urls: texts, posted: text, changes: CHANGES, from: text, told: texts }, ["channel", "ts", "urls"]);
+export const PR_LINKED = object({ ...TASK_REF, urls: texts, posted: text, changes: CHANGES, from: text, told: texts }, [
+  "channel",
+  "ts",
+  "urls",
+]);
 export type PrLinked = TaskRef & { urls: string[]; posted?: string; changes?: Changes; from?: Status; told?: string[] };
 
 // The reviewer picker's block_id (pr.ts): the PRs it asks about. It may have been cut short to fit,
@@ -116,12 +130,18 @@ export const SUBTASKS_CLOSE = object({ ...TASK_REF, status: { type: "string", en
 export type SubtasksClose = TaskRef & { status: "CLIENT_REVIEW" | "DONE" };
 
 // The Edit form (edit.ts).
-export const EDIT_FORM = object({ ...TASK_REF, details: { type: "boolean" }, responseUrl: text, told: texts }, ["channel", "ts"]);
+export const EDIT_FORM = object({ ...TASK_REF, details: { type: "boolean" }, responseUrl: text, told: texts }, [
+  "channel",
+  "ts",
+]);
 export type EditForm = TaskRef & { details?: boolean; responseUrl?: string; told?: string[] };
 
 // The New task and New incident forms (track.ts): where the task goes, which the form may ask for, its
 // title to start with, and the message to move into its thread.
-export const TRACK_FORM = object({ channel: text, title: text, move: object({ ...TASK_REF, away: { type: "boolean" } }, ["channel", "ts"]) }, []);
+export const TRACK_FORM = object(
+  { channel: text, title: text, move: object({ ...TASK_REF, away: { type: "boolean" } }, ["channel", "ts"]) },
+  [],
+);
 export type TrackForm = { channel?: string; title?: string; move?: TaskRef & { away?: boolean } };
 
 // Move to existing's form (move.ts): the message, the private question to remove, and the project's

@@ -1,5 +1,15 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.ts";
-import { MAX_BLOCKED_REASON, PRIORITIES, ROLES, STATUSES, formatDueDate, kindBlock, loadTask, pickerDate, readKind } from "../tasks.ts";
+import {
+  MAX_BLOCKED_REASON,
+  PRIORITIES,
+  ROLES,
+  STATUSES,
+  formatDueDate,
+  kindBlock,
+  loadTask,
+  pickerDate,
+  readKind,
+} from "../tasks.ts";
 import { applyChanges } from "./changes.ts";
 import { statusOption } from "./status.ts";
 import type { Handler } from "../types.ts";
@@ -38,12 +48,19 @@ export function editForm(
 ) {
   const details = !task.incident;
   const blockedNow = changes.blocked ? changes.blocked.on : task.blocked;
-  const blockedReason = changes.blocked?.on ? changes.blocked.reason ?? "" : task.blocked && !changes.blocked ? task.blockedReason : "";
+  const blockedReason = changes.blocked?.on
+    ? (changes.blocked.reason ?? "")
+    : task.blocked && !changes.blocked
+      ? task.blockedReason
+      : "";
   const peopleAfter = (role: Role) => {
     const { add = [], remove = [] } = changes.people?.[role] ?? {};
     return [...task.people[role].filter((id) => !remove.includes(id)), ...add];
   };
-  const priorityOption = (name: Priority) => ({ text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true }, value: name });
+  const priorityOption = (name: Priority) => ({
+    text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true },
+    value: name,
+  });
   const status = changes.status ?? task.status;
   const priority = changes.priority ?? task.priority;
   const dueDate = "dueDate" in changes ? changes.dueDate : task.dueDate;
@@ -87,17 +104,21 @@ export function editForm(
       ...(details
         ? [
             // A subtask's priority is its task's (see followParent in tasks.ts), so its form leaves it out.
-            ...(task.parent ? [] : [{
-              type: "input",
-              block_id: "priority",
-              label: plainText("Priority"),
-              element: {
-                type: "static_select",
-                action_id: "value",
-                options: (Object.keys(PRIORITIES) as Priority[]).map(priorityOption),
-                ...(PRIORITIES[priority] && { initial_option: priorityOption(priority) }),
-              },
-            }]),
+            ...(task.parent
+              ? []
+              : [
+                  {
+                    type: "input",
+                    block_id: "priority",
+                    label: plainText("Priority"),
+                    element: {
+                      type: "static_select",
+                      action_id: "value",
+                      options: (Object.keys(PRIORITIES) as Priority[]).map(priorityOption),
+                      ...(PRIORITIES[priority] && { initial_option: priorityOption(priority) }),
+                    },
+                  },
+                ]),
             {
               type: "input",
               block_id: "due_date",
@@ -144,7 +165,11 @@ export function editForm(
 // Saves the form as the changes from the task as it is now, having removed
 // the private suggestion it came from, if any.
 function saveEdit(payload: SlackPayload, context: Context) {
-  const { channel, ts, details, responseUrl, told } = readPayload<EditForm>(EDIT_FORM, payload.view.private_metadata, "Edit form");
+  const { channel, ts, details, responseUrl, told } = readPayload<EditForm>(
+    EDIT_FORM,
+    payload.view.private_metadata,
+    "Edit form",
+  );
   const { values } = payload.view.state;
   context.waitUntil(
     (async () => {
@@ -169,9 +194,10 @@ function saveEdit(payload: SlackPayload, context: Context) {
         changes.priority = (values.priority?.value.selected_option?.value ?? task.priority) as Priority;
         changes.dueDate = formatDueDate(values.due_date!.value.selected_date);
       }
-      changes.blocked = (values.blocked?.value.selected_options ?? []).length > 0
-        ? { on: true, reason: values.blocked_reason?.value.value ?? "" }
-        : { on: false };
+      changes.blocked =
+        (values.blocked?.value.selected_options ?? []).length > 0
+          ? { on: true, reason: values.blocked_reason?.value.value ?? "" }
+          : { on: false };
       await applyChanges(env, { channel, ts }, changes, payload.user.id, { told, saw: true });
     })(),
   );

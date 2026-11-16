@@ -8,7 +8,6 @@ import type { Handler } from "../types.ts";
 import type { AppEnv } from "../env.ts";
 import type { Context, SlackPayload } from "../types.ts";
 
-
 const SETTINGS_VIEW = "project:settings";
 const ADD_VIEW = "project:add";
 
@@ -47,16 +46,35 @@ async function settingsView(env: AppEnv, channel: string) {
     close: plainText("Cancel"),
     blocks: [
       { type: "section", text: mrkdwn(`*${escapeSlack(project.name)}*`) },
-      { type: "context", elements: [mrkdwn(`<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. To change another project, pick it on the Home tab.`)] },
+      {
+        type: "context",
+        elements: [
+          mrkdwn(
+            `<#${project.channel}> · ${project.added ? "kept in Cade's database, with its name and channel" : "its name and channel are set in cade.config.json"}. To change another project, pick it on the Home tab.`,
+          ),
+        ],
+      },
       ...(await peopleBlocks(env, project.channel)),
       ...SETTINGS.map(({ key, label, about }) => {
-        const options = Object.entries(CHOICES).map(([value, text]) => option(value === "config" ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})` : text, value));
+        const options = Object.entries(CHOICES).map(([value, text]) =>
+          option(
+            value === "config"
+              ? `${project.added ? "Use the default" : text} (${state(settingOn(config, project.channel, key))})`
+              : text,
+            value,
+          ),
+        );
         return {
           type: "input",
           block_id: `s_${key}`,
           label: plainText(label),
           hint: plainText(`${about} Now ${state(settingOn(env, project.channel, key))}.`.slice(0, 2000)),
-          element: { type: "static_select", action_id: "value", initial_option: options.find((choice) => choice.value === choices[key]), options },
+          element: {
+            type: "static_select",
+            action_id: "value",
+            initial_option: options.find((choice) => choice.value === choices[key]),
+            options,
+          },
         };
       }),
     ],
@@ -66,7 +84,10 @@ async function settingsView(env: AppEnv, channel: string) {
 // Edit, under Projects in Settings on the Home tab: opens the form for the project it carries.
 async function openSettings(payload: SlackPayload, { env }: Context) {
   if (!isAdmin(env, payload.user.id)) return;
-  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await settingsView(env, payload.actions[0].value) });
+  await callSlack(env, "views.open", {
+    trigger_id: payload.trigger_id,
+    view: await settingsView(env, payload.actions[0].value),
+  });
 }
 
 // The form saved: each setting goes back to the config or is kept on or off.
@@ -74,7 +95,9 @@ async function saveSettings(payload: SlackPayload, context: Context) {
   const { env } = context;
   if (!isAdmin(env, payload.user.id)) return { response_action: "clear" };
   const channel = payload.view.private_metadata;
-  const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, payload.view.state.values[`s_${key}`]?.value?.selected_option?.value]));
+  const choices = Object.fromEntries(
+    SETTINGS.map(({ key }) => [key, payload.view.state.values[`s_${key}`]?.value?.selected_option?.value]),
+  );
   context.waitUntil(
     (async () => {
       const changed = await applySettings(env, channel, choices, payload.user.id);
@@ -82,13 +105,14 @@ async function saveSettings(payload: SlackPayload, context: Context) {
       await callSlack(env, "chat.postEphemeral", {
         channel,
         user: payload.user.id,
-        text: changed ? `Saved ${changed} setting${changed === 1 ? "" : "s"} for the project *${name}*. They apply from the next message.` : `Nothing changed for the project *${name}*.`,
+        text: changed
+          ? `Saved ${changed} setting${changed === 1 ? "" : "s"} for the project *${name}*. They apply from the next message.`
+          : `Nothing changed for the project *${name}*.`,
       });
     })(),
   );
   return { response_action: "clear" };
 }
-
 
 // Who works on the project: everyone in its channel, as Cade keeps no list of its own. People are added
 // and removed in the channel itself, and who can reach the project's tasks with Cade goes by it too.
@@ -98,14 +122,24 @@ async function peopleBlocks(env: AppEnv, channel: string) {
   try {
     const ids = await channelMembers(env, channel);
     const more = ids.length > MAX_SHOWN ? ` and ${ids.length - MAX_SHOWN} more` : "";
-    text = ids.length ? `${ids.slice(0, MAX_SHOWN).map((id) => `<@${id}>`).join(", ")}${more}` : "_No one yet._";
+    text = ids.length
+      ? `${ids
+          .slice(0, MAX_SHOWN)
+          .map((id) => `<@${id}>`)
+          .join(", ")}${more}`
+      : "_No one yet._";
   } catch (error) {
     console.warn("Could not read the channel's members", { channel, error: error.message });
     text = "_I couldn't read who is in the channel just now._";
   }
   return [
     { type: "section", text: mrkdwn(`*People*\n${text}`) },
-    { type: "context", elements: [mrkdwn(`Everyone in <#${channel}> works on this project. Add or remove people in the channel itself.`)] },
+    {
+      type: "context",
+      elements: [
+        mrkdwn(`Everyone in <#${channel}> works on this project. Add or remove people in the channel itself.`),
+      ],
+    },
   ];
 }
 
@@ -129,7 +163,9 @@ function addView(env: AppEnv) {
         type: "input",
         block_id: "channel",
         label: plainText("Channel"),
-        hint: plainText("Where the team tracks this project's tasks. Cade must be in it (invite it with /invite @Cade in a private channel)."),
+        hint: plainText(
+          "Where the team tracks this project's tasks. Cade must be in it (invite it with /invite @Cade in a private channel).",
+        ),
         element: {
           type: "conversations_select",
           action_id: "value",
@@ -142,11 +178,15 @@ function addView(env: AppEnv) {
         block_id: "name",
         optional: true,
         label: plainText("Name"),
-        hint: plainText("Up to 40 letters, numbers, spaces, dashes or dots. Left empty, the channel's name. It can't be changed later."),
+        hint: plainText(
+          "Up to 40 letters, numbers, spaces, dashes or dots. Left empty, the channel's name. It can't be changed later.",
+        ),
         element: { type: "plain_text_input", action_id: "value", max_length: 40 },
       },
       ...SETTINGS.map(({ key, label, about }) => {
-        const options = Object.entries(DEFAULT_CHOICES).map(([value, text]) => option(value === "config" ? `${text} (${state(settingOn(config, undefined, key))})` : text, value));
+        const options = Object.entries(DEFAULT_CHOICES).map(([value, text]) =>
+          option(value === "config" ? `${text} (${state(settingOn(config, undefined, key))})` : text, value),
+        );
         return {
           type: "input",
           block_id: `s_${key}`,
@@ -160,7 +200,12 @@ function addView(env: AppEnv) {
 }
 
 // A plain window with a message and a Close button: while adding, and what it came to.
-const notice = (title: string, text: string) => ({ type: "modal", title: plainText(title), close: plainText("Close"), blocks: [{ type: "section", text: mrkdwn(text) }] });
+const notice = (title: string, text: string) => ({
+  type: "modal",
+  title: plainText(title),
+  close: plainText("Close"),
+  blocks: [{ type: "section", text: mrkdwn(text) }],
+});
 
 // The Add project button: opens the form, within Slack's three seconds of the click.
 async function openAddProject(payload: SlackPayload, { env }: Context) {
@@ -177,24 +222,40 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
   const values = payload.view.state.values;
   const channel = values.channel?.value?.selected_conversation;
   const typed = (values.name?.value?.value ?? "").trim();
-  const choices = Object.fromEntries(SETTINGS.map(({ key }) => [key, values[`s_${key}`]?.value?.selected_option?.value]));
+  const choices = Object.fromEntries(
+    SETTINGS.map(({ key }) => [key, values[`s_${key}`]?.value?.selected_option?.value]),
+  );
 
   const existing = projects(env).find((project) => project.channel === channel);
-  if (existing) return { response_action: "errors", errors: { channel: `This channel is the project ${existing.name} already.` } };
+  if (existing)
+    return { response_action: "errors", errors: { channel: `This channel is the project ${existing.name} already.` } };
   let info;
   try {
     ({ channel: info } = await callSlack(env, "conversations.info", { channel }));
   } catch (error) {
-    return { response_action: "errors", errors: { channel: `I can't see this channel (${error.message}). Invite me with /invite @Cade and try again.` } };
+    return {
+      response_action: "errors",
+      errors: { channel: `I can't see this channel (${error.message}). Invite me with /invite @Cade and try again.` },
+    };
   }
-  if (!info.is_member && info.is_private) return { response_action: "errors", errors: { channel: "I'm not in this private channel yet. Invite me with /invite @Cade, then add it." } };
+  if (!info.is_member && info.is_private)
+    return {
+      response_action: "errors",
+      errors: { channel: "I'm not in this private channel yet. Invite me with /invite @Cade, then add it." },
+    };
   const name = typed || info.name || "";
-  if (!NAME.test(name)) return { response_action: "errors", errors: { name: "A name is up to 40 letters, numbers, spaces, dashes or dots." } };
+  if (!NAME.test(name))
+    return {
+      response_action: "errors",
+      errors: { name: "A name is up to 40 letters, numbers, spaces, dashes or dots." },
+    };
   if (projects(env).some((project) => project.name.toLowerCase() === name.toLowerCase())) {
     return { response_action: "errors", errors: { name: `There is a project called ${name} already.` } };
   }
 
-  context.waitUntil(createProject(env, { channel: channel!, name, choices, joined: info.is_member }, user, payload.view.id));
+  context.waitUntil(
+    createProject(env, { channel: channel!, name, choices, joined: info.is_member }, user, payload.view.id),
+  );
   return { response_action: "update", view: notice("Add project", `:hourglass_flowing_sand: Adding *${name}*…`) };
 }
 
@@ -203,7 +264,12 @@ async function addProjectSubmit(payload: SlackPayload, context: Context) {
 // the new project.
 async function createProject(
   env: AppEnv,
-  { channel, name, choices, joined }: { channel: string; name: string; choices: Record<string, string | undefined>; joined?: boolean },
+  {
+    channel,
+    name,
+    choices,
+    joined,
+  }: { channel: string; name: string; choices: Record<string, string | undefined>; joined?: boolean },
   user: string,
   viewId: string,
 ) {
@@ -224,7 +290,11 @@ async function createProject(
   try {
     await callSlack(env, "views.update", { view_id: viewId, view: notice("Add project", text) });
   } catch {
-    await callSlack(env, "chat.postMessage", { channel: user, text }).catch((error) => console.error("Could not tell the admin", { error: error.message }));
+    await callSlack(env, "chat.postMessage", { channel: user, text }).catch((error) =>
+      console.error("Could not tell the admin", { error: error.message }),
+    );
   }
-  await publishHome(env, user).catch((error) => console.error("Could not redraw the Home tab", { error: error.message }));
+  await publishHome(env, user).catch((error) =>
+    console.error("Could not redraw the Home tab", { error: error.message }),
+  );
 }

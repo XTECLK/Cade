@@ -23,7 +23,8 @@ export default {
     const link = linkedMessage(command.text);
     if (!link) return USAGE;
     context.waitUntil(
-      (async () => respondLater(command.responseUrl, { text: await retry(context.env, context, link, command.user) }))(),
+      (async () =>
+        respondLater(command.responseUrl, { text: await retry(context.env, context, link, command.user) }))(),
     );
   },
 } satisfies Handler;

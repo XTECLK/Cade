@@ -63,11 +63,7 @@ export default {
       // The Worker's address, for what has to tell people it (see commands/mcp.ts).
       origin: new URL(request.url).origin,
       waitUntil: (promise: Promise<unknown>) =>
-        ctx.waitUntil(
-          promise.catch((error) =>
-            console.error("Background task failed", { error: error.message }),
-          ),
-        ),
+        ctx.waitUntil(promise.catch((error) => console.error("Background task failed", { error: error.message }))),
     };
     try {
       return await route(body, request, context);
@@ -121,7 +117,11 @@ async function handleEvent(body: string, request: Request, context: Context) {
   if (event.type !== "message") return respond();
 
   // A reply in a task's thread is kept in the database (see recordMessage).
-  context.waitUntil(recordMessage(context.env, event).catch((error) => console.error("Could not keep a message", { error: error.message })));
+  context.waitUntil(
+    recordMessage(context.env, event).catch((error) =>
+      console.error("Could not keep a message", { error: error.message }),
+    ),
+  );
 
   const command = parseMessage(event, botUserId);
   if (command) {
@@ -145,7 +145,12 @@ async function handleEvent(body: string, request: Request, context: Context) {
           if ((reply as Acknowledgement).note) await post((reply as Acknowledgement).note);
           // What it asks of people is offered to whoever sent it first; a message's command always has its ts.
           const ask = (reply as Acknowledgement).ask ?? [];
-          await offerAsk(context.env, { channel: command.channel, ts: command.threadTs ?? command.ts! }, command.user, ask);
+          await offerAsk(
+            context.env,
+            { channel: command.channel, ts: command.threadTs ?? command.ts! },
+            command.user,
+            ask,
+          );
           return;
         }
         await post(reply);
@@ -222,7 +227,9 @@ async function handleInteraction(body: string, request: Request, context: Contex
       throw error;
     });
   try {
-    return respond(await handler(payload, { ...context, waitUntil: (promise) => context.waitUntil(outdatedToo(promise)) }));
+    return respond(
+      await handler(payload, { ...context, waitUntil: (promise) => context.waitUntil(outdatedToo(promise)) }),
+    );
   } catch (error) {
     if (!(error instanceof OutdatedPayload)) throw error;
     await outdated(context.env, payload, error);
@@ -231,8 +238,14 @@ async function handleInteraction(body: string, request: Request, context: Contex
   }
 }
 
-const OUTDATED = "That's from an older message, and doesn't work anymore. Open the task again, or send the command again.";
-const OUTDATED_VIEW = { type: "modal", title: plainText("Out of date"), close: plainText("Close"), blocks: [{ type: "section", text: mrkdwn(OUTDATED) }] };
+const OUTDATED =
+  "That's from an older message, and doesn't work anymore. Open the task again, or send the command again.";
+const OUTDATED_VIEW = {
+  type: "modal",
+  title: plainText("Out of date"),
+  close: plainText("Close"),
+  blocks: [{ type: "section", text: mrkdwn(OUTDATED) }],
+};
 
 // Tells whoever clicked an out-of-date button so, privately, where it was: through the click's
 // response_url, or in its channel. A form says so in its window instead (see above); a button on the
@@ -242,7 +255,12 @@ async function outdated(env: AppEnv, payload: SlackPayload, error: OutdatedPaylo
   if (payload.type === "view_submission") return;
   try {
     if (payload.response_url) await respondLater(payload.response_url, { text: OUTDATED, replace_original: false });
-    else if (payload.channel?.id) await callSlack(env, "chat.postEphemeral", { channel: payload.channel.id, user: payload.user.id, text: OUTDATED });
+    else if (payload.channel?.id)
+      await callSlack(env, "chat.postEphemeral", {
+        channel: payload.channel.id,
+        user: payload.user.id,
+        text: OUTDATED,
+      });
   } catch (failure) {
     console.warn("Could not say the button is out of date", { error: failure.message });
   }

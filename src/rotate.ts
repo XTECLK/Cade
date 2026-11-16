@@ -28,7 +28,8 @@ export async function rotateThreads(env: AppEnv, now = Date.now()) {
 
 async function rotateThread(env: AppEnv, channel: string, oldTs: string, listed: Task) {
   const { ts: newTs } = await callSlack(env, "chat.postMessage", { channel, ...taskMessage(listed) });
-  const permalink = (ts: string) => callSlack(env, "chat.getPermalink", { channel, message_ts: ts }).then((answer) => answer.permalink);
+  const permalink = (ts: string) =>
+    callSlack(env, "chat.getPermalink", { channel, message_ts: ts }).then((answer) => answer.permalink);
   const [oldLink, newLink] = await Promise.all([permalink(oldTs), permalink(newTs)]);
   await moveTaskThread(env, channel, oldTs, newTs);
   console.log("Thread rotated", { channel, from: oldTs, to: newTs });
@@ -36,7 +37,8 @@ async function rotateThread(env: AppEnv, channel: string, oldTs: string, listed:
   // Read again, as the list is from before this run's rotations: a subtask's parent may have just moved.
   const task = (await loadTask(env, channel, newTs))!;
   // The card's link and its page's address (which ends in the root's ts) follow it.
-  const moved = (page?: { url: string }) => page && { url: page.url.endsWith(`/${oldTs}`) ? page.url.slice(0, -oldTs.length) + newTs : page.url };
+  const moved = (page?: { url: string }) =>
+    page && { url: page.url.endsWith(`/${oldTs}`) ? page.url.slice(0, -oldTs.length) + newTs : page.url };
   const rotated = { ...task, link: newLink, export: moved(task.export) };
   await saveTask(env, channel, newTs, rotated);
   await redrawSubtasks(env, channel, newTs);
@@ -49,7 +51,10 @@ async function rotateThread(env: AppEnv, channel: string, oldTs: string, listed:
     channel,
     ts: oldTs,
     text: `${title}\n${moving}`,
-    blocks: [{ type: "section", text: mrkdwn(title) }, { type: "context", elements: [mrkdwn(moving)] }],
+    blocks: [
+      { type: "section", text: mrkdwn(title) },
+      { type: "context", elements: [mrkdwn(moving)] },
+    ],
     attachments: [],
   });
   await callSlack(env, "chat.postMessage", { channel, thread_ts: oldTs, text: moving });
@@ -63,7 +68,8 @@ async function rotateThread(env: AppEnv, channel: string, oldTs: string, listed:
 // convenience, so a failure is only logged.
 async function redrawSubtasks(env: AppEnv, channel: string, ts: string) {
   try {
-    for (const sub of await subtasksOf(env, channel, ts)) await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
+    for (const sub of await subtasksOf(env, channel, ts))
+      await callSlack(env, "chat.update", { channel, ts: sub.ts, ...taskMessage(sub.task) });
   } catch (error) {
     console.warn("Could not redraw the subtasks", { channel, ts, error: error.message });
   }

@@ -7,21 +7,37 @@ import { fileURLToPath } from "node:url";
 import { TOOL_DEFS } from "../src/mcp-tools.ts";
 import type { Schema } from "../src/validate.ts";
 
-const escape = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const escape = (text) =>
+  String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const code = (text) => `<code>${escape(text)}</code>`;
 
 // The rows of a schema's properties, nested ones with a dotted name: [{ name, type, required, note }].
 export function rows(schema: Schema, prefix = "", required = new Set(schema.required ?? [])) {
-  return Object.entries(schema.properties ?? {}).flatMap(([key, property]): { name: string; type: string; required: boolean; note: string }[] => {
-    const name = prefix + key;
-    const nested = (property.type === "array" ? property.items : property) ?? {};
-    const kind = [property.type].flat().join(" or ");
-    const type = property.enum ? `${kind}: ${property.enum.join(" | ")}` : property.type === "array" ? `${[nested.type].flat().join(" or ")}[]${nested.enum ? `: ${nested.enum.join(" | ")}` : ""}` : kind;
-    const limits = [property.minimum !== undefined && `min ${property.minimum}`, property.maximum !== undefined && `max ${property.maximum}`].filter(Boolean).join(", ");
-    const note = [property.description, nested !== property ? nested.description : "", limits].filter(Boolean).join(" · ");
-    const own = { name, type, required: required.has(key), note };
-    return nested.properties ? [own, ...rows(nested, `${name}${property.type === "array" ? "[]." : "."}`, new Set(nested.required ?? []))] : [own];
-  });
+  return Object.entries(schema.properties ?? {}).flatMap(
+    ([key, property]): { name: string; type: string; required: boolean; note: string }[] => {
+      const name = prefix + key;
+      const nested = (property.type === "array" ? property.items : property) ?? {};
+      const kind = [property.type].flat().join(" or ");
+      const type = property.enum
+        ? `${kind}: ${property.enum.join(" | ")}`
+        : property.type === "array"
+          ? `${[nested.type].flat().join(" or ")}[]${nested.enum ? `: ${nested.enum.join(" | ")}` : ""}`
+          : kind;
+      const limits = [
+        property.minimum !== undefined && `min ${property.minimum}`,
+        property.maximum !== undefined && `max ${property.maximum}`,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const note = [property.description, nested !== property ? nested.description : "", limits]
+        .filter(Boolean)
+        .join(" · ");
+      const own = { name, type, required: required.has(key), note };
+      return nested.properties
+        ? [own, ...rows(nested, `${name}${property.type === "array" ? "[]." : "."}`, new Set(nested.required ?? []))]
+        : [own];
+    },
+  );
 }
 
 // "one of task_id, link" for a schema's anyOf of required alternatives, or "".
@@ -34,7 +50,10 @@ function table(schema, empty) {
   const list = rows(schema);
   if (!list.length) return `<p class="none">${empty}</p>`;
   const body = list
-    .map((row) => `<tr><td>${code(row.name)}</td><td>${escape(row.type)}</td><td>${row.required ? "yes" : ""}</td><td>${escape(row.note)}</td></tr>`)
+    .map(
+      (row) =>
+        `<tr><td>${code(row.name)}</td><td>${escape(row.type)}</td><td>${row.required ? "yes" : ""}</td><td>${escape(row.note)}</td></tr>`,
+    )
     .join("\n");
   return `<div class="tablewrap"><table>\n<thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Notes</th></tr></thead>\n<tbody>\n${body}\n</tbody>\n</table></div>`;
 }

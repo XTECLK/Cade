@@ -61,11 +61,14 @@ export function readConfig(json) {
     throw new Error("cade.config.json is not valid JSON.");
   }
   // Removed with executive summaries, which a team now writes with its own AI agent's workflow.
-  if (config.googleUrl !== undefined) throw new Error("googleUrl is no longer a setting: Cade doesn't use Google any more. Delete it.");
+  if (config.googleUrl !== undefined)
+    throw new Error("googleUrl is no longer a setting: Cade doesn't use Google any more. Delete it.");
   const known = ["projects", "timezone", "mcp", "admins", "aiModel", "threadRotationDays"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (PROJECT_SETTINGS.includes(unknown)) {
-    throw new Error(`cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`);
+    throw new Error(
+      `cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`,
+    );
   }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -79,10 +82,15 @@ export function readConfig(json) {
 
   for (const project of list) {
     try {
-      if (project.aiModel !== undefined) throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
+      if (project.aiModel !== undefined)
+        throw new Error("aiModel is set once at the top of the file, for every project, not on a project.");
       // Removed: people pin and unpin by hand, so Cade's pins didn't stay right; the summary canvas lists open tasks.
-      if (project.activeTasksPinning !== undefined) throw new Error("activeTasksPinning is no longer a setting: Cade doesn't pin tasks (the summary canvas lists the open ones). Delete it.");
-      if (project.workDoc !== undefined) throw new Error("workDoc is no longer a setting: Cade doesn't write executive summaries any more. Delete it.");
+      if (project.activeTasksPinning !== undefined)
+        throw new Error(
+          "activeTasksPinning is no longer a setting: Cade doesn't pin tasks (the summary canvas lists the open ones). Delete it.",
+        );
+      if (project.workDoc !== undefined)
+        throw new Error("workDoc is no longer a setting: Cade doesn't write executive summaries any more. Delete it.");
       for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
       throw new Error(`${project.name}'s ${error.message}`);
@@ -95,13 +103,16 @@ export function readConfig(json) {
   // Always set, so taking someone out of the file takes them out of the Worker.
   const admins = config.admins ?? [];
   if (!Array.isArray(admins) || admins.some((id) => !/^[UW][A-Z0-9]{2,}$/.test(String(id)))) {
-    throw new Error("admins is a list of Slack user IDs, such as [\"U0123ABCD\"] (in Slack: click the person, then ⋯ → Copy member ID).");
+    throw new Error(
+      'admins is a list of Slack user IDs, such as ["U0123ABCD"] (in Slack: click the person, then ⋯ → Copy member ID).',
+    );
   }
   secrets.ADMINS = JSON.stringify([...new Set(admins)]);
   // Always set, so taking it out of the file goes back to the default model.
   secrets.AI_MODEL_NAME = config.aiModel === undefined ? "" : checkAiModel(config.aiModel);
   // Always set, so taking it out of the file turns it off.
-  secrets.THREAD_ROTATION_DAYS = config.threadRotationDays === undefined ? "" : checkRotationDays(config.threadRotationDays);
+  secrets.THREAD_ROTATION_DAYS =
+    config.threadRotationDays === undefined ? "" : checkRotationDays(config.threadRotationDays);
   if (config.mcp !== undefined) {
     if (typeof config.mcp !== "boolean") throw new Error("mcp is true or false.");
     // Both are set, so turning it back on replaces an earlier "off".
@@ -134,7 +145,9 @@ function checkSwitch(key, value) {
 // `days` as the secret's text if it's a whole number of days, else throws.
 export function checkRotationDays(days: unknown) {
   if (typeof days === "number" && Number.isInteger(days) && days >= 1) return String(days);
-  throw new Error("threadRotationDays is a whole number of days, such as 80 (Slack's free plan hides messages after 90).");
+  throw new Error(
+    "threadRotationDays is a whole number of days, such as 80 (Slack's free plan hides messages after 90).",
+  );
 }
 
 // `aiModel` if it's a Workers AI text model's name, else throws.
@@ -164,7 +177,10 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskChangeDetection", "newTaskDetection", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskChangeDetection", "newTaskDetection", "summaryCanvas"]
+      .filter((key) => project[key] !== undefined)
+      .map((key) => `, ${key} ${JSON.stringify(project[key])}`)
+      .join("");
     console.log(`${project.name}: channel ${project.channel}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);

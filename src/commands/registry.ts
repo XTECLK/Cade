@@ -55,12 +55,27 @@ import type { Handler, Intent, PayloadHandler } from "../types.ts";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.ts for the shape of `command`.
-const handlers: Handler[] = [track, incident, assign, unassign, status, priority, due, pr, subtask, archive, remove, replace, move, resync, retry, standup];
+const handlers: Handler[] = [
+  track,
+  incident,
+  assign,
+  unassign,
+  status,
+  priority,
+  due,
+  pr,
+  subtask,
+  archive,
+  remove,
+  replace,
+  move,
+  resync,
+  retry,
+  standup,
+];
 
 export const commands: Record<string, Handler> = Object.fromEntries(
-  handlers.flatMap((handler) =>
-    [handler.name, ...(handler.aliases ?? [])].map((name) => [name, handler]),
-  ),
+  handlers.flatMap((handler) => [handler.name, ...(handler.aliases ?? [])].map((name) => [name, handler])),
 );
 
 // An admin command's buttons and forms check, as its command does (see dispatchSlash), that whoever
@@ -79,11 +94,14 @@ function adminsOnly(handlers: Record<string, PayloadHandler> = {}): Record<strin
     ]),
   );
 }
-const guarded = (handler: Handler): Handler => (handler.admin ? { ...handler, actions: adminsOnly(handler.actions), views: adminsOnly(handler.views) } : handler);
+const guarded = (handler: Handler): Handler =>
+  handler.admin ? { ...handler, actions: adminsOnly(handler.actions), views: adminsOnly(handler.views) } : handler;
 
 // The Home tab's Refresh button, the task card's menu, its Edit and Pull requests forms, suggestions from people's
 // own words, and the drafts of what a change asks of people only answer clicks and messages, so they aren't commands.
-const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, prs, suggest, aiSuggest, ask].map(guarded);
+const interactive: Handler[] = [...handlers, home, configure, project, menu, edit, prs, suggest, aiSuggest, ask].map(
+  guarded,
+);
 
 export const views: Record<string, PayloadHandler> = Object.assign(
   {},

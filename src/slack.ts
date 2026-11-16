@@ -23,16 +23,9 @@ export async function verifySlackRequest(request: Request, body: string, signing
     false,
     ["verify"],
   );
-  const expected = new Uint8Array(
-    match[1]!.match(/../g)!.map((byte) => parseInt(byte, 16)),
-  );
+  const expected = new Uint8Array(match[1]!.match(/../g)!.map((byte) => parseInt(byte, 16)));
   // crypto.subtle.verify compares in constant time.
-  return crypto.subtle.verify(
-    "HMAC",
-    key,
-    expected,
-    encoder.encode(`v0:${timestamp}:${body}`),
-  );
+  return crypto.subtle.verify("HMAC", key, expected, encoder.encode(`v0:${timestamp}:${body}`));
 }
 
 // Cade's messages link to other messages, such as "tracked this as a task:
@@ -108,7 +101,11 @@ export type SlackMethod = keyof SlackAnswers;
 
 // Read methods such as conversations.replies do not accept JSON bodies, so
 // every call is form-encoded with object arguments sent as JSON strings.
-export async function callSlack<M extends SlackMethod>(env: Pick<AppEnv, "SLACK_BOT_TOKEN">, method: M, args: Record<string, unknown>): Promise<SlackAnswers[M]> {
+export async function callSlack<M extends SlackMethod>(
+  env: Pick<AppEnv, "SLACK_BOT_TOKEN">,
+  method: M,
+  args: Record<string, unknown>,
+): Promise<SlackAnswers[M]> {
   if (!env.SLACK_BOT_TOKEN) {
     throw new Error("SLACK_BOT_TOKEN is not configured");
   }
@@ -140,10 +137,7 @@ export async function callSlack<M extends SlackMethod>(env: Pick<AppEnv, "SLACK_
 }
 
 export function escapeSlack(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // Answers a slash command after the fact, through the response_url Slack

@@ -15,19 +15,28 @@ import { reachableThread } from "./threads.ts";
 export async function requestApprovalTool(env: AppEnv, user: string, args: SendApprovalRequestArgs) {
   const { channel, ts } = taskRef(args);
   const task = await loadTask(env, channel, ts);
-  if (!task) throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
-  if ((await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
+  if (!task)
+    throw new ToolError("That isn't a task Cade tracks. Use the task's ID from get_tasks, or the link to its message.");
+  if ((await readableName(env, channel, user)) === null)
+    throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
   // One ID in, one out: userIds throws for anything else.
   const [approver] = userIds("approver", [args.approver]) as [string];
   await requireActiveUsers(env, [approver]);
-  if (task.status !== "CLIENT_REVIEW") throw new ToolError(`This task is ${statusName(task.status)}, so there's nothing to approve. Move it to Client review with update_task first.`);
+  if (task.status !== "CLIENT_REVIEW")
+    throw new ToolError(
+      `This task is ${statusName(task.status)}, so there's nothing to approve. Move it to Client review with update_task first.`,
+    );
   // The request in the person's words, when they changed it: checked as any message an agent posts.
   const message = args.message === undefined ? undefined : String(args.message).trim();
   if (message !== undefined) {
     if (!message) throw new ToolError("The message is empty: leave it out for the usual request.");
-    if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
+    if (message.length > MAX_MESSAGE)
+      throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
     refuseSecrets(message, "The message");
-    await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
+    await requireActiveUsers(
+      env,
+      [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!),
+    );
   }
   // The usual request sent as it is (update_task's suggested_message) is posted as Slack's form posts it.
   const request = message && !usualRequest(message, task.prs) ? withLinks(plainMessage(message)) : undefined;
@@ -49,7 +58,10 @@ function plainMessage(text: string) {
 // A plainMessage with its links kept as links, <https://…|label>, such as an approval request's pull
 // requests (see approvalRequest in commands/status.ts).
 function withLinks(text: string) {
-  return text.replace(/&lt;(https?:\/\/[^\s|<>]+?)(\|[^<>\n]*?)?&gt;/g, (_, url: string, label = "") => `<${url.replace(/&amp;/g, "&")}${label}>`);
+  return text.replace(
+    /&lt;(https?:\/\/[^\s|<>]+?)(\|[^<>\n]*?)?&gt;/g,
+    (_, url: string, label = "") => `<${url.replace(/&amp;/g, "&")}${label}>`,
+  );
 }
 
 // Posts the person's message in a thread, as Cade, led by who sent it and ending with the "Sent
@@ -59,16 +71,30 @@ export async function sendThreadMessage(env: AppEnv, user: string, args: SendThr
   if (args.thread_id !== undefined && args.link !== undefined) throw new ToolError("Give thread_id or link, not both.");
   const { channel, ts } = args.thread_id !== undefined ? threadIdOf(args.thread_id) : threadOf(args.link);
   const task = await loadTask(env, channel, ts);
-  if (task && (await readableName(env, channel, user)) === null) throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
+  if (task && (await readableName(env, channel, user)) === null)
+    throw new ToolError("You aren't in that task's project channel, so I can't post there for you.");
   const message = String(args.text ?? "").trim();
   if (!message) throw new ToolError("The message is empty.");
-  if (message.length > MAX_MESSAGE) throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
+  if (message.length > MAX_MESSAGE)
+    throw new ToolError(`The message is ${message.length} characters; keep it to ${MAX_MESSAGE} or fewer.`);
   refuseSecrets(message, "The message");
-  await requireActiveUsers(env, [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!));
+  await requireActiveUsers(
+    env,
+    [...message.matchAll(/<@([UW][A-Z0-9]{2,})>/g)].map((match) => match[1]!),
+  );
   if (!task) await reachableThread(env, user, channel, ts);
   const body = plainMessage(message);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...viaAgent(sentBy(await nameOf(env, user), body)) });
-  console.log(task ? "Task message sent" : "Thread message sent", { channel, ts, by: user, characters: message.length });
+  await callSlack(env, "chat.postMessage", {
+    channel,
+    thread_ts: ts,
+    ...viaAgent(sentBy(await nameOf(env, user), body)),
+  });
+  console.log(task ? "Task message sent" : "Thread message sent", {
+    channel,
+    ts,
+    by: user,
+    characters: message.length,
+  });
   // The person is told where it was posted, so a thread named by its ID gets a link too.
   const link = (task ? task.link : args.link) || (await linkToThread(env, channel, ts));
   return {
